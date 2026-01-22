@@ -1,0 +1,88 @@
+services:
+  # Redis Cache (Required for optimizations)
+  redis:
+    image: redis:7-alpine
+    container_name: graphrag-redis-optimized
+    ports:
+      - "6381:6379" # Using 6381 to avoid conflicts
+    volumes:
+      - redis_optimized_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - graphrag-optimized
+
+  # Optimized GraphRAG API
+  graphrag-optimized:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: graphrag-api-optimized
+    ports:
+      - "8002:8001" # Using 8002 to avoid conflicts with existing API
+    environment:
+      # Redis Configuration
+      - REDIS_URL=redis://redis:6379
+      - ENABLE_CACHE=true
+      - CACHE_TTL=3600
+
+      # Qdrant Configuration (REQUIRED)
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-graphrag_chunks}
+
+      # Neo4j Configuration (Optional - for graph features)
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+
+      # LLM Configuration (REQUIRED)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+
+      # Optional: Fallback model and timeouts
+      - OPENAI_FALLBACK_MODEL=${OPENAI_FALLBACK_MODEL}
+      - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-25}
+      - LLM_MAX_OUTPUT_TOKENS=${LLM_MAX_OUTPUT_TOKENS:-4000}
+
+      # BGE-M3 Embedding Service
+      - BGE_M3_SERVICE_URL=${BGE_M3_SERVICE_URL}
+      - BGE_M3_API_KEY=${BGE_M3_API_KEY}
+
+      # API Security
+      - API_KEY=${API_KEY}
+
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - graphrag-optimized
+    labels:
+      - "coolify.managed=true"
+      - "coolify.name=GraphRAG Optimized API"
+      - "coolify.fqdn=rag-optimized.api.blaiq.ai"
+      - "coolify.port=8001"
+      - "coolify.type=application"
+
+networks:
+  graphrag-optimized:
+    driver: bridge
+
+volumes:
+  redis_optimized_data:

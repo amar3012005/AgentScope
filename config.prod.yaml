@@ -1,0 +1,151 @@
+# config.prod.yaml
+# ============================================================
+# GRAPHRAG PIPELINE CONFIGURATION - PRODUCTION (DOCKER)
+# ============================================================
+# Core: Document Processing → Chunking → Vector DB → Retrieval
+# Embeddings: Amazon Bedrock Titan (configured via environment variables)
+# LLM: OpenAI GPT (for answer generation)
+# Entity Extraction & Neo4j: Optional/Disabled by default
+# ============================================================
+
+# ============================================================
+# PIPELINE ORCHESTRATION
+# ============================================================
+pipeline:
+  # Core steps (always needed)
+  process_chunks: true
+  process_vectordb: true
+  
+  # Optional steps (disabled for speed)
+  process_entities: false
+  process_linking: false
+  process_neo4j: false
+
+# ============================================================
+# FOLDER STRUCTURE (Docker Volume Paths)
+# ============================================================
+folders:
+  raw_docs: "data/"
+  step1_texts: "data/_pipeline/step1_processed/texts/"
+  step1_metadata: "data/_pipeline/step1_processed/metadata/"
+  step1_performance: "data/_pipeline/step1_processed/performance/"
+  step2_entities: "data/_pipeline/step2_entities/"
+  step3_chunks: "data/_pipeline/step3_chunks/chunks/"
+  step3_performance: "data/_pipeline/step3_chunks/performance/"
+  step5_linked_entities: "data/_pipeline/step5_linked/entities/"
+  step5_enhanced_chunks: "data/_pipeline/step5_linked/chunks/"
+
+# ============================================================
+# SCHEMA CONFIGURATION
+# ============================================================
+schema:
+  schema_dir: "schemas"
+  
+  # Embedding model for schema normalization
+  normalization_embedding:
+    enabled: true
+    model: "bge-m3"
+
+# ============================================================
+# STEP 1: DOCUMENT PROCESSING
+# ============================================================
+document_processing:
+  output_dir: "data/_pipeline/step1_processed"
+  preserve_filenames: true
+  force_reprocess: false
+  max_files: null
+  
+  supported_formats:
+    - ".pdf"
+    - ".docx"
+    - ".pptx"
+    - ".xlsx"
+    - ".txt"
+    - ".md"
+  
+  enable_ocr: false
+  quality_threshold: 0.5
+  
+  performance:
+    track_performance: true
+    save_performance_data: false
+    log_warnings: true
+
+# ============================================================
+# STEP 2: ENTITY EXTRACTION (OpenAI GPT)
+# ============================================================
+entity_extraction:
+  # General settings
+  chunk_size: 4000
+  cache_enabled: true
+  clear_cache_between_docs: false
+  debug_mode: false
+  max_workers: 1
+
+  # OpenAI Configuration (from environment variables)
+  openai:
+    temperature: 0.5
+    max_tokens: 1500
+
+  # Legacy Bedrock config (kept for compatibility)
+  bedrock:
+    temperature: 0.5
+    max_tokens: 1500
+
+# ============================================================
+# STEP 3: SEMANTIC CHUNKING (Amazon Bedrock Titan)
+# ============================================================
+semantic_chunking:
+  method: "semantic_embedding"
+  chunk_size: 1000
+  chunk_overlap: 200
+  output_dir: "data/_pipeline/step3_chunks"
+  preprocess_text: false
+  
+  # Simple mode (no embeddings, fallback)
+  simple_mode:
+    chunk_size: 1000
+    chunk_overlap: 200
+    respect_sentences: true
+  
+  # Semantic embedding mode (uses Amazon Bedrock Titan)
+  semantic_embedding_mode:
+    target_chunk_size: 1000
+    chunk_overlap: 200
+    buffer_size: 2
+    breakpoint_percentile: 85
+    embedding_delay: 0.0
+    
+    embedding:
+      provider: "bge-m3"
+      dimension: 1024
+      batch_size: 32
+      normalize: true
+
+# ============================================================
+# STEP 4: VECTOR DATABASE (Qdrant - External)
+# ============================================================
+qdrant:
+  url: "${QDRANT_URL}"
+  collection_name: "graphrag_chunks"
+  distance: "cosine"
+
+# ============================================================
+# STEP 6: NEO4J GRAPH DATABASE (External - Optional)
+# ============================================================
+neo4j:
+  uri: "${NEO4J_URI}"
+  user: "${NEO4J_USER}"
+  password_env: "${NEO4J_PASSWORD}"
+
+# ============================================================
+# PERFORMANCE SETTINGS
+# ============================================================
+performance:
+  track_performance: true
+  save_performance_data: false
+  log_warnings: true
+  linking_max_workers: 6
+  neo4j_max_retries: 3
+  neo4j_batch_size: 50
+  neo4j_max_workers: 1

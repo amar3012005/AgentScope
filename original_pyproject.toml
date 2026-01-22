@@ -1,0 +1,56 @@
+[project]
+name = "BLAIQ-RAG"
+version = "1.0.0"
+description = "A Graph-Enhanced Retrieval-Augmented Generation (RAG) system leveraging LangChain, Neo4j, and Qdrant for advanced document processing and semantic search."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.40.49",
+    "camelot-py[cv]>=0.11.0",
+    "colorama>=0.4.6",
+    "docling>=2.55.1",
+    "dynaconf>=3.2.11",
+    "fastapi>=0.118.3",
+    "ipykernel>=6.30.1",
+    "langchain>=0.3.27",
+    "langchain-anthropic>=0.3.20",
+    "langchain-aws>=0.2.35",
+    "langchain-community>=0.3.29",
+    "langchain-neo4j>=0.5.0",
+    "langchain-openai>=0.3.32",
+    "langchain-text-splitters>=0.3.9",
+    "layoutparser>=0.3.4",
+    "markitdown>=0.1.3",
+    "neo4j>=5.28.2",
+    "ollama>=0.5.3",
+    "openpyxl>=3.1.5",
+    "pdfminer-six>=20250506",
+    "pdfplumber>=0.11.7",
+    "pikepdf>=9.11.0",
+    "pillow>=11.3.0",
+    "pip>=25.2",
+    "pipreqs>=0.5.0",
+    "psutil>=7.0.0",
+    "pydantic>=2.11.7",
+    "pymupdf>=1.26.3",
+    "pymupdf4llm>=0.0.27",
+    "pypdf>=6.0.0",
+    "pypdf2>=3.0.1",
+    "pytesseract>=0.3.13",
+    "python-docx>=1.2.0",
+    "python-dotenv>=1.1.1",
+    "python-multipart>=0.0.20",
+    "python-pptx>=1.0.2",
+    "qdrant-client>=1.15.1",
+    "rapidfuzz>=3.14.1",
+    "requests>=2.32.5",
+    "sentence-transformers>=5.1.0",
+    "tiktoken>=0.11.0",
+    "uvicorn>=0.37.0",
+]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/utils", "src/pipeline", "src/retriever"]

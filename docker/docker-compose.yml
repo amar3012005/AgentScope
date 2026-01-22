@@ -1,0 +1,90 @@
+# docker/docker-compose.yml
+
+version: '3.8'
+
+services:
+    pipeline-api:
+        platform: linux/amd64
+        build:
+            context: ..
+            dockerfile: docker/pipeline/Dockerfile
+        image: graphrag-pipeline:${VERSION:-latest}
+        container_name: graphrag-pipeline
+        restart: unless-stopped
+        ports:
+            - "8004:8000"
+        volumes:
+            - pipeline_data:/app/data
+            - pipeline_jobs:/app/_jobs
+        environment:
+            - CONFIG_FILE=/app/config.yaml
+            - API_KEY=${API_KEY}
+            - OPENAI_API_KEY=${OPENAI_API_KEY}
+            - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+            - QDRANT_URL=${QDRANT_URL}
+            - QDRANT_API_KEY=${QDRANT_API_KEY}
+            - QDRANT_PORT=${QDRANT_PORT:-443}
+            - NEO4J_URI=${NEO4J_URI:-bolt://your-neo4j-server.com:7687}
+            - NEO4J_USER=${NEO4J_USER:-neo4j}
+            - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+            - BGE_M3_API_KEY=${BGE_M3_API_KEY}
+            - BGE_M3_SERVICE_URL=${BGE_M3_SERVICE_URL}
+            - BGE_M3_MODEL_ID=${BGE_M3_MODEL_ID}
+        networks:
+            - graphrag-network
+        healthcheck:
+            test: [ "CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/')" ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+
+    retriever-api:
+        platform: linux/amd64
+        build:
+            context: ..
+            dockerfile: docker/retriever/Dockerfile
+        image: graphrag-retriever:${VERSION:-latest}
+        container_name: graphrag-retriever
+        restart: unless-stopped
+        ports:
+            - "8005:8001"
+        volumes:
+            - retriever_jobs:/app/_jobs
+        environment:
+            - CONFIG_FILE=/app/config.yaml
+            - API_KEY=${API_KEY}
+            - OPENAI_API_KEY=${OPENAI_API_KEY}
+            - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+            - QDRANT_URL=${QDRANT_URL}
+            - QDRANT_API_KEY=${QDRANT_API_KEY}
+            - QDRANT_HOST=${QDRANT_HOST:-}
+            - QDRANT_PORT=${QDRANT_PORT:-443}
+            - NEO4J_URI=${NEO4J_URI}
+            - NEO4J_USER=${NEO4J_USER:-neo4j}
+            - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+            - BGE_M3_API_KEY=${BGE_M3_API_KEY}
+            - BGE_M3_SERVICE_URL=${BGE_M3_SERVICE_URL}
+            - BGE_M3_MODEL_ID=${BGE_M3_MODEL_ID}
+        depends_on:
+            - pipeline-api
+        networks:
+            - graphrag-network
+        healthcheck:
+            test: [ "CMD", "python", "-c", "import requests; requests.get('http://localhost:8001/')" ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+
+networks:
+    graphrag-network:
+        driver: bridge
+
+volumes:
+    pipeline_data:
+        driver: local
+    pipeline_jobs:
+        driver: local
+    retriever_jobs:
+        driver: local

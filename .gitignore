@@ -1,0 +1,28 @@
+# .gitignore
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+data/
+db/
+models/
+src/test
+src/_jobs/
+depricated/
+_jobs/
+tests/
+# Virtual environments
+.venv
+.env
+docker_compose_local_yml_asdasd.txt
+manual.txt
+schemas/verwaltung_schema/relationship_types.json
+schemas/verwaltung_schema/entity_types.json
+schemas/relationship_types.json
+schemas/entity_types.json
+schemas/entity_types.json
+schemas/relationship_types.json

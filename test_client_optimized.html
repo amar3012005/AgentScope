@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GraphRAG Optimized Tester</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --container-bg: #161b22;
+            --border-color: #30363d;
+            --text-color: #c9d1d9;
+            --primary: #2f81f7;
+            --success: #2ea043;
+            --error: #f85149;
+            --metric-bg: #21262d;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+        }
+
+        .card {
+            background: var(--container-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        h1,
+        h2,
+        h3 {
+            margin-top: 0;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 8px 12px;
+            background: #000;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-color);
+            box-sizing: border-box;
+        }
+
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+            width: 100%;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .metric-card {
+            background: var(--metric-bg);
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+        }
+
+        .metric-val {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: #8b949e;
+        }
+
+        pre {
+            background: #000;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            font-size: 14px;
+        }
+
+        .success {
+            color: var(--success);
+        }
+
+        .error {
+            color: var(--error);
+        }
+
+        .timing-bar {
+            height: 8px;
+            background: var(--border-color);
+            border-radius: 4px;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+
+        .timing-fill {
+            height: 100%;
+            background: var(--primary);
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .badge-cache {
+            background: #1f6feb;
+            color: white;
+        }
+
+        .badge-miss {
+            background: #da3633;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h1>GraphRAG Optimized</h1>
+                <div style="color: #8b949e;">Status: <span id="status">Checking...</span></div>
+            </div>
+            <div style="text-align: right;">
+                <button onclick="checkHealth()" style="width: auto; padding: 5px 15px; background: #238636;">Check
+                    Connection</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="input-group">
+                <label>API Key</label>
+                <input type="password" id="apiKey" placeholder="Enter API Key from .env..." value="">
+            </div>
+            <div class="input-group">
+                <label>Query</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="queryInput" placeholder="Ask a question..."
+                        value="What are the key tourism strategies?">
+                    <input type="number" id="kInput" value="20" style="width: 80px;" title="Top K">
+                </div>
+            </div>
+            <div class="input-group">
+                <label style="display:flex; align-items:center; gap: 10px;">
+                    <input type="checkbox" id="useCache" checked style="width: auto;">
+                    Enable Redis Cache
+                </label>
+            </div>
+            <button onclick="sendQuery()" id="sendBtn">Run Query 🚀</button>
+        </div>
+
+        <div id="resultsArea" style="display: none;">
+            <!-- Metrics -->
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-val" id="totalTime">0ms</div>
+                    <div class="metric-label">Total Time</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-val" id="cacheStatus">-</div>
+                    <div class="metric-label">Cache Status</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-val" id="retrievalTime">0ms</div>
+                    <div class="metric-label">Retrieval Time</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-val" id="chunksCount">0</div>
+                    <div class="metric-label">Chunks</div>
+                </div>
+            </div>
+
+            <!-- Answer -->
+            <div class="card">
+                <h3>Answer</h3>
+                <div id="answerText" style="line-height: 1.6;"></div>
+            </div>
+
+            <!-- Detailed Stats -->
+            <div class="card">
+                <h3 style="cursor: pointer;"
+                    onclick="document.getElementById('debugDetails').style.display = document.getElementById('debugDetails').style.display === 'none' ? 'block' : 'none'">
+                    Show Debug Details ▾
+                </h3>
+                <pre id="debugDetails" style="display: none;"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:8002";
+
+        async function checkHealth() {
+            const statusEl = document.getElementById('status');
+            statusEl.innerText = "Checking...";
+            statusEl.className = "";
+
+            try {
+                const res = await fetch(API_URL + "/");
+                if (res.ok) {
+                    const data = await res.json();
+                    statusEl.innerHTML = `<span class="success">● Online (v${data.version})</span>`;
+                } else {
+                    statusEl.innerHTML = `<span class="error">● Error ${res.status}</span>`;
+                }
+            } catch (e) {
+                statusEl.innerHTML = `<span class="error">● Offline (${e.message})</span>`;
+            }
+        }
+
+        async function sendQuery() {
+            const query = document.getElementById('queryInput').value;
+            const k = parseInt(document.getElementById('kInput').value);
+            const apiKey = document.getElementById('apiKey').value;
+            const useCache = document.getElementById('useCache').checked;
+            const btn = document.getElementById('sendBtn');
+
+            if (!query) return alert("Please enter a query");
+
+            btn.disabled = true;
+            btn.innerText = "Running...";
+            document.getElementById('resultsArea').style.display = 'none';
+
+            try {
+                const start = performance.now();
+                const res = await fetch(API_URL + "/query/graphrag", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-API-Key": apiKey
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        k: k,
+                        use_cache: useCache
+                    })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) throw new Error(data.detail || "Query failed");
+
+                // Update UI
+                document.getElementById('resultsArea').style.display = 'block';
+
+                // Metrics
+                const totalT = (data.total_time * 1000).toFixed(0);
+                const retrT = (data.retrieval_time * 1000).toFixed(0);
+
+                document.getElementById('totalTime').innerText = `${totalT}ms`;
+                document.getElementById('retrievalTime').innerText = `${retrT}ms`;
+                document.getElementById('chunksCount').innerText = data.chunks_retrieved;
+
+                const cacheEl = document.getElementById('cacheStatus');
+                if (data.cached) {
+                    cacheEl.innerHTML = '<span class="badge badge-cache">HIT</span>';
+                    document.getElementById('retrievalTime').innerText = "0ms";
+                } else {
+                    cacheEl.innerHTML = '<span class="badge badge-miss">MISS</span>';
+                }
+
+                // Answer
+                document.getElementById('answerText').innerText = data.answer || "No answer generated (retrieval only)";
+
+                // Debug
+                document.getElementById('debugDetails').innerText = JSON.stringify(data, null, 2);
+
+            } catch (e) {
+                alert("Error: " + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Run Query 🚀";
+            }
+        }
+
+        // Check health on load
+        checkHealth();
+    </script>
+
+</body>
+
+</html>

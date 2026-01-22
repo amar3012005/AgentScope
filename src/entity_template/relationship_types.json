@@ -1,0 +1,230 @@
+{
+  "ARBEITET_FUER": {
+    "description": "Beschäftigungs- oder Zugehörigkeitsbeziehung",
+    "source_types": ["PERSON"],
+    "target_types": ["ORGANISATION"],
+    "examples": [
+      "Hans arbeitet für Siemens",
+      "Geschäftsführer von Firma XYZ",
+      "Angestellt bei der Behörde",
+      "Mitarbeiter der IT-Abteilung",
+      "Berater für das Unternehmen"
+    ]
+  },
+  "HAT_ROLLE": {
+    "description": "Person hat eine bestimmte Funktion oder Position",
+    "source_types": ["PERSON"],
+    "target_types": ["ROLLE"],
+    "examples": [
+      "Maria ist Projektleiterin",
+      "Thomas fungiert als Berater",
+      "Anna in der Rolle des Teamleiters",
+      "Peter als Verantwortlicher",
+      "Zuständig als Prüfer"
+    ]
+  },
+  "BEFINDET_SICH_IN": {
+    "description": "Physische oder logische Ortsbeziehung",
+    "source_types": ["PERSON", "ORGANISATION", "OBJEKT", "EVENT"],
+    "target_types": ["ORT"],
+    "examples": [
+      "Büro in Berlin",
+      "Unternehmen in München",
+      "Konferenz in Hamburg",
+      "Niederlassung in Frankfurt",
+      "Standort in Europa"
+    ]
+  },
+  "GEHOERT_ZU": {
+    "description": "Zugehörigkeit von Objekten zu Organisationen oder Orten",
+    "source_types": ["OBJEKT"],
+    "target_types": ["ORGANISATION", "ORT"],
+    "examples": [
+      "Server gehört zur IT-Abteilung",
+      "Fahrzeug der Firma",
+      "Anlage am Standort Berlin",
+      "Gebäude des Unternehmens",
+      "Geräte der Produktion"
+    ]
+  },
+  "ERWAEHNT": {
+    "description": "Dokument erwähnt oder referenziert Entität",
+    "source_types": ["DOKUMENT"],
+    "target_types": ["PERSON", "ORGANISATION", "KONZEPT", "PROJEKT", "EVENT", "STELLE", "OBJEKT"],
+    "examples": [
+      "Bericht erwähnt KI-Strategie",
+      "Vertrag nennt Lieferanten",
+      "Protokoll referenziert Projekt",
+      "Dokumentation beschreibt System",
+      "Richtlinie definiert Prozess"
+    ]
+  },
+  "NIMMT_TEIL_AN": {
+    "description": "Teilnahme an Ereignissen, Projekten oder Prozessen",
+    "source_types": ["PERSON", "ORGANISATION"],
+    "target_types": ["EVENT", "PROJEKT"],
+    "examples": [
+      "Teilnahme an Konferenz",
+      "Beteiligung am Projekt",
+      "Mitwirkung beim Workshop",
+      "Partner im Programm",
+      "Involviert in Initiative"
+    ]
+  },
+  "VERWALTET": {
+    "description": "Management- oder Verantwortungsbeziehung",
+    "source_types": ["PERSON", "ORGANISATION"],
+    "target_types": ["ORGANISATION", "PROJEKT", "OBJEKT", "SERVICE"],
+    "examples": [
+      "Leitet die Abteilung",
+      "Verantwortlich für Projekt",
+      "Managt das Team",
+      "Betreut den Service",
+      "Führt die Niederlassung"
+    ]
+  },
+  "BEZIEHT_SICH_AUF": {
+    "description": "Allgemeine semantische Beziehung oder Referenz",
+    "source_types": ["*"],
+    "target_types": ["*"],
+    "examples": [
+      "Verbunden mit",
+      "Steht im Zusammenhang mit",
+      "Bezieht sich auf",
+      "Referenziert",
+      "Thematisch verknüpft"
+    ]
+  },
+  "FINDET_STATT_AM": {
+    "description": "Zeitliche Einordnung von Ereignissen",
+    "source_types": ["EVENT"],
+    "target_types": ["ZEIT"],
+    "examples": [
+      "Meeting am Montag",
+      "Deadline im Q2",
+      "Konferenz im März",
+      "Go-Live Ende 2024",
+      "Workshop in KW 15"
+    ]
+  },
+  "HAT_ZEITRAUM": {
+    "description": "Zeitliche Dauer oder Laufzeit",
+    "source_types": ["PROJEKT", "DOKUMENT", "STELLE"],
+    "target_types": ["ZEIT"],
+    "examples": [
+      "Projekt läuft bis Q4",
+      "Vertrag gültig 2 Jahre",
+      "Position ab sofort",
+      "Befristet bis Dezember",
+      "Laufzeit 12 Monate"
+    ]
+  },
+  "KOSTET": {
+    "description": "Finanzielle Beziehung - Kosten, Budget, Investition",
+    "source_types": ["PROJEKT", "EVENT", "OBJEKT", "SERVICE"],
+    "target_types": ["FINANZIELL"],
+    "examples": [
+      "Projekt kostet 1 Mio Euro",
+      "Budget von 500.000€",
+      "Investition über 2 Mio",
+      "Service für 10.000€ monatlich",
+      "Veranstaltung mit 25.000€ Budget"
+    ]
+  },
+  "ERZIELT": {
+    "description": "Erreichen von Ergebnissen, Umsatz, Gewinn",
+    "source_types": ["ORGANISATION", "PROJEKT"],
+    "target_types": ["FINANZIELL", "KENNZAHL"],
+    "examples": [
+      "Unternehmen erzielt 10 Mio Umsatz",
+      "Projekt spart 500.000€",
+      "Erreicht 25% Wachstum",
+      "Generiert 1 Mio Gewinn",
+      "Steigert Effizienz um 30%"
+    ]
+  },
+  "HAT_KENNZAHL": {
+    "description": "Zuordnung von Metriken und KPIs",
+    "source_types": ["ORGANISATION", "PROJEKT", "SERVICE"],
+    "target_types": ["KENNZAHL"],
+    "examples": [
+      "Unternehmen hat 500 Mitarbeiter",
+      "Service mit 99% Verfügbarkeit",
+      "Projekt erreicht NPS 72",
+      "Team von 15 Personen",
+      "Fehlerquote unter 1%"
+    ]
+  },
+  "NUTZT": {
+    "description": "Verwendung von Objekten, Technologien, Services",
+    "source_types": ["PERSON", "ORGANISATION", "PROJEKT"],
+    "target_types": ["OBJEKT", "KONZEPT", "SERVICE"],
+    "examples": [
+      "Firma nutzt Cloud-Service",
+      "Projekt verwendet KI",
+      "Team arbeitet mit Scrum",
+      "Einsatz von Machine Learning",
+      "Nutzung der Plattform"
+    ]
+  },
+  "BIETET_AN": {
+    "description": "Angebot von Stellen, Services oder Produkten",
+    "source_types": ["ORGANISATION"],
+    "target_types": ["STELLE", "SERVICE"],
+    "examples": [
+      "Firma bietet Developer Position",
+      "Unternehmen sucht Projektmanager",
+      "Anbieter liefert Cloud-Service",
+      "Offene Stelle im Vertrieb",
+      "Service im Portfolio"
+    ]
+  },
+  "BEWIRBT_SICH_AUF": {
+    "description": "Bewerbung auf Stellenangebote",
+    "source_types": ["PERSON"],
+    "target_types": ["STELLE"],
+    "examples": [
+      "Kandidat bewirbt sich als Entwickler",
+      "Bewerbung für Manager Position",
+      "Interesse an Praktikumsplatz",
+      "Kandidatur für Senior Role",
+      "Bewerbung auf Trainee-Stelle"
+    ]
+  },
+  "ERFORDERT": {
+    "description": "Anforderungen, Voraussetzungen, Abhängigkeiten",
+    "source_types": ["STELLE", "PROJEKT", "KONZEPT"],
+    "target_types": ["KONZEPT", "ROLLE", "KENNZAHL"],
+    "examples": [
+      "Position erfordert Java-Kenntnisse",
+      "Benötigt 5 Jahre Erfahrung",
+      "Projekt braucht KI-Expertise",
+      "Voraussetzung Projektmanagement",
+      "Erfordert Zertifizierung"
+    ]
+  },
+  "TEIL_VON": {
+    "description": "Hierarchische Zugehörigkeit, Unterordnung",
+    "source_types": ["ORGANISATION", "OBJEKT", "PROJEKT"],
+    "target_types": ["ORGANISATION", "PROJEKT"],
+    "examples": [
+      "Abteilung Teil des Unternehmens",
+      "Modul gehört zum System",
+      "Teilprojekt im Programm",
+      "Team in der Division",
+      "Komponente des Produkts"
+    ]
+  },
+  "LIEFERT": {
+    "description": "Lieferung, Bereitstellung, Output",
+    "source_types": ["ORGANISATION", "PROJEKT", "SERVICE"],
+    "target_types": ["OBJEKT", "SERVICE", "DOKUMENT"],
+    "examples": [
+      "Lieferant stellt Material bereit",
+      "Projekt liefert Prototyp",
+      "Service erstellt Report",
+      "Abteilung produziert Bericht",
+      "System generiert Daten"
+    ]
+  }
+}

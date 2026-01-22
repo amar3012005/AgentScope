@@ -1,0 +1,324 @@
+{
+  "PERSON": {
+    "description": "Konkrete Personennamen, echte Individuen mit Vor- und/oder Nachnamen",
+    "examples": [
+      "Maria Müller",
+      "Dr. Thomas Weber",
+      "Prof. Anna Schmidt",
+      "Hans-Peter Schulze",
+      "Michael Bauer",
+      "Sarah Johnson",
+      "François Dubois",
+      "Yuki Tanaka"
+    ],
+    "aliases": [
+      "Individuum",
+      "Person",
+      "Name",
+      "Mensch"
+    ]
+  },
+  "ROLLE": {
+    "description": "Berufliche Positionen, Funktionen, Titel, Ämter - keine konkreten Personen",
+    "examples": [
+      "Vorstand",
+      "Geschäftsführer",
+      "Teamleiter",
+      "Projektmanager",
+      "Kunde",
+      "Lieferant",
+      "Berater",
+      "Prüfer",
+      "Entwickler",
+      "Analyst",
+      "Sachbearbeiter",
+      "Abteilungsleiter"
+    ],
+    "aliases": [
+      "Position",
+      "Funktion",
+      "Amt",
+      "Titel",
+      "Posten",
+      "Verantwortlicher"
+    ]
+  },
+  "ORGANISATION": {
+    "description": "Unternehmen, Institute, Behörden, Vereine, Abteilungen, Teams",
+    "examples": [
+      "Siemens AG",
+      "Fraunhofer Institut",
+      "Bundesministerium für Wirtschaft",
+      "IT-Abteilung",
+      "Personalabteilung",
+      "Vertriebsteam",
+      "TÜV Rheinland",
+      "Deutsche Bahn",
+      "Handwerkskammer",
+      "Startup XYZ GmbH"
+    ],
+    "aliases": [
+      "Institution",
+      "Unternehmen",
+      "Firma",
+      "Gesellschaft",
+      "Verein",
+      "Abteilung",
+      "Team",
+      "Behörde",
+      "Amt"
+    ]
+  },
+  "ORT": {
+    "description": "Geografische Orte: Städte, Länder, Regionen, Adressen, Straßen - keine Gebäude oder Räume",
+    "examples": [
+      "Berlin",
+      "München",
+      "Hauptstraße 123",
+      "Bayern",
+      "Deutschland",
+      "Europa",
+      "Industriegebiet Nord",
+      "Bahnhofsviertel",
+      "Marktplatz",
+      "Silicon Valley"
+    ],
+    "aliases": [
+      "Adresse",
+      "Standort",
+      "Lokation",
+      "Stadt",
+      "Region",
+      "Land",
+      "Straße"
+    ]
+  },
+  "OBJEKT": {
+    "description": "Physische Gegenstände, Gebäude, Räume, Anlagen, Geräte, Fahrzeuge, Produkte",
+    "examples": [
+      "Bürogebäude A",
+      "Konferenzraum 3",
+      "Server-Rack",
+      "Produktionsanlage",
+      "Firmenfahrzeug",
+      "Laptop",
+      "Maschine M-500",
+      "Lagerhaus",
+      "Prototyp V2",
+      "Werkzeug"
+    ],
+    "aliases": [
+      "Gegenstand",
+      "Gerät",
+      "Anlage",
+      "Gebäude",
+      "Raum",
+      "Fahrzeug",
+      "Produkt",
+      "Asset"
+    ]
+  },
+  "DOKUMENT": {
+    "description": "Schriftstücke, Verträge, Berichte, Formulare, Bescheide, Richtlinien",
+    "examples": [
+      "Arbeitsvertrag",
+      "Jahresbericht 2024",
+      "Projektplan",
+      "Technische Dokumentation",
+      "Rechnung",
+      "Angebot",
+      "Protokoll",
+      "Richtlinie",
+      "Zertifikat",
+      "Spezifikation"
+    ],
+    "aliases": [
+      "Vertrag",
+      "Schreiben",
+      "Protokoll",
+      "Bericht",
+      "Unterlage",
+      "Formular",
+      "Akte",
+      "Policy"
+    ]
+  },
+  "KONZEPT": {
+    "description": "Abstrakte Ideen, Strategien, Methoden, Technologien, Fachbegriffe",
+    "examples": [
+      "Digitalisierung",
+      "Künstliche Intelligenz",
+      "Agile Methodik",
+      "Nachhaltigkeit",
+      "Qualitätsmanagement",
+      "Datenschutz",
+      "Cloud Computing",
+      "Lean Production",
+      "Machine Learning",
+      "DevOps"
+    ],
+    "aliases": [
+      "Strategie",
+      "Methode",
+      "Technologie",
+      "Prinzip",
+      "Ansatz",
+      "Framework",
+      "Thema"
+    ]
+  },
+  "PROJEKT": {
+    "description": "Konkrete Projekte, Initiativen, Programme, Vorhaben mit Namen oder Bezeichnung",
+    "examples": [
+      "Projekt Apollo",
+      "Digitalisierungsinitiative 2025",
+      "ERP-Migration",
+      "Restrukturierungsprogramm",
+      "Pilotprojekt KI",
+      "Expansion Asien",
+      "IT-Modernisierung",
+      "Produktlaunch Q3"
+    ],
+    "aliases": [
+      "Initiative",
+      "Programm",
+      "Vorhaben",
+      "Maßnahme",
+      "Kampagne"
+    ]
+  },
+  "EVENT": {
+    "description": "Termine, Veranstaltungen, Ereignisse, Sitzungen, Meilensteine",
+    "examples": [
+      "Jahreshauptversammlung",
+      "Kick-off Meeting",
+      "Messe Hannover",
+      "Workshop",
+      "Produktlaunch",
+      "Audit",
+      "Go-Live",
+      "Schulung",
+      "Konferenz",
+      "Review-Meeting"
+    ],
+    "aliases": [
+      "Termin",
+      "Veranstaltung",
+      "Treffen",
+      "Sitzung",
+      "Meeting",
+      "Meilenstein"
+    ]
+  },
+  "ZEIT": {
+    "description": "Zeitangaben, Zeiträume, Fristen, Termine, Perioden",
+    "examples": [
+      "31. Dezember 2024",
+      "Q1 2025",
+      "Geschäftsjahr 2024",
+      "Deadline 15.03.",
+      "Kalenderwoche 12",
+      "Frist 30 Tage",
+      "Laufzeit 2 Jahre",
+      "März bis Juni",
+      "Quartal",
+      "Jahresende"
+    ],
+    "aliases": [
+      "Datum",
+      "Frist",
+      "Zeitraum",
+      "Deadline",
+      "Laufzeit",
+      "Periode",
+      "Stichtag"
+    ]
+  },
+  "FINANZIELL": {
+    "description": "Geldbeträge, Kosten, Preise, Budgets, finanzielle Kennzahlen",
+    "examples": [
+      "500.000 Euro Budget",
+      "1,2 Mio. Umsatz",
+      "15% Marge",
+      "Investition 2 Mio.",
+      "Einsparung 100.000€",
+      "Stundensatz 150€",
+      "ROI 25%",
+      "Kostenrahmen",
+      "Gewinn Q3"
+    ],
+    "aliases": [
+      "Kosten",
+      "Preis",
+      "Betrag",
+      "Budget",
+      "Umsatz",
+      "Gewinn",
+      "Investition"
+    ]
+  },
+  "KENNZAHL": {
+    "description": "Quantifizierbare Metriken, KPIs, Statistiken, Messgrößen - keine Geldbeträge",
+    "examples": [
+      "500 Mitarbeiter",
+      "98% Verfügbarkeit",
+      "NPS Score 72",
+      "50.000 Kunden",
+      "Durchlaufzeit 3 Tage",
+      "Fehlerquote 0,5%",
+      "150 Standorte",
+      "Wachstum 12%",
+      "Auslastung 85%"
+    ],
+    "aliases": [
+      "Metrik",
+      "KPI",
+      "Quote",
+      "Anzahl",
+      "Rate",
+      "Index",
+      "Statistik"
+    ]
+  },
+  "STELLE": {
+    "description": "Konkrete Stellenangebote, Jobangebote, Vakanzen, Ausschreibungen",
+    "examples": [
+      "Senior Developer Position",
+      "Ausbildungsplatz Mechatroniker",
+      "Vakanz Projektleiter",
+      "Praktikum Marketing",
+      "Trainee-Programm",
+      "Werkstudentenstelle",
+      "Festanstellung Vertrieb",
+      "Führungsposition IT"
+    ],
+    "aliases": [
+      "Stellenangebot",
+      "Vakanz",
+      "Jobangebot",
+      "Position",
+      "Ausschreibung"
+    ]
+  },
+  "SERVICE": {
+    "description": "Dienstleistungen, Services, Angebote, Support-Leistungen",
+    "examples": [
+      "Kundenservice",
+      "IT-Support",
+      "Wartungsvertrag",
+      "Beratungsleistung",
+      "Cloud-Service",
+      "Hotline",
+      "Schulungsangebot",
+      "Managed Service",
+      "SLA Premium"
+    ],
+    "aliases": [
+      "Dienstleistung",
+      "Leistung",
+      "Angebot",
+      "Support",
+      "Betreuung"
+    ]
+  }
+}
