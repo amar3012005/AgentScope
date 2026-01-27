@@ -1,0 +1,159 @@
+✅ Qdrant connected via URL: https://qdrant.api.blaiq.ai
+DEBUG: qdrant_client type is <class 'qdrant_client.qdrant_client.QdrantClient'>
+DEBUG: available methods: ['DEFAULT_BATCH_SIZE', 'DEFAULT_EMBEDDING_MODEL', 'add', 'batch_update_points', 'clear_payload', 'close', 'cloud_inference', 'cluster_collection_update', 'cluster_status', 'collection_cluster_info', 'collection_exists', 'count', 'create_collection', 'create_full_snapshot', 'create_payload_index', 'create_shard_key', 'create_shard_snapshot', 'create_snapshot', 'delete', 'delete_collection', 'delete_full_snapshot', 'delete_payload', 'delete_payload_index', 'delete_shard_key', 'delete_shard_snapshot', 'delete_snapshot', 'delete_vectors', 'embedding_model_name', 'facet', 'get_aliases', 'get_collection', 'get_collection_aliases', 'get_collections', 'get_embedding_size', 'get_fastembed_sparse_vector_params', 'get_fastembed_vector_params', 'get_sparse_vector_field_name', 'get_vector_field_name', 'grpc_collections', 'grpc_points', 'http', 'info', 'init_options', 'list_full_snapshots', 'list_image_models', 'list_late_interaction_multimodal_models', 'list_late_interaction_text_models', 'list_shard_snapshots', 'list_snapshots', 'list_sparse_models', 'list_text_models', 'local_inference_batch_size', 'migrate', 'overwrite_payload', 'query', 'query_batch', 'query_batch_points', 'query_points', 'query_points_groups', 'recover_current_peer', 'recover_shard_snapshot', 'recover_snapshot', 'recreate_collection', 'remove_peer', 'retrieve', 'scroll', 'search_matrix_offsets', 'search_matrix_pairs', 'set_model', 'set_payload', 'set_sparse_model', 'sparse_embedding_model_name', 'update_collection', 'update_collection_aliases', 'update_vectors', 'upload_collection', 'upload_points', 'upsert']
+   📁 Collection: bundb_app_blaiq_ai_knowledgeglobal_421765297988070tsxTz6itX0BGb9_nXy35B
+   🏷️ Filter label (tenant): bundb_app_blaiq_ai_knowledgeglobal_421765297988070tsxTz6itX0BGb9_nXy35B
+⚠️ Neo4j connection failed: Couldn't connect to neo4j.api.blaiq.ai:7689 (resolved to ('78.47.46.247:7689', '[::ffff:78.47.46.247]:7689')):
+Connection to 78.47.46.247:7689 closed with incomplete handshake response
+Connection to [::ffff:78.47.46.247]:7689 closed with incomplete handshake response
+   GraphRAG will work with reduced graph features
+[BGEM3Embeddings:init] service_url=https://local-llm-cloudblue.api.blaiq.ai, host=local-llm-cloudblue.api.blaiq.ai, model_id=BAAI/bge-m3, dim=1024
+✅ Embeddings ready (model=BAAI/bge-m3, dim=1024, host=local-llm-cloudblue.api.blaiq.ai)
+✅ GraphRAG Retriever initialized (Graph + Vector + Keyword)
+
+============================================================
+🚀 STARTING STRATEGIC RAG TEST
+============================================================
+
+[TEST: GREETING / SMALL TALK]
+User Question: 'Hallo! Wer bist du und wie kannst du mir helfen?'
+🎯 Planning retrieval strategy for: 'Hallo! Wer bist du und wie kannst du mir helfen?...'
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+  ❌ LiteLLM Error (openai/gpt-4o): litellm.AuthenticationError: AuthenticationError: OpenAIException - Incorrect API key provided: sk-MQ3-o*************LRXA. You can find your API key at https://platform.openai.com/account/api-keys.
+  ⚠️ Strategy Planning failed: [Errno 13] Permission denied: '/app/logs/llm_error.log'. Falling back to default LOCAL_SEARCH.
+🔍 Executing Local Search (tenant: bundb_app_blaiq_ai_knowledgeglobal_421765297988070tsxTz6itX0BGb9_nXy35B)...
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+  ❌ LiteLLM Error (openai/gpt-4o-mini): litellm.AuthenticationError: AuthenticationError: OpenAIException - Incorrect API key provided: sk-MQ3-o*************LRXA. You can find your API key at https://platform.openai.com/account/api-keys.
+  ⚠️ Entity extraction error: [Errno 13] Permission denied: '/app/logs/llm_error.log'
+  ⚠️ Vector search failed: [Errno 111] Connection refused
+  📊 Vector used: 0 results
+  ⚠️ Keyword search error for term 'hallo': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'wer': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'bist': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'kannst': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'mir': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'helfen': [Errno 111] Connection refused
+  🔑 Keyword used: 0 results
+
+🧠 RETRIEVAL PLAN:
+  - Mode: LOCAL_SEARCH
+  - Reasoning: None
+  - Vector Search: True
+  - Graph Search: True
+  - German Entities: []
+  📦 CHUNKS FOUND: 0
+------------------------------------------------------------
+
+[TEST: SPECIFIC LOCAL SEARCH]
+User Question: 'Welche konkreten Maßnahmen werden im Tourismuskonzept für 2024 erwähnt?'
+🎯 Planning retrieval strategy for: 'Welche konkreten Maßnahmen werden im Tourismuskonz...'
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+  ❌ LiteLLM Error (openai/gpt-4o): litellm.AuthenticationError: AuthenticationError: OpenAIException - Incorrect API key provided: sk-MQ3-o*************LRXA. You can find your API key at https://platform.openai.com/account/api-keys.
+  ⚠️ Strategy Planning failed: [Errno 13] Permission denied: '/app/logs/llm_error.log'. Falling back to default LOCAL_SEARCH.
+🔍 Executing Local Search (tenant: bundb_app_blaiq_ai_knowledgeglobal_421765297988070tsxTz6itX0BGb9_nXy35B)...
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+  ❌ LiteLLM Error (openai/gpt-4o-mini): litellm.AuthenticationError: AuthenticationError: OpenAIException - Incorrect API key provided: sk-MQ3-o*************LRXA. You can find your API key at https://platform.openai.com/account/api-keys.
+  ⚠️ Entity extraction error: [Errno 13] Permission denied: '/app/logs/llm_error.log'
+  ⚠️ Vector search failed: [Errno 111] Connection refused
+  📊 Vector used: 0 results
+  ⚠️ Keyword search error for term 'konkreten': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'maßnahmen': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'tourismuskonzept': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'erwähnt': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term '2024': [Errno 111] Connection refused
+  🔑 Keyword used: 0 results
+
+🧠 RETRIEVAL PLAN:
+  - Mode: LOCAL_SEARCH
+  - Reasoning: None
+  - Vector Search: True
+  - Graph Search: True
+  - German Entities: []
+  📦 CHUNKS FOUND: 0
+------------------------------------------------------------
+
+[TEST: GLOBAL STRATEGIC SEARCH]
+User Question: 'Was sind die übergeordneten strategischen Ziele über alle Dokumente hinweg?'
+🎯 Planning retrieval strategy for: 'Was sind die übergeordneten strategischen Ziele üb...'
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+  ❌ LiteLLM Error (openai/gpt-4o): litellm.AuthenticationError: AuthenticationError: OpenAIException - Incorrect API key provided: sk-MQ3-o*************LRXA. You can find your API key at https://platform.openai.com/account/api-keys.
+  ⚠️ Strategy Planning failed: [Errno 13] Permission denied: '/app/logs/llm_error.log'. Falling back to default LOCAL_SEARCH.
+🔍 Executing Local Search (tenant: bundb_app_blaiq_ai_knowledgeglobal_421765297988070tsxTz6itX0BGb9_nXy35B)...
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+  ❌ LiteLLM Error (openai/gpt-4o-mini): litellm.AuthenticationError: AuthenticationError: OpenAIException - Incorrect API key provided: sk-MQ3-o*************LRXA. You can find your API key at https://platform.openai.com/account/api-keys.
+  ⚠️ Entity extraction error: [Errno 13] Permission denied: '/app/logs/llm_error.log'
+  ⚠️ Vector search failed: [Errno 111] Connection refused
+  📊 Vector used: 0 results
+  ⚠️ Keyword search error for term 'sind': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'übergeordneten': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'strategischen': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'ziele': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'über': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'alle': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'dokumente': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'hinweg': [Errno 111] Connection refused
+  🔑 Keyword used: 0 results
+
+🧠 RETRIEVAL PLAN:
+  - Mode: LOCAL_SEARCH
+  - Reasoning: None
+  - Vector Search: True
+  - Graph Search: True
+  - German Entities: []
+  📦 CHUNKS FOUND: 0
+------------------------------------------------------------
+
+[TEST: CROSS-LANGUAGE SEARCH (English -> German)]
+User Question: 'What are the key risks mentioned in the contracts?'
+🎯 Planning retrieval strategy for: 'What are the key risks mentioned in the contracts?...'
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+  ❌ LiteLLM Error (openai/gpt-4o): litellm.AuthenticationError: AuthenticationError: OpenAIException - Incorrect API key provided: sk-MQ3-o*************LRXA. You can find your API key at https://platform.openai.com/account/api-keys.
+  ⚠️ Strategy Planning failed: [Errno 13] Permission denied: '/app/logs/llm_error.log'. Falling back to default LOCAL_SEARCH.
+🔍 Executing Local Search (tenant: bundb_app_blaiq_ai_knowledgeglobal_421765297988070tsxTz6itX0BGb9_nXy35B)...
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+  ❌ LiteLLM Error (openai/gpt-4o-mini): litellm.AuthenticationError: AuthenticationError: OpenAIException - Incorrect API key provided: sk-MQ3-o*************LRXA. You can find your API key at https://platform.openai.com/account/api-keys.
+  ⚠️ Entity extraction error: [Errno 13] Permission denied: '/app/logs/llm_error.log'
+  ⚠️ Vector search failed: [Errno 111] Connection refused
+  📊 Vector used: 0 results
+  ⚠️ Keyword search error for term 'what': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'are': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'the': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'key': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'risks': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'mentioned': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'the': [Errno 111] Connection refused
+  ⚠️ Keyword search error for term 'contracts': [Errno 111] Connection refused
+  🔑 Keyword used: 0 results
+
+🧠 RETRIEVAL PLAN:
+  - Mode: LOCAL_SEARCH
+  - Reasoning: None
+  - Vector Search: True
+  - Graph Search: True
+  - German Entities: []
+  📦 CHUNKS FOUND: 0
+------------------------------------------------------------

@@ -4,173 +4,144 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GraphRAG Optimized - Interface</title>
+    <title>GraphRAG - Knowledge Assistant</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
     <style>
-        /* ═══════════════════════════════════════════════════════════════════════
-           CSS Custom Properties - Daytona Brand Palette
-           ═══════════════════════════════════════════════════════════════════════ */
-        :root {
-            --color-black: #171717;
-            --color-orange: #F25623;
-            --color-orange-dark: #d94a1d;
-            --color-orange-light: #ff6b3d;
-            --color-dark-gray: #4D4D4D;
-            --color-light-gray: #DEDEDE;
-            --color-white: #FFFFFF;
-            --color-background: #F5F5F5;
-            --color-success: #22c55e;
-            --color-warning: #f59e0b;
-            --color-error: #ef4444;
-            --color-info: #3b82f6;
-
-            --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            --border-radius: 12px;
-            --border-radius-sm: 8px;
-            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
-            --transition: all 0.2s ease;
-        }
-
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
-        body {
-            font-family: var(--font-family);
-            background: var(--color-background);
-            color: var(--color-black);
-            min-height: 100vh;
-            line-height: 1.5;
+        :root {
+            --primary: #F25623;
+            --primary-light: #ff7a4d;
+            --bg-main: #ffffff;
+            --bg-secondary: #f7f7f8;
+            --bg-chat: #ffffff;
+            --text-primary: #1a1a1a;
+            --text-secondary: #6b6b6b;
+            --text-muted: #999999;
+            --border: #e5e5e5;
+            --border-light: #f0f0f0;
+            --user-bg: #F25623;
+            --assistant-bg: #f7f7f8;
+            --shadow: rgba(0, 0, 0, 0.05);
         }
 
-        .app-container {
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-main);
+            color: var(--text-primary);
+            height: 100vh;
             display: flex;
             flex-direction: column;
-            min-height: 100vh;
+            overflow: hidden;
         }
 
         /* Header */
         .header {
-            background: var(--color-black);
-            color: var(--color-white);
-            padding: 16px 24px;
+            height: 56px;
+            border-bottom: 1px solid var(--border);
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            background: var(--bg-main);
+            flex-shrink: 0;
         }
 
-        .header-brand {
+        .logo {
             display: flex;
             align-items: center;
             gap: 12px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--text-primary);
         }
 
-        .header-brand .logo {
-            width: 36px;
-            height: 36px;
-            background: var(--color-orange);
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--primary);
             border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
+            color: white;
+            font-size: 1rem;
         }
 
-        .header-brand .logo .material-icons-round {
-            font-size: 22px;
-            color: var(--color-white);
-        }
-
-        .header-brand h1 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            letter-spacing: -0.02em;
-        }
-
-        .header-status {
+        .header-right {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 16px;
         }
 
-        .status-indicator {
-            width: 10px;
-            height: 10px;
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            background: var(--color-dark-gray);
+            background: #ccc;
         }
 
-        .status-indicator.connected {
-            background: var(--color-success);
-            box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+        .status-dot.online {
+            background: #22c55e;
         }
 
-        .status-indicator.connecting {
-            background: var(--color-warning);
-            animation: pulse 1.5s infinite;
+        .collection-input {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            width: 280px;
+            outline: none;
+            transition: border-color 0.2s;
         }
 
-        .status-indicator.error {
-            background: var(--color-error);
-        }
-
-        .status-text {
-            font-size: 0.875rem;
-            color: var(--color-light-gray);
-        }
-
-        @keyframes pulse {
-
-            0%,
-            100% {
-                opacity: 1;
-            }
-
-            50% {
-                opacity: 0.4;
-            }
+        .collection-input:focus {
+            border-color: var(--primary);
         }
 
         /* Main Content */
-        .main-content {
+        .main-container {
             flex: 1;
-            display: grid;
-            grid-template-columns: 1fr 300px;
-            gap: 0;
-            height: calc(100vh - 70px);
-        }
-
-        .chat-panel {
             display: flex;
             flex-direction: column;
-            background: var(--color-white);
-            border-right: 1px solid var(--color-light-gray);
+            overflow: hidden;
+            max-width: 900px;
+            width: 100%;
+            margin: 0 auto;
         }
 
-        .chat-messages {
+        /* Messages */
+        .messages-container {
             flex: 1;
             overflow-y: auto;
             padding: 24px;
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 24px;
         }
 
         .message {
-            max-width: 85%;
-            padding: 14px 18px;
-            border-radius: 16px;
-            font-size: 0.9375rem;
-            line-height: 1.5;
-            animation: slideIn 0.2s ease;
+            display: flex;
+            gap: 16px;
+            animation: fadeIn 0.3s ease;
         }
 
-        @keyframes slideIn {
+        @keyframes fadeIn {
             from {
                 opacity: 0;
-                transform: translateY(8px);
+                transform: translateY(10px);
             }
 
             to {
@@ -179,120 +150,181 @@
             }
         }
 
-        .message.user {
-            align-self: flex-end;
-            background: var(--color-black);
-            color: var(--color-white);
-            border-bottom-right-radius: 4px;
-        }
-
-        .message.agent {
-            align-self: flex-start;
-            background: var(--color-background);
-            color: var(--color-black);
-            border-bottom-left-radius: 4px;
-        }
-
-        .chat-input-area {
-            padding: 16px 24px 24px;
-            background: var(--color-white);
-            border-top: 1px solid var(--color-light-gray);
-        }
-
-        .input-container {
-            display: flex;
-            align-items: flex-end;
-            gap: 12px;
-            background: var(--color-background);
-            border-radius: var(--border-radius);
-            padding: 8px 12px;
-        }
-
-        .text-input {
-            flex: 1;
-            border: none;
-            background: transparent;
-            font-family: var(--font-family);
-            font-size: 0.9375rem;
-            padding: 8px 4px;
-            resize: none;
-            outline: none;
-            min-height: 24px;
-            max-height: 120px;
-        }
-
-        .send-button {
-            width: 48px;
-            height: 48px;
+        .message-avatar {
+            width: 36px;
+            height: 36px;
             border-radius: 50%;
-            border: none;
-            background: var(--color-orange);
-            color: var(--color-white);
-            cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: var(--transition);
+            font-size: 0.9rem;
+            flex-shrink: 0;
         }
 
-        .send-button:hover:not(:disabled) {
-            background: var(--color-orange-dark);
-            transform: scale(1.05);
+        .message.user .message-avatar {
+            background: var(--primary);
+            color: white;
         }
 
-        .send-button:disabled {
-            background: var(--color-light-gray);
-            color: var(--color-dark-gray);
-            cursor: not-allowed;
+        .message.assistant .message-avatar {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
         }
 
-        /* Controls Panel */
-        .controls-panel {
-            background: var(--color-black);
-            color: var(--color-white);
-            padding: 24px;
-            overflow-y: auto;
+        .message-content {
+            flex: 1;
+            min-width: 0;
         }
 
-        .panel-section {
-            margin-bottom: 24px;
+        .message-role {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 6px;
+            color: var(--text-primary);
         }
 
-        .section-title {
+        .message-text {
+            font-size: 0.95rem;
+            line-height: 1.7;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+        }
+
+        .message-text strong {
+            font-weight: 600;
+        }
+
+        /* Sources Section */
+        .sources-section {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-light);
+        }
+
+        .sources-label {
             font-size: 0.75rem;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--color-dark-gray);
-            margin-bottom: 12px;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
         }
 
-        .info-grid {
-            display: grid;
+        .sources-list {
+            display: flex;
+            flex-wrap: wrap;
             gap: 8px;
         }
 
-        .info-item {
+        .source-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.8rem;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .source-chip:hover {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .source-chip svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* Metrics Toggle */
+        .metrics-toggle {
+            margin-top: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .metrics-toggle:hover {
+            background: var(--bg-secondary);
+        }
+
+        .metrics-panel {
+            margin-top: 12px;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            display: none;
+        }
+
+        .metrics-panel.show {
+            display: block;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .metric-card {
+            text-align: center;
+            padding: 12px;
+            background: var(--bg-main);
+            border-radius: 8px;
+            border: 1px solid var(--border-light);
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .metric-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .timing-row {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            padding: 10px 12px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: var(--border-radius-sm);
+            padding: 6px 0;
+            font-size: 0.8rem;
+            border-bottom: 1px solid var(--border-light);
         }
 
-        .info-label {
-            font-size: 0.8125rem;
-            color: var(--color-dark-gray);
+        .timing-row:last-child {
+            border-bottom: none;
         }
 
-        .info-value {
-            font-size: 0.8125rem;
-            font-weight: 500;
-            color: var(--color-light-gray);
-            font-family: 'SF Mono', 'Monaco', monospace;
+        .timing-label {
+            color: var(--text-secondary);
         }
 
+        .timing-value {
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        /* Empty State */
         .empty-state {
             flex: 1;
             display: flex;
@@ -301,251 +333,480 @@
             justify-content: center;
             text-align: center;
             padding: 48px;
-            color: var(--color-dark-gray);
         }
 
-        .empty-state .material-icons-round {
-            font-size: 64px;
-            margin-bottom: 16px;
-            opacity: 0.3;
+        .empty-icon {
+            width: 64px;
+            height: 64px;
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            margin-bottom: 24px;
         }
 
-        .badge {
-            display: inline-block;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: bold;
-            margin-left: 8px;
-            vertical-align: middle;
+        .empty-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 12px;
         }
 
-        .badge.hit {
-            background: #22c55e;
-            color: #fff;
+        .empty-subtitle {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            max-width: 400px;
         }
 
-        .badge.miss {
-            background: #ef4444;
-            color: #fff;
+        /* Input Area */
+        .input-container {
+            padding: 16px 24px 24px;
+            background: var(--bg-main);
+            border-top: 1px solid var(--border-light);
+        }
+
+        .input-wrapper {
+            display: flex;
+            align-items: flex-end;
+            gap: 12px;
+            max-width: 900px;
+            margin: 0 auto;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 12px 16px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .input-wrapper:focus-within {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(242, 86, 35, 0.1);
+        }
+
+        .input-wrapper textarea {
+            flex: 1;
+            border: none;
+            background: transparent;
+            font-size: 1rem;
+            color: var(--text-primary);
+            resize: none;
+            outline: none;
+            max-height: 200px;
+            line-height: 1.5;
+            font-family: inherit;
+        }
+
+        .input-wrapper textarea::placeholder {
+            color: var(--text-muted);
+        }
+
+        .send-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            border: none;
+            background: var(--primary);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s, transform 0.1s;
+            flex-shrink: 0;
+        }
+
+        .send-btn:hover {
+            background: var(--primary-light);
+        }
+
+        .send-btn:active {
+            transform: scale(0.95);
+        }
+
+        .send-btn:disabled {
+            background: #ddd;
+            cursor: not-allowed;
+        }
+
+        .send-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Footer hints */
+        .input-hints {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-top: 12px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .hint-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #ddd;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #ccc;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                padding: 0 16px;
+            }
+
+            .collection-input {
+                width: 180px;
+            }
+
+            .messages-container {
+                padding: 16px;
+            }
+
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
         }
     </style>
 </head>
 
 <body>
-    <div class="app-container">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-brand">
-                <div class="logo">
-                    <span class="material-icons-round">hub</span>
-                </div>
-                <h1>GraphRAG Optimized</h1>
+    <!-- Header -->
+    <header class="header">
+        <div class="logo">
+            <div class="logo-icon">🔍</div>
+            <span>GraphRAG</span>
+        </div>
+        <div class="header-right">
+            <input type="text" id="collection" class="collection-input" placeholder="Collection / Tenant ID...">
+            <div class="status-badge">
+                <span class="status-dot" id="dot"></span>
+                <span id="statusText">Connecting...</span>
             </div>
+        </div>
+    </header>
 
-            <div class="header-status">
-                <div class="status-indicator" id="statusIndicator"></div>
-                <span class="status-text" id="statusText">Disconnected</span>
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Messages -->
+        <div class="messages-container" id="msgBox">
+            <div class="empty-state" id="empty">
+                <div class="empty-icon">💡</div>
+                <h2 class="empty-title">Knowledge Assistant</h2>
+                <p class="empty-subtitle">Ask questions about your documents. I'll search through your knowledge base
+                    and provide answers with sources.</p>
             </div>
-        </header>
+        </div>
 
-        <!-- Main Content -->
-        <main class="main-content">
-            <div class="chat-panel">
-                <div class="chat-messages" id="chatMessages">
-                    <div class="empty-state" id="emptyState">
-                        <span class="material-icons-round">graphic_eq</span>
-                        <h3>Optimized Retrieval</h3>
-                        <p>Ask questions to test Redis caching and Parallel Search</p>
-                    </div>
-                </div>
-                <div class="chat-input-area">
-                    <div class="input-container">
-                        <textarea class="text-input" id="textInput" placeholder="Enter query..." rows="1"></textarea>
-                        <button class="send-button" id="sendButton" title="Send query">
-                            <span class="material-icons-round">send</span>
-                        </button>
-                    </div>
-                </div>
+        <!-- Input -->
+        <div class="input-container">
+            <div class="input-wrapper">
+                <textarea id="userInput" placeholder="Ask anything about your documents..." rows="1"></textarea>
+                <button id="sendBtn" class="send-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                    </svg>
+                </button>
             </div>
-            <aside class="controls-panel">
-                <div class="panel-section">
-                    <h4 class="section-title">Performance Metrics</h4>
-                    <div class="info-grid">
-                        <div class="info-item">
-                            <span class="info-label">Last Latency</span>
-                            <span class="info-value" id="lastLatency">-</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Retrieval Time</span>
-                            <span class="info-value" id="retrievalTime">-</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Cache Status</span>
-                            <span class="info-value" id="cacheStatus">-</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Queries</span>
-                            <span class="info-value" id="totalQueries">0</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="panel-section">
-                    <h4 class="section-title">Settings</h4>
-                    <div class="info-grid">
-                        <div class="info-item">
-                            <span class="info-label">Top K</span>
-                            <input type="number" id="kInput" value="10"
-                                style="background:transparent; border:none; color:white; text-align:right; width:40px;">
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Use Cache</span>
-                            <input type="checkbox" id="cacheInput" checked>
-                        </div>
-                    </div>
-                    <button onclick="clearCache()"
-                        style="margin-top:10px; width:100%; padding:8px; background:#333; color:white; border:none; border-radius:6px; cursor:pointer;">
-                        Clear Cache
-                    </button>
-                </div>
-            </aside>
-        </main>
+            <div class="input-hints">
+                <span class="hint-item">Press Enter to send</span>
+                <span class="hint-item">•</span>
+                <span class="hint-item">Shift+Enter for new line</span>
+            </div>
+        </div>
     </div>
 
     <script>
-        // Use localhost:8002 directly
-        const API_BASE = "http://localhost:8002";
+        const API_URL = window.location.origin;
+        let queryCount = 0;
 
-        class GraphRAGClient {
-            constructor() {
-                this.metrics = { queries: 0 };
-                this.setupUI();
-                this.checkHealth();
-            }
+        const els = {
+            send: document.getElementById('sendBtn'),
+            input: document.getElementById('userInput'),
+            box: document.getElementById('msgBox'),
+            empty: document.getElementById('empty'),
+            status: document.getElementById('statusText'),
+            dot: document.getElementById('dot'),
+            collection: document.getElementById('collection')
+        };
 
-            setupUI() {
-                this.chatMessages = document.getElementById('chatMessages');
-                this.textInput = document.getElementById('textInput');
-                this.sendButton = document.getElementById('sendButton');
-                this.emptyState = document.getElementById('emptyState');
-                this.statusIndicator = document.getElementById('statusIndicator');
-                this.statusText = document.getElementById('statusText');
+        // Auto-resize textarea
+        els.input.addEventListener('input', function () {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+        });
 
-                // Metrics
-                this.lastLatencyEl = document.getElementById('lastLatency');
-                this.retrievalTimeEl = document.getElementById('retrievalTime');
-                this.cacheStatusEl = document.getElementById('cacheStatus');
-                this.totalQueriesEl = document.getElementById('totalQueries');
-
-                this.sendButton.onclick = () => this.sendMessage();
-                this.textInput.onkeydown = (e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        this.sendMessage();
+        async function fetchConfig() {
+            try {
+                const r = await fetch(API_URL + "/config");
+                if (r.ok) {
+                    const cfg = await r.json();
+                    if (cfg.qdrant_collection) {
+                        els.collection.value = cfg.qdrant_collection;
                     }
-                };
-            }
-
-            async checkHealth() {
-                try {
-                    this.updateStatus('connecting', 'Checking...');
-                    const res = await fetch(`${API_BASE}/`);
-                    if (res.ok) {
-                        this.updateStatus('connected', 'Online');
-                    } else {
-                        this.updateStatus('error', 'API Error');
-                    }
-                } catch (e) {
-                    this.updateStatus('error', 'Offline');
-                    console.error(e);
                 }
-            }
-
-            updateStatus(state, text) {
-                this.statusIndicator.className = `status-indicator ${state}`;
-                this.statusText.textContent = text;
-            }
-
-            async sendMessage() {
-                const text = this.textInput.value.trim();
-                const k = parseInt(document.getElementById('kInput').value) || 10;
-                const useCache = document.getElementById('cacheInput').checked;
-
-                if (!text) return;
-
-                this.textInput.value = '';
-                this.appendMessage('user', text);
-                this.emptyState.style.display = 'none';
-                this.updateStatus('connecting', 'Retrieving...');
-
-                const startTime = performance.now();
-
-                try {
-                    const response = await fetch(`${API_BASE}/query/graphrag`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                            // No API Key header
-                        },
-                        body: JSON.stringify({
-                            query: text,
-                            k: k,
-                            use_cache: useCache
-                        })
-                    });
-
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-                    const data = await response.json();
-                    const totalTime = (performance.now() - startTime).toFixed(0);
-
-                    // Update Metrics
-                    this.metrics.queries++;
-                    this.totalQueriesEl.textContent = this.metrics.queries;
-                    this.lastLatencyEl.textContent = `${totalTime}ms`;
-                    this.retrievalTimeEl.textContent = `${(data.retrieval_time * 1000).toFixed(0)}ms`;
-
-                    const hit = data.cached;
-                    this.cacheStatusEl.textContent = hit ? 'HIT' : 'MISS';
-                    this.cacheStatusEl.style.color = hit ? '#22c55e' : '#ef4444';
-
-                    this.appendMessage('agent', data.answer, hit);
-                    this.updateStatus('connected', 'Online');
-
-                } catch (e) {
-                    console.error(e);
-                    this.appendMessage('agent', 'Error connecting to GraphRAG service.');
-                    this.updateStatus('error', 'Error');
-                }
-            }
-
-            appendMessage(role, text, isCacheHit = false) {
-                const div = document.createElement('div');
-                div.className = `message ${role}`;
-
-                let content = text;
-                if (role === 'agent' && isCacheHit !== undefined) {
-                    const badge = isCacheHit ? '<span class="badge hit">CACHE HIT</span>' : '<span class="badge miss">CACHE MISS</span>';
-                    content = `<div>${badge}</div><div style="margin-top:8px">${text}</div>`;
-                }
-
-                div.innerHTML = content;
-                this.chatMessages.appendChild(div);
-                this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+            } catch (e) {
+                console.error("Config error:", e);
             }
         }
 
-        window.client = new GraphRAGClient();
-
-        async function clearCache() {
-            if (confirm('Clear Redis Cache?')) {
-                try {
-                    await fetch(`${API_BASE}/cache/clear`, { method: 'POST' });
-                    alert('Cache cleared!');
-                } catch (e) { alert('Failed to clear cache'); }
+        async function health() {
+            try {
+                const r = await fetch(API_URL + "/");
+                if (r.ok) {
+                    els.status.innerText = "Online";
+                    els.dot.className = "status-dot online";
+                }
+            } catch (e) {
+                els.status.innerText = "Offline";
             }
         }
+
+        els.send.onclick = sendMessage;
+        els.input.onkeydown = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        };
+
+        async function sendMessage() {
+            const text = els.input.value.trim();
+            if (!text) return;
+
+            els.input.value = "";
+            els.input.style.height = 'auto';
+
+            if (els.empty) {
+                els.empty.style.display = 'none';
+            }
+
+            appendMessage("user", text);
+
+            const start = performance.now();
+            els.status.innerText = "Thinking...";
+
+            // Create assistant message placeholder
+            const msgId = "msg_" + Date.now();
+            appendMessage("assistant", "", null, msgId);
+            const msgEl = document.getElementById(msgId);
+            const textEl = msgEl.querySelector('.message-text');
+
+            try {
+                const response = await fetch(API_URL + "/query/graphrag/stream", {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: text,
+                        collection_name: els.collection.value || undefined,
+                        mode: "local",
+                        use_reranker: false,
+                        use_cache: true,
+                        k: 10
+                    })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullText = "";
+                let metricsData = null;
+                let ttfc = null; // Time To First Content
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split("\n");
+
+                    for (const line of lines) {
+                        if (line.startsWith("data: ")) {
+                            const dataStr = line.replace("data: ", "").trim();
+                            if (dataStr === "[DONE]") continue;
+                            try {
+                                const data = JSON.parse(dataStr);
+                                if (data.delta) {
+                                    // Record TTFC on first content
+                                    if (ttfc === null) {
+                                        ttfc = Math.round(performance.now() - start);
+                                    }
+                                    fullText += data.delta;
+                                    textEl.innerHTML = formatMessage(fullText);
+                                    els.box.scrollTop = els.box.scrollHeight;
+                                } else if (data.answer) {
+                                    if (ttfc === null) {
+                                        ttfc = Math.round(performance.now() - start);
+                                    }
+                                    fullText = data.answer;
+                                    textEl.innerHTML = formatMessage(fullText);
+                                } else if (data.metrics) {
+                                    metricsData = data.metrics;
+                                }
+                            } catch (e) { }
+                        }
+                    }
+                }
+
+                // Add sources if metrics available
+                if (metricsData) {
+                    addSourcesAndMetrics(msgEl, metricsData, ttfc);
+                }
+
+                const elapsed = Math.round(performance.now() - start);
+                els.status.innerText = `Online • TTFC: ${ttfc || elapsed}ms`;
+                els.dot.className = "status-dot online";
+                queryCount++;
+
+            } catch (e) {
+                textEl.textContent = "Error: " + e.message;
+                els.status.innerText = "Error";
+            }
+        }
+
+        function formatMessage(text) {
+            // Convert markdown-style formatting
+            return text
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>');
+        }
+
+        function appendMessage(role, text, metrics = null, id = null) {
+            const div = document.createElement('div');
+            div.className = "message " + role;
+            if (id) div.id = id;
+
+            const avatar = role === 'user' ? '👤' : '🤖';
+            const roleName = role === 'user' ? 'You' : 'Assistant';
+
+            div.innerHTML = `
+                <div class="message-avatar">${avatar}</div>
+                <div class="message-content">
+                    <div class="message-role">${roleName}</div>
+                    <div class="message-text">${formatMessage(text)}</div>
+                </div>
+            `;
+
+            els.box.appendChild(div);
+            els.box.scrollTop = els.box.scrollHeight;
+        }
+
+        function addSourcesAndMetrics(msgEl, metrics, ttfc = null) {
+            const contentEl = msgEl.querySelector('.message-content');
+
+            // Extract sources from top_sources
+            const sources = metrics.top_sources || [];
+
+            if (sources.length > 0) {
+                const sourcesHtml = `
+                    <div class="sources-section">
+                        <div class="sources-label">📄 Sources</div>
+                        <div class="sources-list">
+                            ${sources.map(s => `
+                                <a class="source-chip" href="#" onclick="openSource('${s.doc_id}'); return false;">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    ${cleanDocName(s.doc_id)}
+                                </a>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                contentEl.insertAdjacentHTML('beforeend', sourcesHtml);
+            }
+
+            // Add metrics toggle - show TTFC (Time To First Content)
+            const timings = metrics.timings || {};
+            const srcDist = metrics.sources || {};
+            const displayTtfc = ttfc || Math.round((timings.total_retrieval || 0) * 1000);
+
+            const metricsHtml = `
+                <button class="metrics-toggle" onclick="toggleMetrics(this)">
+                    ⚡ TTFC: ${displayTtfc}ms • Show details
+                </button>
+                <div class="metrics-panel">
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-value">${srcDist.qdrant_vector || 0}</div>
+                            <div class="metric-label">Vector</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">${srcDist.graph_rag || 0}</div>
+                            <div class="metric-label">Graph</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">${srcDist.keyword_bm25 || 0}</div>
+                            <div class="metric-label">Keyword</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">${metrics.chunks_retrieved || 0}</div>
+                            <div class="metric-label">Final</div>
+                        </div>
+                    </div>
+                    <div class="timing-row">
+                        <span class="timing-label">Entity Extraction</span>
+                        <span class="timing-value">${Math.round((timings.entity_extraction || 0) * 1000)}ms</span>
+                    </div>
+                    <div class="timing-row">
+                        <span class="timing-label">Retrieval</span>
+                        <span class="timing-value">${Math.round((timings.total_retrieval || 0) * 1000)}ms</span>
+                    </div>
+                    <div class="timing-row">
+                        <span class="timing-label">LLM Generation</span>
+                        <span class="timing-value">${Math.round((timings.llm_generation || 0) * 1000)}ms</span>
+                    </div>
+                </div>
+            `;
+            contentEl.insertAdjacentHTML('beforeend', metricsHtml);
+        }
+
+        function cleanDocName(docId) {
+            if (!docId) return 'Unknown';
+            // Remove hash suffix and clean up
+            let name = docId.replace(/_[a-f0-9]{8}$/i, '');
+            // Add .pdf if not present
+            if (!name.endsWith('.pdf')) name += '.pdf';
+            // Truncate if too long
+            if (name.length > 40) name = name.substring(0, 37) + '...';
+            return name;
+        }
+
+        function openSource(docId) {
+            // Placeholder - can be customized to open document viewer
+            alert(`Opening document: ${docId}\n\nImplement your document viewer integration here.`);
+        }
+
+        function toggleMetrics(btn) {
+            const panel = btn.nextElementSibling;
+            panel.classList.toggle('show');
+            btn.textContent = panel.classList.contains('show')
+                ? btn.textContent.replace('Show', 'Hide')
+                : btn.textContent.replace('Hide', 'Show');
+        }
+
+        // Initialize
+        fetchConfig();
+        health();
     </script>
 </body>
 

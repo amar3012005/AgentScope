@@ -4,7 +4,8 @@ services:
     image: redis:7-alpine
     container_name: graphrag-redis-optimized
     ports:
-      - "6381:6379" # Using 6381 to avoid conflicts
+      - "6394:6379" # Using 6394 to avoid conflicts
+
     volumes:
       - redis_optimized_data:/data
     command: redis-server --appendonly yes
@@ -24,7 +25,7 @@ services:
       dockerfile: Dockerfile
     container_name: graphrag-api-optimized
     ports:
-      - "8002:8001" # Using 8002 to avoid conflicts with existing API
+      - "8005:8001" # Using 8005 to avoid conflicts
     environment:
       # Redis Configuration
       - REDIS_URL=redis://redis:6379
@@ -46,6 +47,11 @@ services:
       - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
 
+      # LiteLLM Model Configuration
+      - LITELLM_PRE_MODEL=${LITELLM_PRE_MODEL:-openai/gpt-4o-mini}
+      - LITELLM_POST_MODEL=${LITELLM_POST_MODEL:-openai/gpt-4o}
+      - LITELLM_PLANNER_MODEL=${LITELLM_PLANNER_MODEL:-openai/gpt-4o}
+
       # Optional: Fallback model and timeouts
       - OPENAI_FALLBACK_MODEL=${OPENAI_FALLBACK_MODEL}
       - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-25}
@@ -58,6 +64,11 @@ services:
       # API Security
       - API_KEY=${API_KEY}
 
+      # Feature Flags
+      - ENABLE_RERANKER=false
+      - DEBUG_LLM=true
+      - DEBUG_RETRIEVAL=true
+
     depends_on:
       redis:
         condition: service_healthy
@@ -65,6 +76,11 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
     restart: unless-stopped
+    # DNS configuration for external hostname resolution
+    dns:
+      - 1.1.1.1 # Cloudflare
+      - 8.8.8.8 # Google
+      - 8.8.4.4 # Google backup
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8001/" ]
       interval: 30s

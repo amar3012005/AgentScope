@@ -67,7 +67,7 @@ class BGEM3Embeddings:
 
         # Priority: argument > env > default
         env_model_id = os.getenv("BGE_M3_MODEL_ID")
-        self.model_id = model_id or env_model_id or "BAAI/bge-m3"
+        self.model_id = model_id or env_model_id or "bge-m3"
 
         # Store request config
         self.timeout = timeout
@@ -96,13 +96,15 @@ class BGEM3Embeddings:
             f"model_id={self.model_id}, dim={self.embedding_dim}"
         )
 
-        # Initialize OpenAI Client
+        # Initialize OpenAI Client (with SSL bypass for proxy)
         try:
+            import httpx
             self.client = OpenAI(
                 base_url=self.service_url,
                 api_key=self.api_key,
                 timeout=self.timeout,
                 max_retries=self.max_retries,
+                http_client=httpx.Client(verify=False)
             )
         except Exception as e:
             raise RuntimeError(f"Failed to initialize OpenAI client: {e}")
@@ -113,72 +115,59 @@ class BGEM3Embeddings:
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """
-        Embed multiple documents.
-
-        Args:
-            texts: List of text strings to embed
-
-        Returns:
-            List of embedding vectors
+        Embed multiple documents using direct requests to the proxy.
+        (Matches working curl configuration)
         """
         if not texts:
             return []
 
         try:
-            print(
-                f"[BGEM3Embeddings:embed_documents] "
-                f"n_texts={len(texts)}, model={self.model_id}, dim={self.embedding_dim}"
-            )
-            # OpenAI/LiteLLM standard embedding call
-            response = self.client.embeddings.create(
-                input=texts,
-                model=self.model_id,
-                # for Vertex/Gemini via LiteLLM: map to outputDimensionality
-                dimensions=self.embedding_dim,
+            import requests
+            url = self.service_url.rstrip("/")
+            if not url.endswith("/embed"):
+                url += "/embed"
+            
+            resp = requests.post(
+                url,
+                json={"texts": texts},
+                headers={"api-key": self.api_key},
+                timeout=self.timeout,
+                verify=False
             )
             
-            # Extract embeddings ensuring order
-            sorted_data = sorted(response.data, key=lambda x: x.index)
-            if sorted_data:
-                print(
-                    f"[BGEM3Embeddings:embed_documents] "
-                    f"received_dim={len(sorted_data[0].embedding)}"
-                )
-            return [data.embedding for data in sorted_data]
-
+            if resp.status_code == 200:
+                return resp.json().get("embeddings", [])
+            else:
+                raise Exception(f"Failed to embed (Status {resp.status_code}): {resp.text}")
         except Exception as e:
             raise Exception(f"Failed to embed documents: {e}")
 
     def embed_query(self, text: str) -> List[float]:
         """
         Embed a single query text.
-
-        Args:
-            text: Text string to embed
-
-        Returns:
-            Embedding vector
         """
         if not text:
             raise ValueError("Text cannot be empty")
 
         try:
-            print(
-                f"[BGEM3Embeddings:embed_query] "
-                f"len(text)={len(text)}, model={self.model_id}, dim={self.embedding_dim}"
+            import requests
+            url = self.service_url.rstrip("/")
+            if not url.endswith("/embed"):
+                url += "/embed"
+            
+            resp = requests.post(
+                url,
+                json={"texts": [text]},
+                headers={"api-key": self.api_key},
+                timeout=self.timeout,
+                verify=False
             )
-            response = self.client.embeddings.create(
-                input=[text],
-                model=self.model_id,
-                dimensions=self.embedding_dim,
-            )
-            embedding = response.data[0].embedding
-            print(
-                f"[BGEM3Embeddings:embed_query] "
-                f"received_dim={len(embedding)}"
-            )
-            return embedding
-
+            
+            if resp.status_code == 200:
+                embeddings = resp.json().get("embeddings", [])
+                return embeddings[0] if embeddings else []
+            else:
+                raise Exception(f"Failed to embed (Status {resp.status_code}): {resp.text}")
         except Exception as e:
             raise Exception(f"Failed to embed query: {e}")
 
