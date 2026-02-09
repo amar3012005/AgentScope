@@ -1,0 +1,168 @@
+# Coolify-compatible GraphRAG Optimized Service
+# This file is designed to be used with Coolify deployment
+# Place this in /data/coolify/services/<service-id>/docker-compose.yml
+
+services:
+  # Redis Cache (Required for optimizations)
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - graphrag_optimized_redis_data:/data
+    command: redis-server --appendonly yes --bind 0.0.0.0
+    container_name: redis-e0cwcccswckc8okk4k00skck
+    networks:
+      graphrag-optimized: null
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    labels:
+      - coolify.managed=true
+      - coolify.type=service
+      - coolify.name=redis-graphrag-optimized
+      - coolify.service.subType=database
+      - coolify.service.subName=redis
+    environment:
+      COOLIFY_CONTAINER_NAME: redis-graphrag-optimized
+    env_file:
+      - .env
+
+  # Optimized GraphRAG API
+  graphrag-optimized:
+    build:
+      context: ./graphrag-optimized
+      dockerfile: Dockerfile
+    container_name: graphrag-optimized-e0cwcccswckc8okk4k00skck
+    ports:
+      - "8445:8001"  # External port 8445 to avoid conflicts
+    volumes:
+      # Persistent data directories
+      - graphrag_optimized_data:/app/data
+      - graphrag_optimized_logs:/app/logs
+      # Mount source code for development (DISABLED for production stability)
+      # - /data/coolify/services/e0cwcccswckc8okk4k00skck/graphrag-optimized:/app
+      # Optional: SSL certificates (if needed)
+      # - /etc/letsencrypt/live/rag-optimized.demo.davinciai.eu/fullchain.pem:/certs/fullchain.pem
+      # - /etc/letsencrypt/live/rag-optimized.demo.davinciai.eu/privkey.pem:/certs/privkey.pem
+    environment:
+      # Redis Configuration
+      REDIS_URL: redis://redis:6379/0
+      ENABLE_CACHE: "true"
+      CACHE_TTL: 3600
+
+      # Qdrant Configuration (REQUIRED)
+      QDRANT_URL: ${QDRANT_URL}
+      QDRANT_API_KEY: ${QDRANT_API_KEY}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-graphrag_chunks}
+      QDRANT_PORT: ${QDRANT_PORT:-443}
+
+      # Neo4j Configuration (Optional - for graph features)
+      NEO4J_URI: ${NEO4J_URI}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+
+      # LLM Configuration (REQUIRED)
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+
+      # LiteLLM Model Configuration
+      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-ovh-Gpt-oss-20b}
+      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-gpt-4o-mini}
+      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-gpt-4o-mini}
+
+      # Optional: Fallback model and timeouts
+      OPENAI_FALLBACK_MODEL: ${OPENAI_FALLBACK_MODEL}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-25}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-4000}
+
+      # BGE-M3 Embedding Service
+      BGE_M3_SERVICE_URL: ${BGE_M3_SERVICE_URL}
+      BGE_M3_API_KEY: ${BGE_M3_API_KEY}
+      BGE_M3_MODEL_ID: ${BGE_M3_MODEL_ID:-bge-m3}
+
+      # API Security
+      API_KEY: ${API_KEY}
+
+      # Feature Flags
+      ENABLE_RERANKER: "false"
+      DEBUG_LLM: "true"
+      DEBUG_RETRIEVAL: "true"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+
+      # Coolify metadata
+      COOLIFY_CONTAINER_NAME: graphrag-optimized
+
+    # Optional: SSL command (uncomment if using SSL certificates)
+    # command: "uvicorn src.retriever.retriever_api:app --host 0.0.0.0 --port 8001 --ssl-keyfile /certs/privkey.pem --ssl-certfile /certs/fullchain.pem"
+    
+    depends_on:
+      redis:
+        condition: service_healthy
+    
+    networks:
+      graphrag-optimized: null
+    
+    restart: unless-stopped
+    
+    # DNS configuration for external hostname resolution
+    dns:
+      - 1.1.1.1  # Cloudflare
+      - 8.8.8.8  # Google
+      - 8.8.4.4  # Google backup
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    labels:
+      - coolify.managed=true
+      - coolify.type=service
+      - coolify.name=graphrag-optimized
+      - coolify.service.subType=application
+      - coolify.service.subName=graphrag-optimized
+      # Uncomment and configure for Traefik routing
+      # - traefik.enable=true
+      # - traefik.http.routers.graphrag-optimized.rule=Host(`rag-optimized.demo.davinciai.eu`)
+      # - traefik.http.services.graphrag-optimized.loadbalancer.server.port=8001
+    
+    env_file:
+      - .env
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Named volumes for persistence
+volumes:
+  graphrag_optimized_redis_data:
+    name: graphrag_optimized_redis_data
+  graphrag_optimized_data:
+    name: graphrag_optimized_data
+  graphrag_optimized_logs:
+    name: graphrag_optimized_logs
+
+# Networks
+networks:
+  coolify:
+    external: true
+  graphrag-optimized:
+    name: graphrag-optimized
+    external: true

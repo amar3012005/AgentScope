@@ -5,7 +5,7 @@ Runs Vector, Graph, and Keyword searches concurrently.
 
 import asyncio
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -88,60 +88,104 @@ class AsyncRetriever:
         )
         
         elapsed = time.time() - start
+        elapsed = time.time() - start
         return results, elapsed
+    
+    async def run_hive_mind_search(self, query: str) -> Tuple[Optional[str], float]:
+        """Run Hive Integrity search (Global Summary)."""
+        start = time.time()
+        loop = asyncio.get_event_loop()
+        
+        summary = await loop.run_in_executor(
+            self.executor,
+            self.retriever.generate_global_hive_summary,
+            query
+        )
+        
+        elapsed = time.time() - start
+        return summary, elapsed
     
     async def parallel_retrieval(
         self,
         query: str,
         entities: List[str],
         expanded_query: Dict,
-        k: int
-    ) -> Tuple[Dict[str, Dict[int, float]], Dict[str, float]]:
+        k: int,
+        plan: Optional[Dict] = None
+    ) -> Tuple[Dict[str, Dict[int, float]], Dict[str, float], Dict[str, Any]]:
         """
-        Run all retrieval methods in parallel.
+        Run all retrieval methods in parallel, filtered by plan.
         
         Args:
             query: User query
             entities: Extracted entities
             expanded_query: Query expansion results
             k: Number of results per method
+            plan: Dict with keys 'use_vector', 'use_graph', 'use_keyword'
             
         Returns:
             (rankings dict, timing dict)
         """
+        if plan is None:
+            # Default to all enabled
+            plan = {"use_vector": True, "use_graph": True, "use_keyword": True}
         # Launch all searches concurrently
-        tasks = [
-            self.run_vector_search(query, k),
-            self.run_graph_search(entities, k),
-            self.run_keyword_search(query, expanded_query, k)
-        ]
+        # Launch searches concurrently based on plan
+        tasks = []
+        task_map = {} # Map index to type
+        
+        idx = 0
+        if plan.get("use_vector", True):
+            tasks.append(self.run_vector_search(query, k))
+            task_map[idx] = "vector"
+            idx += 1
+            
+        if plan.get("use_graph", True):
+            tasks.append(self.run_graph_search(entities, k))
+            task_map[idx] = "graph"
+            idx += 1
+            
+        if plan.get("use_keyword", True):
+            tasks.append(self.run_keyword_search(query, expanded_query, k))
+            task_map[idx] = "keyword"
+            idx += 1
+            
+        if plan.get("use_hive_mind", False):
+            # HiveMind needs raw logic or specific query
+            tasks.append(self.run_hive_mind_search(query))
+            task_map[idx] = "hive_mind"
+            idx += 1
         
         # Wait for all to complete
+        if not tasks:
+            return {}, {}, {}
+            
         results = await asyncio.gather(*tasks)
         
-        # Unpack results
-        vector_results, vector_time = results[0]
-        graph_results, graph_time = results[1]
-        keyword_results, keyword_time = results[2]
+        # Unpack results dynamicall
+        rankings = {}
+        timings = {}
+        special_results = {}
         
-        # Build rankings dict
-        rankings = {
-            "vector": vector_results,
-            "keyword": keyword_results
-        }
+        max_time = 0.0
         
-        if graph_results:
-            rankings["graph"] = graph_results
+        for i, (res, elapsed) in enumerate(results):
+            type_key = task_map.get(i, "unknown")
+            
+            if type_key == "hive_mind":
+                if res:
+                    special_results["hive_mind"] = res
+            else:
+                if res:
+                    rankings[type_key] = res
+            
+            timings[f"{type_key}_search"] = elapsed
+            if elapsed > max_time:
+                max_time = elapsed
+                
+        timings["total_parallel"] = max_time
         
-        # Build timing dict
-        timings = {
-            "vector_search": vector_time,
-            "graph_search": graph_time,
-            "keyword_search": keyword_time,
-            "total_parallel": max(vector_time, graph_time, keyword_time)
-        }
-        
-        return rankings, timings
+        return rankings, timings, special_results
     
     def shutdown(self):
         """Shutdown thread pool."""

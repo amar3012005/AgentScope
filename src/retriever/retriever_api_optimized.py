@@ -14,12 +14,17 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from utils.auth import verify_api_key
+from utils.auth import verify_api_key
 from utils.job_store import JobStore
+from utils.llm_logger import log_llm_event
 
-from retriever.graphrag_retriever import GraphRAGRetriever, generate_answer
 from core.cache_manager import CacheManager
+from core.session_manager import SessionManager
 from core.async_retriever import AsyncRetriever
 from core.reranker import get_reranker
+from retriever.graphrag_retriever import GraphRAGRetriever, generate_answer
+from fastapi import Request
+from langchain_core.documents import Document
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -33,6 +38,9 @@ cache_manager = CacheManager(
     ttl=int(os.getenv("CACHE_TTL", "3600")),
     enabled=os.getenv("ENABLE_CACHE", "true").lower() == "true"
 )
+
+# Initialize session manager
+session_manager = SessionManager(cache_manager)
 
 retriever_job_store = JobStore(storage_dir="_jobs", api_name="retriever")
 
@@ -66,6 +74,9 @@ class QueryRequest(BaseModel):
     # Reranker control (Elite Status)
     use_reranker: bool = Field(default=True, description="Enable BGE Reranker")
     rerank_top_k: int = Field(default=20, description="Number of candidates to rerank")
+    
+    # Session management
+    session_id: Optional[str] = Field(default=None, description="Unique session ID for conversation history")
 
 
 class QueryResponse(BaseModel):
@@ -149,6 +160,12 @@ async def startup():
     api_key_auth = os.getenv("API_KEY", "")
     logger.info(f"   🛡️ API Auth Key: {'Configured' if api_key_auth else 'Not Configured (Public Mode)'}")
 
+    # Log LLM Models
+    logger.info("   🤖 LLM Models:")
+    logger.info(f"      - Pre-Retrieval (Graph): {os.getenv('LITELLM_PRE_MODEL', 'gpt-4o-mini')}")
+    logger.info(f"      - Planner: {os.getenv('LITELLM_PLANNER_MODEL', 'gpt-4o')}")
+    logger.info(f"      - Post-Retrieval: {os.getenv('LITELLM_POST_MODEL', 'gpt-4o')}")
+
     # 2. Warm up GraphRAG Retriever (Shared Connections)
     try:
         get_shared_retriever()
@@ -195,6 +212,28 @@ def is_conversational(query: str) -> bool:
 
 # Global Retriever Instance for Reuse (Singleton Pattern)
 _global_retriever = None
+
+# Tenant Mapping Configuration
+TENANT_MAPPING = {
+    "bundb": "bundb_app_blaiq_ai_knowledgeglobal_421765297988070tsxTz6itX0BGb9_nXy35B",
+    "116.202.24.69": "bundb_app_blaiq_ai_knowledgeglobal_421765297988070tsxTz6itX0BGb9_nXy35B",
+    "default": os.getenv("QDRANT_COLLECTION", "graphrag_chunks")
+}
+
+def resolve_tenant(request: Request) -> str:
+    """Detect tenant from Host header (e.g., bundb.rag.blaiq.ai -> bundb)"""
+    host = request.headers.get("host", "")
+    # Remove port if present
+    base_host = host.split(":")[0].lower()
+    
+    # Try exact match (for IP)
+    if base_host in TENANT_MAPPING:
+        return TENANT_MAPPING[base_host]
+        
+    # Try subdomain match
+    subdomain = base_host.split(".")[0].lower()
+    collection = TENANT_MAPPING.get(subdomain, TENANT_MAPPING["default"])
+    return collection
 
 def get_shared_retriever(request_config: Optional[QueryRequest] = None) -> GraphRAGRetriever:
     """Gets or creates the shared retriever instance."""
@@ -508,150 +547,183 @@ async def cache_stats():
 
 
 @app.post("/query/graphrag/stream")
-async def query_graphrag_stream(request: QueryRequest):
+async def query_graphrag_stream(request_data: QueryRequest, http_request: Request):
     """
-    Streaming version of GraphRAG query with detailed metrics.
+    Streaming version of GraphRAG query with session persistence and multi-tenancy.
     """
-    if not request.query.strip():
+    # 1. Resolve Tenant
+    tenant_collection = request_data.collection_name or resolve_tenant(http_request)
+    request_data.collection_name = tenant_collection
+    
+    if not request_data.query.strip():
         raise HTTPException(400, "Query cannot be empty")
 
     async def stream_generator():
         total_start = time.time()
+        
+        # 2. Load History for Context
+        history_str = ""
+        past_messages = []
+        if request_data.session_id:
+            # User requested last 4 turns (8 messages) to optimize prompt size
+            logger.info(f"📜 Loading history for session: {request_data.session_id} (Tenant: {tenant_collection})")
+            past_messages = await session_manager.get_history(tenant_collection, request_data.session_id, limit=8)
+            for msg in past_messages:
+                history_str += f"{msg['role'].upper()}: {msg['content']}\n"
+            
+            # Save user query to history immediately
+            await session_manager.add_message(tenant_collection, request_data.session_id, "user", request_data.query)
+
         metrics = {
             "timings": {},
-            "sources": {
-                "qdrant_vector": 0,
-                "graph_rag": 0,
-                "keyword_bm25": 0,
-                "adjacent": 0
-            },
-            "entities_extracted": [],
-            "keywords_expanded": [],
+            "sources": {"qdrant_vector": 0, "graph_rag": 0, "keyword_bm25": 0, "adjacent": 0},
             "chunks_retrieved": 0,
-            "reranker_used": False,
-            "cache_hit": False
+            "tenant": tenant_collection
         }
         
-        # Check for Conversational Fast Path
-        if is_conversational(request.query):
-            metrics["timings"]["total"] = round(time.time() - total_start, 3)
-            metrics["fast_path"] = True
+        # 3. Enhance Query with History (Contextual Rewriting)
+        yield f"data: {json.dumps({'log': '🧠 Contextualizing query with history...'})}\n\n"
+        retriever = get_shared_retriever(request_data)
+        async_wrapper = AsyncRetriever(retriever)
+        
+        context_query = retriever.rewrite_query(request_data.query, history_str)
+        if context_query != request_data.query:
+            logger.info(f"🔄 Contextual Rewriting: '{request_data.query}' -> '{context_query}'")
+
+        # LOGGING: History & Intent
+        log_history = [
+            {"role": m["role"], "content": m["content"][:200] + "..." if len(m["content"]) > 200 else m["content"]}
+            for m in past_messages[-4:]
+        ]
+
+        # 3b. Strategic Planning
+        yield f"data: {json.dumps({'log': '🎯 Strategic Planning (Gemini)...'})}\n\n"
+        plan = retriever.plan_retrieval(context_query)
+        search_plan = plan.get("search_plan", {})
+        yield f"data: {json.dumps({'planning': plan})}\n\n"
+        
+        log_payload = {
+            "event": "pipeline_start",
+            "session_id": request_data.session_id,
+            "query": request_data.query,
+            "rewritten_query": context_query,
+            "history_context": log_history,
+            "timestamp": time.time(),
+            "intent": plan.get("mode", "UNKNOWN"),
+            "planner_routes": search_plan
+        }
+        logger.info(json.dumps(log_payload, indent=2, ensure_ascii=False))
+
+        # Fast Path check
+        if is_conversational(request_data.query) and not history_str:
             yield f"data: {json.dumps({'answer': 'Hello! I am your Enterprise Knowledge Hive. How can I help you today?'})}\n\n"
             yield f"data: {json.dumps({'metrics': metrics})}\n\n"
             yield "data: [DONE]\n\n"
             return
-
-        retriever = get_shared_retriever(request)
-        async_wrapper = AsyncRetriever(retriever)
         
-        # Stage 1: Query Expansion
-        expand_start = time.time()
-        logger.info(f"📍 Intent Routing for: '{request.query}'")
+        # Stage 1-4: Planned Retrieval
         
-        expanded_query = retriever.expand_query_with_cot(request.query)
-        metrics["keywords_expanded"] = expanded_query.get('keywords', [])[:10]
-        metrics["timings"]["query_expansion"] = round(time.time() - expand_start, 3)
-        logger.info(f"🔍 Expanded Keywords: {metrics['keywords_expanded']}")
+        # Only expand query if vector/keyword is needed (skip for pure graph or hivemind)
+        expanded_query = {}
+        if search_plan.get("use_vector") or search_plan.get("use_keyword"):
+            yield f"data: {json.dumps({'log': '✨ Expanding query with CoT...'})}\n\n"
+            expand_start = time.time()
+            expanded_query = retriever.expand_query_with_cot(context_query)
+            metrics["timings"]["query_expansion"] = round(time.time() - expand_start, 3)
         
-        # Stage 2: Entity Extraction
-        entity_start = time.time()
-        entities = retriever.extract_entities_with_llm(request.query)
-        metrics["entities_extracted"] = entities[:10] if isinstance(entities, list) else []
-        metrics["timings"]["entity_extraction"] = round(time.time() - entity_start, 3)
-        logger.info(f"👤 Extracted Entities: {entities}")
+        # Only extract entities if graph search is enabled
+        entities = []
+        if search_plan.get("use_graph"):
+            yield f"data: {json.dumps({'log': '🔍 Extracting entities for Graph traversal...'})}\n\n"
+            entity_start = time.time()
+            entities = retriever.extract_entities_with_llm(context_query)
+            metrics["timings"]["entity_extraction"] = round(time.time() - entity_start, 3)
         
-        # Stage 3: Parallel Retrieval
+        yield f"data: {json.dumps({'log': f'🚀 Parallel Retrieval ({sum(search_plan.values())} sources)...'})}\n\n"
         retrieval_start = time.time()
-        rankings, timings = await async_wrapper.parallel_retrieval(
-            request.query, entities, expanded_query, request.k * 10
+        rankings, timings, special_results = await async_wrapper.parallel_retrieval(
+            context_query, entities, expanded_query, request_data.k * 20,
+            plan=search_plan
         )
         
-        # Record source counts
-        metrics["sources"]["qdrant_vector"] = len(rankings.get('vector', {}))
-        metrics["sources"]["graph_rag"] = len(rankings.get('graph', {}))
-        metrics["sources"]["keyword_bm25"] = len(rankings.get('keyword', {}))
-        metrics["sources"]["adjacent"] = len(rankings.get('adjacent', {}))
+        metrics["sources"] = {k: len(v) for k, v in rankings.items()}
         metrics["timings"]["parallel_retrieval"] = timings
-        
-        logger.info(f"📊 Source Distribution: " + 
-                    f"Vector: {metrics['sources']['qdrant_vector']}, " +
-                    f"Graph: {metrics['sources']['graph_rag']}, " +
-                    f"Keyword: {metrics['sources']['keyword_bm25']}")
 
-        # Stage 4: RRF Fusion
-        fusion_start = time.time()
         fused_results = retriever.weighted_rrf_fusion(rankings, k=60)
-        metrics["timings"]["rrf_fusion"] = round(time.time() - fusion_start, 3)
+        chunks = retriever._retrieve_chunks(fused_results[:request_data.k])
         
-        # Stage 5: Reranking (if enabled)
-        rerank_start = time.time()
-        global_reranker_enabled = os.getenv("ENABLE_RERANKER", "true").lower() == "true"
-        if request.use_reranker and global_reranker_enabled:
-            candidates = retriever._retrieve_chunks(fused_results[:request.rerank_top_k])
-            reranker = get_reranker()
-            chunks = reranker.rerank(request.query, candidates, top_n=request.k)
-            metrics["reranker_used"] = True
-        else:
-            chunks = retriever._retrieve_chunks(fused_results[:request.k])
-        
-        metrics["timings"]["reranking"] = round(time.time() - rerank_start, 3)
+        # 🐝 Inject HiveMind Summary if available
+        if special_results.get("hive_mind"):
+            logger.info("🐝 Including HiveMind Global Summary in context")
+            hive_doc = Document(
+                page_content=f"*** HIVE MIND INTELLIGENCE (GLOBAL SUMMARY) ***\n{special_results['hive_mind']}",
+                metadata={"source": "HiveMind Global Analysis", "score": 1.0, "is_hive_mind": True}
+            )
+            chunks.insert(0, hive_doc)
+            
         metrics["chunks_retrieved"] = len(chunks)
         metrics["timings"]["total_retrieval"] = round(time.time() - retrieval_start, 3)
 
-        if not chunks:
-            yield f"data: {json.dumps({'error': 'No relevant chunks found'})}\n\n"
-            yield f"data: {json.dumps({'metrics': metrics})}\n\n"
-            yield "data: [DONE]\n\n"
-            return
+        yield f"data: {json.dumps({'log': f'✅ Retrieval complete ({len(chunks)} chunks found).'})}\n\n"
+        yield f"data: {json.dumps({'log': '🧬 Synthesizing conscious response...'})}\n\n"
         
-        
-        # Extract source document info for metrics
-        source_docs = []
-        for i, doc in enumerate(chunks[:5]):  # Top 5 sources
-            # Handle both dict and Pydantic Document objects
-            if hasattr(doc, 'metadata'):
-                # Pydantic Document object
-                metadata = doc.metadata if hasattr(doc, 'metadata') else {}
-                doc_id = getattr(metadata, 'doc_id', None) or metadata.get('doc_id', 'unknown') if isinstance(metadata, dict) else 'unknown'
-                chunk_index = getattr(metadata, 'chunk_index', None) or metadata.get('chunk_index', 0) if isinstance(metadata, dict) else 0
-                score = getattr(doc, 'score', 0) or 0
-            elif isinstance(doc, dict):
-                # Dict object
-                doc_id = doc.get('doc_id', doc.get('metadata', {}).get('doc_id', 'unknown'))
-                chunk_index = doc.get('chunk_index', doc.get('metadata', {}).get('chunk_index', 0))
-                score = doc.get('score', 0)
-            else:
-                # Fallback for other object types
-                doc_id = getattr(doc, 'doc_id', 'unknown')
-                chunk_index = getattr(doc, 'chunk_index', 0)
-                score = getattr(doc, 'score', 0)
-            
-            source_docs.append({
-                "rank": i + 1,
-                "doc_id": str(doc_id)[:30] if doc_id else "unknown",
-                "chunk_index": chunk_index,
-                "score": round(float(score) if score else 0, 4)
-            })
-        metrics["top_sources"] = source_docs
-
-        # Start streaming from LLM
+        # Start streaming Response
         llm_start = time.time()
+        first_token_time = None
         from retriever.graphrag_retriever import generate_answer_stream
-        response_stream = generate_answer_stream(request.query, chunks, model=request.mode == "global" and "gpt-4o" or None)
+        
+        # 5. Generate Answer (Stream)
+        log_llm_event("llm_start", {"model": retriever.post_model})
+        final_answer = ""
+        
+        response_stream = generate_answer_stream(
+            context_query,  # Use Context Query for accurate answer generation
+            chunks, 
+            history=past_messages,
+            model=retriever.post_model,
+            system_prompt=retriever.response_generator_prompt  # Use new BLAIQ Persona
+        )
         
         for chunk in response_stream:
             if chunk.choices[0].delta.content:
-                yield f"data: {json.dumps({'delta': chunk.choices[0].delta.content})}\n\n"
+                if first_token_time is None:
+                    first_token_time = time.time()
+                content = chunk.choices[0].delta.content
+                final_answer += content
+                yield f"data: {json.dumps({'delta': content})}\n\n"
         
-        # Final metrics
+        # 4. Save Assistant Response to History
+        if request_data.session_id:
+            await session_manager.add_message(tenant_collection, request_data.session_id, "assistant", final_answer)
+
         metrics["timings"]["llm_generation"] = round(time.time() - llm_start, 3)
         metrics["timings"]["total"] = round(time.time() - total_start, 3)
         
-        # Send metrics before done
+        if first_token_time:
+            metrics["timings"]["ttfc_ms"] = (first_token_time - llm_start) * 1000
+
+        # LOGGING: LLM Response & Latency
+        logger.info(json.dumps({
+            "event": "llm_complete",
+            "response_length": len(final_answer),
+            "total_latency_ms": metrics["timings"]["total"] * 1000,
+            "llm_latency_ms": metrics["timings"]["llm_generation"] * 1000,
+            "ttfc_ms": metrics["timings"].get("ttfc_ms", 0),
+            "retrieval_latency_ms": metrics["timings"]["total_retrieval"] * 1000,
+            "timestamp": time.time()
+        }, indent=2))
+
         yield f"data: {json.dumps({'metrics': metrics})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
+@app.get("/history/{session_id}")
+async def get_chat_history(session_id: str, http_request: Request):
+    """Retrieve history for a session."""
+    tenant = resolve_tenant(http_request)
+    past_messages = await session_manager.get_history(tenant, session_id)
+    return {"session_id": session_id, "tenant": tenant, "history": past_messages}
 
 
 @app.post("/cache/clear")

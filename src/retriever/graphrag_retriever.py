@@ -56,6 +56,7 @@ from utils.qdrant_helpers import compute_point_id
 import time
 import uuid
 from utils.llm_logger import log_llm_event
+from prompts.prompt_loader import PromptLoader
 
 
 # Suppress warnings
@@ -100,10 +101,10 @@ NEO4J_URI = os.getenv("NEO4J_URI") or CONFIG.get("neo4j", {}).get("uri", "bolt:/
 NEO4J_USER = os.getenv("NEO4J_USER") or CONFIG.get("neo4j", {}).get("user", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 
-# LiteLLM Configuration
-LITELLM_PLANNER_MODEL = os.getenv("LITELLM_PLANNER_MODEL", "openai/gpt-4o")
-LITELLM_PRE_MODEL = os.getenv("LITELLM_PRE_MODEL", "openai/gpt-4o-mini")
-LITELLM_POST_MODEL = os.getenv("LITELLM_POST_MODEL", "openai/gpt-4o")
+# LiteLLM Configuration - Force environment values or defaults
+LITELLM_PLANNER_MODEL = os.getenv("LITELLM_PLANNER_MODEL") or "openai/gpt-4o"
+LITELLM_PRE_MODEL = os.getenv("LITELLM_PRE_MODEL") or "openai/gpt-4o-mini"
+LITELLM_POST_MODEL = os.getenv("LITELLM_POST_MODEL") or "openai/gpt-4o"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE_URL = os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1")
 
@@ -315,6 +316,22 @@ Beispiel: ["Angela Merkel", "Bundesregierung", "2025", "KI-Strategie", "Berlin"]
 
 JSON-Array:"""
 
+# Query Rewriting Prompt
+REWRITE_QUERY_PROMPT = """You are a Query Rewriter. Your goal is to rewrite the user's latest question to be a standalone search query by incorporating relevant context from the conversation history.
+
+RULES:
+1. If the question is already standalone (e.g. "What is the budget?"), return it exactly as is.
+2. If the question is context-dependent (e.g. "What about project Alpha?", "And the other one?"), rewrite it to be complete (e.g. "What is the budget for project Alpha?").
+3. Preserve the original language of the query.
+4. Output ONLY the rewritten query. No explanations.
+
+Conversation History:
+{history}
+
+User's Latest Question: {query}
+
+Rewritten Standalone Query:"""
+
 # 260108–BundB Jun - BEGIN
 # LiteLLM Unified Invocation
 def _invoke_llm(messages, model: str, **kwargs):
@@ -326,6 +343,12 @@ def _invoke_llm(messages, model: str, **kwargs):
     
     # Configure LiteLLM to drop unsupported params (like temperature for o1)
     litellm.drop_params = True
+    
+    # Ensure custom models have a provider prefix for LiteLLM if missing
+    if "/" not in model:
+         # Treat gpt-oss as a custom OpenAI provider model
+         if not model.startswith("gpt-") or "gpt-oss" in model:
+            model = f"openai/{model}"
     
     try:
         if os.getenv("DEBUG_LLM", "false").lower() == "true":
@@ -369,7 +392,16 @@ def _invoke_llm(messages, model: str, **kwargs):
         duration_ms = int((time.time() - start) * 1000)
         
         if os.getenv("DEBUG_LLM", "false").lower() == "true":
-            print(f"  [LLM {call_id}] Model: {model} | Duration: {duration_ms}ms")
+            usage = getattr(response, "usage", None)
+            if usage:
+                t_in = getattr(usage, "prompt_tokens", 0)
+                t_out = getattr(usage, "completion_tokens", 0)
+                t_total = getattr(usage, "total_tokens", 0)
+                usage_str = f" | 📊 TOKENS: {t_total} [Input: {t_in}, Output: {t_out}]"
+            else:
+                usage_str = " | ⚠️ No token usage data returned by provider"
+            
+            print(f"  [LLM {call_id}] 🧠 Model: {model} | ⏱️ Duration: {duration_ms}ms{usage_str}")
             
         return response.choices[0].message.content, model
 
@@ -380,18 +412,25 @@ def _invoke_llm(messages, model: str, **kwargs):
 
 def _invoke_llm_stream(messages, model: str, **kwargs):
     """
-    Unified LiteLLM streaming completion call.
+    Streaming version of unified LLM call with metadata logging.
     """
     call_id = str(uuid.uuid4())
+    start = time.time()
     
     # Configure LiteLLM
     litellm.drop_params = True
     
+    if "/" not in model:
+         if not model.startswith("gpt-") or "gpt-oss" in model:
+            model = f"openai/{model}"
+    
+    # Log estimated prompt size
+    prompt_chars = sum(len(m.get("content", "")) for m in messages)
+    
+    if os.getenv("DEBUG_LLM", "false").lower() == "true":
+        print(f"  [STREAM {call_id}] 🧠 Starting {model} | Estimated Prompt: {prompt_chars} chars")
+
     try:
-        if os.getenv("DEBUG_LLM", "false").lower() == "true":
-            print(f"  [STREAM {call_id}] Using api_base: {OPENAI_API_BASE_URL} | Model: {model}")
-        
-        # Determine parameters
         params = {
             "model": model,
             "messages": messages,
@@ -399,14 +438,15 @@ def _invoke_llm_stream(messages, model: str, **kwargs):
             "timeout": LLM_TIMEOUT_SECONDS,
             "api_base": OPENAI_API_BASE_URL,
             "api_key": OPENAI_API_KEY,
+            "stream_options": {"include_usage": True}, # Attempt to get usage in stream
             **kwargs
         }
         
-        # Reasoning models handling
+        # Reasoning model handling
         is_reasoning = model.lower().startswith("o1") or "qwq" in model.lower()
         if is_reasoning:
             if model.lower().startswith("o1"):
-                params.pop("temperature", None)
+                params.pop("temperature", None) # O1 specific: Remove temperature if set
             if "max_tokens" in params:
                 params["max_completion_tokens"] = params.pop("max_tokens")
             params["timeout"] = 300
@@ -420,8 +460,8 @@ def _invoke_llm_stream(messages, model: str, **kwargs):
         return litellm.completion(**params)
 
     except Exception as e:
+        duration_ms = int((time.time() - start) * 1000)
         print(f"  ❌ LiteLLM Stream Error ({model}): {str(e)}")
-        raise
         
         log_llm_event("llm_error", {
             "call_id": call_id,
@@ -579,11 +619,14 @@ class GraphRAGRetriever:
         self.post_model = LITELLM_POST_MODEL
 
         # === PROMPT TEMPLATES ===
-        self.planner_prompt = STRATEGIC_PLANNER_PROMPT
-        self.entity_extraction_prompt = (
-            entity_extraction_prompt or PRE_RETRIEVAL_SYSTEM_PROMPT
-        )
+        self.loader = PromptLoader()
+        
+        # Load detailed XML strategies
+        self.planner_prompt = self.loader.load_planner_prompt()
+        self.entity_extraction_prompt = self.loader.load_entity_prompt()
+        self.response_generator_prompt = self.loader.load_response_generator()
 
+        print(f"✅ LLM Config: Planner={self.planner_model}, Pre={self.pre_model}, Post={self.post_model}")
         print("✅ GraphRAG Retriever initialized (Graph + Vector + Keyword)")
 
     def get_embedding(self, text: str) -> List[float]:
@@ -593,6 +636,58 @@ class GraphRAGRetriever:
         except Exception as e:
             print(f"  ⚠️ Error getting embedding: {e}")
             return [0.0] * self.embedding_dim
+
+    def rewrite_query(self, query: str, history: str) -> str:
+        """Rewrite context-dependent queries using conversation history."""
+        if not history or not self._is_context_dependent(query):
+            return query
+            
+        try:
+            messages = [
+                {"role": "system", "content": "You are a Query Rewriter. Output ONLY the rewritten query. No preamble."},
+                {"role": "user", "content": REWRITE_QUERY_PROMPT.format(history=history[-2000:], query=query)}
+            ]
+            
+            rewritten, _ = _invoke_llm(
+                messages,
+                model=self.pre_model,
+                max_tokens=100,
+                temperature=0.1
+            )
+            
+            rewritten = rewritten.strip()
+            if rewritten and len(rewritten) < 200:
+                if self.debug:
+                    print(f"  🔄 Query Rewritten: '{query}' -> '{rewritten}'")
+                return rewritten
+        except Exception as e:
+            if self.debug:
+                print(f"  ⚠️ Query rewriting failed: {e}")
+                
+        return query
+
+    def _is_context_dependent(self, query: str) -> bool:
+        """Detect if the query likely refers to previous context."""
+        patterns = [
+            r"\b(it|that|those|them|they)\b",
+            r"\b(this|these)\b",
+            r"\b(him|her|his|hers)\b",
+            r"previous",
+            r"above",
+            r"before",
+            r"last one",
+            r"what about",
+            r"how about",
+            r"and the\b",
+            r"why (did|is|does)\b",
+            r"tell me more",
+            r"explain (it|that)\b",
+            r"what did i (just )?ask",
+            r"what was (i|my) (previous )?question",
+            r"what were we (talking|discussing) about",
+        ]
+        query_lower = query.lower()
+        return any(re.search(p, query_lower) for p in patterns)
 
     def plan_retrieval(self, query: str) -> Dict:
         """
@@ -604,34 +699,62 @@ class GraphRAGRetriever:
                 {"role": "user", "content": f"User Query: {query}"}
             ]
             
-            content, used_model = _invoke_llm(
+            raw_response, used_model = _invoke_llm(
                 messages,
                 model=self.planner_model,
-                max_tokens=800
+                max_tokens=800,
+                temperature=0.0,
+                response_format={"type": "json_object"}
             )
-            
-            # Clean JSON
-            json_text = content.strip()
-            if json_text.startswith("```"):
-                json_text = re.sub(r"```json?\s*", "", json_text)
-                json_text = re.sub(r"```\s*$", "", json_text)
-                
-            plan = json.loads(json_text)
-            
-            if self.debug:
-                print(f"  🧠 Strategic Plan [{plan.get('mode')}]: {plan.get('reasoning')}")
-                
-            return plan
-        except Exception as e:
-            if self.debug:
-                print(f"  ⚠️ Strategy Planning failed: {e}. Falling back to default LOCAL_SEARCH.")
-            return {
-                "mode": "LOCAL_SEARCH",
-                "search_plan": {"use_vector": True, "use_graph": True, "use_keyword": True},
-                "entities_german": [],
-                "direct_reply": None
-            }
 
+            # 2. Parse JSON
+            plan = json.loads(raw_response)
+            
+            # 3. Map new XML schema ("routes") to internal keys
+            routes = plan.get("routes", {})
+            search_plan = {
+                "use_vector": routes.get("use_vector", True),
+                "use_graph": routes.get("use_graph", False),
+                "use_keyword": routes.get("use_vector", True), # Fallback to vector logic for keyword
+                "use_hive_mind": routes.get("use_hive_mind", False)
+            }
+            
+            # Backwards compatibility for the rest of the code
+            plan["search_plan"] = search_plan
+            
+            # MANDATORY GRAPH SEARCH: Always enable for DOCUMENT_SEARCH and ANALYTICAL_SEARCH
+            mode = plan.get("mode", "DOCUMENT_SEARCH")
+            if mode in ["DOCUMENT_SEARCH", "ANALYTICAL_SEARCH"]:
+                if not search_plan["use_graph"]:
+                    if self.debug:
+                        print(f"🔧 POLICY: Enabling Graph search for {mode} mode")
+                    search_plan["use_graph"] = True
+                    plan["search_plan"]["use_graph"] = True
+            
+            # SAFETY OVERRIDE: If query contains capitalized names but Graph is disabled, force it
+            # This ensures we never miss entity-based queries
+            if not search_plan["use_graph"]:
+                # Check for proper names or IDs in the query
+                has_entities = bool(re.findall(r'\b[A-Z][a-z]{3,12}\b', query))
+                has_ids = bool(re.findall(r'\b[A-Z]{2,5}-\d{2,8}\b', query))
+                
+                if has_entities or has_ids:
+                    if self.debug:
+                        print(f"⚠️ OVERRIDE: Detected entities/IDs - forcing Graph search ON")
+                    search_plan["use_graph"] = True
+                    plan["search_plan"]["use_graph"] = True
+            
+            if self.debug:
+                print(f"🧠 Strategy: {plan.get('mode')} | Routes: {routes}")
+
+            return plan
+
+        except Exception as e:
+            print(f"⚠️ Planner failed, defaulting to FULL SEARCH. Error: {e}")
+            return {
+                "mode": "FALLBACK",
+                "search_plan": {"use_vector": True, "use_graph": True, "use_keyword": True, "use_hive_mind": False}
+            }
     def extract_entities_with_llm(self, query: str) -> List[str]:
         """
         Extract entities from query using a hybrid approach:
@@ -664,10 +787,20 @@ class GraphRAGRetriever:
                       'The', 'What', 'Who', 'Where', 'When', 'Why', 'How', 'Do', 'Does', 'Did',
                       'Can', 'Could', 'Would', 'Should', 'Is', 'Are', 'Was', 'Were', 'Have', 'Has'}
         for i, word in enumerate(words):
-            if i > 0 and word[0].isupper() and word not in skip_words:
-                clean_word = re.sub(r'[^\w]', '', word)  # Remove punctuation
-                if len(clean_word) > 2:
+            # 4. Extract proper nouns (capitalized words)
+            if word and word[0].isupper() and word not in skip_words:
+                clean_word = re.sub(r'[^\w\-]', '', word)  # Keep hyphen for IDs like WFT-25022
+                if len(clean_word) >= 3:
                     entities.append(clean_word)
+            
+            # 4b. Explicit ID Match (WFT-25022)
+            id_match = re.search(r'\b[A-Za-z]{2,5}-\d{2,8}\b', word)
+            if id_match:
+                entities.append(id_match.group(0))
+
+        # 4c. Extract capitalized names anywhere
+        names = re.findall(r'\b[A-Z][a-z]{2,12}\b', query)
+        entities.extend(names)
         
         # 5. Extract German compound nouns (words starting with capital, > 8 chars)
         german_nouns = re.findall(r'\b[A-ZÄÖÜ][a-zäöüß]{7,}\b', query)
@@ -681,10 +814,8 @@ class GraphRAGRetriever:
         entities = list(set(entities))
         
         # === LLM FALLBACK for complex queries ===
-        # Only call LLM if:
-        # 1. We found very few entities (< 2) AND
-        # 2. Query is complex (> 30 chars, no clear number pattern)
-        use_llm = len(entities) < 2 and len(query) > 30 and not euro_amounts
+        # Be more eager for LLM extraction if we have fewer than 2 entities
+        use_llm = len(entities) < 2 and len(query) > 15
         
         if use_llm:
             if self.debug:
@@ -722,6 +853,17 @@ class GraphRAGRetriever:
         else:
             if self.debug:
                 print(f"  ⚡ Fast rule-based extraction used (skipped LLM)")
+        
+        # EMERGENCY FALLBACK: If we still have no entities, extract the most "rare" capitalized word
+        # This ensures Graph search always has something to query
+        if not entities and len(query) > 5:
+            # Find any capitalized word that's not a common word
+            emergency_entities = re.findall(r'\b[A-Z][a-z]{2,15}\b', query)
+            if emergency_entities:
+                # Pick the longest one (usually the most specific)
+                entities = [max(emergency_entities, key=len)]
+                if self.debug:
+                    print(f"  🚨 EMERGENCY FALLBACK: Using '{entities[0]}' for Graph search")
         
         if self.debug:
             print(f"  🔍 Extracted entities: {entities}")
@@ -1039,6 +1181,66 @@ class GraphRAGRetriever:
             expanded["expected_patterns"].extend(["mrd", "milliarden", "€", "euro"])
         if "ziel" in query_lower:
             expanded["expected_patterns"].extend(["bis", "2030", "2035", "2040", "2050", "%"])
+
+        # === OPTIONAL: True LLM-based Chain-of-Thought for Complex Queries ===
+        # Trigger conditions: Multi-part questions, analytical queries, or when fast extraction found little
+        is_complex = (
+            len(query.split()) > 8 or  # Long query
+            any(word in query_lower for word in ['wie', 'warum', 'welche', 'relationship', 'connect', 'compare', 'analyze']) or
+            (len(expanded["keywords"]) < 2 and len(query) > 20)  # Few keywords but long query
+        )
+        
+        if is_complex:
+            try:
+                cot_prompt = f"""You are a Query Expansion AI. Given a user query, think step-by-step to generate related search terms that would help find relevant documents.
+
+User Query: "{query}"
+
+Think through:
+1. What is the core intent?
+2. What related terms, synonyms, or concepts should we search for?
+3. What specific entities (names, IDs, organizations) are mentioned?
+
+Output ONLY a JSON object with this structure:
+{{
+  "reasoning": "brief explanation of the query intent",
+  "additional_keywords": ["term1", "term2", "term3"],
+  "related_concepts": ["concept1", "concept2"],
+  "entities": ["entity1", "entity2"]
+}}"""
+
+                messages = [
+                    {"role": "system", "content": "You are a search query expansion expert. Output only valid JSON."},
+                    {"role": "user", "content": cot_prompt}
+                ]
+                
+                cot_response, _ = _invoke_llm(
+                    messages,
+                    model=self.pre_model,
+                    max_tokens=300,
+                    temperature=0.3,
+                    response_format={"type": "json_object"}
+                )
+                
+                cot_data = json.loads(cot_response)
+                
+                # Merge LLM expansions with rule-based results
+                if "additional_keywords" in cot_data:
+                    expanded["keywords"].extend(cot_data["additional_keywords"])
+                if "related_concepts" in cot_data:
+                    expanded["keywords"].extend(cot_data["related_concepts"])
+                if "entities" in cot_data:
+                    expanded["keywords"].extend(cot_data["entities"])
+                
+                # Deduplicate
+                expanded["keywords"] = list(set(expanded["keywords"]))
+                
+                if self.debug:
+                    print(f"  🧠 LLM CoT Expansion: +{len(cot_data.get('additional_keywords', []))} keywords")
+                    
+            except Exception as e:
+                if self.debug:
+                    print(f"  ⚠️ LLM CoT expansion failed: {e}")
 
         return expanded
 
@@ -1936,25 +2138,37 @@ def generate_answer(
 def generate_answer_stream(
     query: str,
     chunks: List[Document],
+    history: Optional[List[Dict]] = None,
     system_prompt: Optional[str] = None,
     user_prompt: Optional[str] = None,
     model: Optional[str] = None,
 ):
     """
-    Generate answer stream using LLM.
+    Generate answer stream using LLM with conversation history.
     """
     final_system_prompt = system_prompt or POST_RETRIEVAL_SYSTEM_PROMPT
     final_user_prompt = user_prompt or DEFAULT_USER_PROMPT
     actual_model = model or LITELLM_POST_MODEL
 
     try:
+        from retriever.graphrag_retriever import format_chunks_for_context
         context = format_chunks_for_context(chunks)
         formatted_user_prompt = final_user_prompt.format(context=context, query=query)
 
         messages = [
             {"role": "system", "content": final_system_prompt},
-            {"role": "user", "content": formatted_user_prompt},
         ]
+        
+        # Inject conversation history turns
+        if history:
+            for msg in history:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if content:
+                    messages.append({"role": role, "content": content})
+
+        # Add the current user query with context snippets
+        messages.append({"role": "user", "content": formatted_user_prompt})
 
         return _invoke_llm_stream(
             messages,

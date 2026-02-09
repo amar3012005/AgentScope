@@ -138,6 +138,93 @@
             animation: fadeIn 0.3s ease;
         }
 
+        /* Pipeline Log style */
+        .pipeline-terminal {
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            margin-bottom: 12px;
+            line-height: 1.5;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #333;
+        }
+
+        .pipeline-log-entry {
+            margin-bottom: 4px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .pipeline-ts {
+            color: #569cd6;
+        }
+
+        .pipeline-status {
+            color: #ce9178;
+        }
+
+        .planning-tag {
+            background: rgba(242, 86, 35, 0.1);
+            border: 1px solid var(--primary);
+            color: var(--primary);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+
+        /* Reasoning / Thinking style */
+        .reasoning-block {
+            background: #fdf6f2;
+            border-left: 3px solid var(--primary);
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            border-radius: 0 8px 8px 0;
+            font-style: italic;
+            color: #555;
+            font-size: 0.9rem;
+        }
+
+        .reasoning-title {
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--primary);
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .blinking-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 15px;
+            background: var(--primary);
+            margin-left: 4px;
+            animation: pulse 1s infinite;
+        }
+
         @keyframes fadeIn {
             from {
                 opacity: 0;
@@ -277,8 +364,8 @@
 
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 12px;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
             margin-bottom: 12px;
         }
 
@@ -498,7 +585,9 @@
             <span>BLAIQ</span>
         </div>
         <div class="header-right">
-            <input type="text" id="collection" class="collection-input" placeholder="Collection / Tenant ID...">
+            <button id="newChat" class="source-chip"
+                style="background: var(--bg-secondary); border: 1px solid var(--border); font-size: 0.75rem; font-weight: 600;">+
+                New Chat</button>
             <div class="status-badge">
                 <span class="status-dot" id="dot"></span>
                 <span id="statusText">Connecting...</span>
@@ -547,8 +636,14 @@
             empty: document.getElementById('empty'),
             status: document.getElementById('statusText'),
             dot: document.getElementById('dot'),
-            collection: document.getElementById('collection')
+            newChat: document.getElementById('newChat')
         };
+
+        let SESSION_ID = localStorage.getItem('graphrag_session_id');
+        if (!SESSION_ID) {
+            SESSION_ID = 'sess_' + Math.random().toString(36).substring(2, 15);
+            localStorage.setItem('graphrag_session_id', SESSION_ID);
+        }
 
         // Auto-resize textarea
         els.input.addEventListener('input', function () {
@@ -556,17 +651,20 @@
             this.style.height = Math.min(this.scrollHeight, 200) + 'px';
         });
 
-        async function fetchConfig() {
+        async function loadHistory() {
             try {
-                const r = await fetch(API_URL + "/config");
+                const r = await fetch(API_URL + "/history/" + SESSION_ID);
                 if (r.ok) {
-                    const cfg = await r.json();
-                    if (cfg.qdrant_collection) {
-                        els.collection.value = cfg.qdrant_collection;
+                    const data = await r.json();
+                    if (data.history && data.history.length > 0) {
+                        if (els.empty) els.empty.style.display = 'none';
+                        data.history.forEach(msg => {
+                            appendMessage(msg.role === 'user' ? 'user' : 'assistant', msg.content);
+                        });
                     }
                 }
             } catch (e) {
-                console.error("Config error:", e);
+                console.error("History load error:", e);
             }
         }
 
@@ -583,6 +681,12 @@
         }
 
         els.send.onclick = sendMessage;
+        els.newChat.onclick = () => {
+            if (confirm("Clear this conversation and start a new chat?")) {
+                localStorage.removeItem('graphrag_session_id');
+                window.location.reload();
+            }
+        };
         els.input.onkeydown = (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -618,7 +722,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         query: text,
-                        collection_name: els.collection.value || undefined,
+                        session_id: SESSION_ID,
                         mode: "local",
                         use_reranker: false,
                         use_cache: true,
@@ -630,12 +734,16 @@
                 const decoder = new TextDecoder();
                 let fullText = "";
                 let metricsData = null;
-                let ttfc = null; // Time To First Content
+                let ttfc = null;
+
+                // Pipeline elements
+                let terminalEl = null;
+                let planningEl = null;
 
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
-                    const chunk = decoder.decode(value);
+                    const chunk = decoder.decode(value, { stream: true });
                     const lines = chunk.split("\n");
 
                     for (const line of lines) {
@@ -644,20 +752,45 @@
                             if (dataStr === "[DONE]") continue;
                             try {
                                 const data = JSON.parse(dataStr);
-                                if (data.delta) {
-                                    // Record TTFC on first content
+
+                                // 1. Handle Pipeline Logs
+                                if (data.log) {
+                                    if (!terminalEl) {
+                                        terminalEl = document.createElement('div');
+                                        terminalEl.className = 'pipeline-terminal';
+                                        textEl.before(terminalEl);
+                                    }
+                                    const logEntry = document.createElement('div');
+                                    logEntry.className = 'pipeline-log-entry';
+                                    const ts = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                    logEntry.innerHTML = `<span class="pipeline-ts">[${ts}]</span> <span class="pipeline-status">${data.log}</span>`;
+                                    terminalEl.appendChild(logEntry);
+                                    terminalEl.scrollTop = terminalEl.scrollHeight;
+                                }
+
+                                // 2. Handle Planning Tags
+                                if (data.planning) {
+                                    if (!planningEl) {
+                                        planningEl = document.createElement('div');
+                                        planningEl.className = 'planning-tag';
+                                        textEl.before(planningEl);
+                                    }
+                                    const p = data.planning;
+                                    const active = Object.keys(p.search_plan).filter(k => p.search_plan[k]).map(k => k.replace('use_', ''));
+                                    planningEl.innerHTML = `🎯 <strong>PLAN:</strong> ${p.mode} &nbsp; | &nbsp; 🧩 <strong>SOURCES:</strong> ${active.join(', ').toUpperCase()}`;
+                                }
+
+                                // 3. Handle Streaming Content
+                                if (data.delta || data.answer) {
                                     if (ttfc === null) {
                                         ttfc = Math.round(performance.now() - start);
+                                        // Once content starts, we can optionally collapse the terminal
+                                        if (terminalEl) terminalEl.style.opacity = "0.7";
                                     }
-                                    fullText += data.delta;
+                                    const content = data.delta || data.answer;
+                                    fullText += content;
                                     textEl.innerHTML = formatMessage(fullText);
                                     els.box.scrollTop = els.box.scrollHeight;
-                                } else if (data.answer) {
-                                    if (ttfc === null) {
-                                        ttfc = Math.round(performance.now() - start);
-                                    }
-                                    fullText = data.answer;
-                                    textEl.innerHTML = formatMessage(fullText);
                                 } else if (data.metrics) {
                                     metricsData = data.metrics;
                                 }
@@ -683,9 +816,24 @@
         }
 
         function formatMessage(text) {
-            // Convert markdown-style formatting
-            return text
+            // First, protect the thinking/reasoning blocks
+            // Match <Thinking>...</Thinking> or REASONING...ANSWER
+            let processed = text;
+
+            // Handle XML-style Reasoning tags - make them look premium
+            processed = processed.replace(/<Thinking>([\s\S]*?)<\/Thinking>/gi, (match, content) => {
+                return `<div class="reasoning-block"><div class="reasoning-title">🧠 CORE REASONING</div>${content.trim().replace(/\n/g, '<br>')}</div>`;
+            });
+
+            // Handle legacy REASONING/ANSWER blocks if present
+            processed = processed.replace(/REASONING\s*\n([\s\S]*?)\n\s*ANSWER/gi, (match, content) => {
+                return `<div class="reasoning-block"><div class="reasoning-title">🧠 REASONING</div>${content.trim().replace(/\n/g, '<br>')}</div><div class="reasoning-title">💬 ANSWER</div>`;
+            });
+
+            // Standard Markdown-ish
+            return processed
                 .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n\n/g, '<br><br>')
                 .replace(/\n/g, '<br>');
         }
 
@@ -747,16 +895,20 @@
                 <div class="metrics-panel">
                     <div class="metrics-grid">
                         <div class="metric-card">
-                            <div class="metric-value">${srcDist.qdrant_vector || 0}</div>
+                            <div class="metric-value">${srcDist.vector || 0}</div>
                             <div class="metric-label">Vector</div>
                         </div>
                         <div class="metric-card">
-                            <div class="metric-value">${srcDist.graph_rag || 0}</div>
+                            <div class="metric-value">${srcDist.graph || 0}</div>
                             <div class="metric-label">Graph</div>
                         </div>
                         <div class="metric-card">
-                            <div class="metric-value">${srcDist.keyword_bm25 || 0}</div>
+                            <div class="metric-value">${srcDist.keyword || 0}</div>
                             <div class="metric-label">Keyword</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">${srcDist.hive_mind || 0}</div>
+                            <div class="metric-label">Hive</div>
                         </div>
                         <div class="metric-card">
                             <div class="metric-value">${metrics.chunks_retrieved || 0}</div>
@@ -805,7 +957,7 @@
         }
 
         // Initialize
-        fetchConfig();
+        loadHistory();
         health();
     </script>
 </body>
