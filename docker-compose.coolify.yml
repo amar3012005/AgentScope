@@ -9,7 +9,7 @@ services:
     volumes:
       - graphrag_optimized_redis_data:/data
     command: redis-server --appendonly yes --bind 0.0.0.0
-    container_name: redis-e0cwcccswckc8okk4k00skck
+    # container_name: redis-e0cwcccswckc8okk4k00skck
     networks:
       graphrag-optimized: null
     restart: unless-stopped
@@ -32,9 +32,9 @@ services:
   # Optimized GraphRAG API
   graphrag-optimized:
     build:
-      context: ./graphrag-optimized
+      context: .
       dockerfile: Dockerfile
-    container_name: graphrag-optimized-e0cwcccswckc8okk4k00skck
+    # container_name: graphrag-optimized-e0cwcccswckc8okk4k00skck
     ports:
       - "8445:8001"  # External port 8445 to avoid conflicts
     volumes:
