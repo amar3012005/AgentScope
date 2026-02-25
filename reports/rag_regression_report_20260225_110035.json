@@ -1,0 +1,106 @@
+{
+  "summary": {
+    "cases_total": 4,
+    "cases_ok": 4,
+    "cases_failed": 0,
+    "avg_recall_at_k": 0.5,
+    "multi_source_coverage_rate": 1.0,
+    "hallucination_rate": 0.0,
+    "avg_citation_completeness": 1.0,
+    "avg_answer_overlap": 0.5432,
+    "critical_failures": [],
+    "gate_passed": true
+  },
+  "results": [
+    {
+      "test_id": "TS-G02",
+      "query": "Welche zwei neuen Sub-Marken sollen laut der Dachmarken-Strategie entstehen und an welche jeweiligen Zielgruppen richten sie sich?",
+      "expected_sources": [
+        "dachmarke 1"
+      ],
+      "retrieved_sources": [
+        "territory reclaim made in germany dossier 2",
+        "solvis gemeinwohlbilanz compressed",
+        "dachmarke 1",
+        "protokoll roadshow planung und markenlaunch leo",
+        "b b solvis vorbereitung kick off 2026 beantwortet"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 1.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.6363636363636364,
+      "chunks_retrieved": 15,
+      "elapsed_s": 32.27252793312073,
+      "error": null
+    },
+    {
+      "test_id": "TS-N01",
+      "query": "Wie hoch ist der Listenpreis für das „WP-Paket SolvisPia 25 Hybrid“ in der Preisliste 2025?",
+      "expected_sources": [
+        "preisliste 2025"
+      ],
+      "retrieved_sources": [
+        "preisliste 2025",
+        "20251125 35196 bro solvispia final online"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 1.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.7333333333333333,
+      "chunks_retrieved": 15,
+      "elapsed_s": 19.540323972702026,
+      "error": null
+    },
+    {
+      "test_id": "TS-N02",
+      "query": "Welche konkreten BAFA-Förderbeträge in Euro gelten laut den Dokumenten für das Jahr 2028 beim Einbau einer SolvisLea Pro?",
+      "expected_sources": [
+        "2025 zu förderungen"
+      ],
+      "retrieved_sources": [
+        "20251124 35042 bro solvislea pro online",
+        "34438 bro privatkunden broschuere web",
+        "solvis branding projekt skizze 1",
+        "20250701 35219 bro nachru stsatz wp druck compre",
+        "20251125 35196 bro solvispia final online"
+      ],
+      "source_recall_at_k": 0.0,
+      "multi_source_ok": true,
+      "citation_completeness": 1.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.43478260869565216,
+      "chunks_retrieved": 15,
+      "elapsed_s": 29.897953748703003,
+      "error": null
+    },
+    {
+      "test_id": "TS-H02",
+      "query": "Welche Produktbotschaft zu SolvisLeo wird genannt und wie soll sie visuell gedacht werden?",
+      "expected_sources": [
+        "neuer pufferspeicher produktneueinführun mitdenken (1)"
+      ],
+      "retrieved_sources": [
+        "solvis rebranding skizze 02 zukunft modular gedach",
+        "solvis prototyp solvisleo pufferspeicher",
+        "b b solvis vorbereitung kick off 2026 beantwortet",
+        "pitch 24 11 2025 brand kit 4",
+        "solvis gemeinwohlbilanz compressed",
+        "neuer pufferspeicher produktneueinfuhrung mitdenken",
+        "solvis branding projekt skizze 1",
+        "34438 bro privatkunden broschuere web",
+        "whitepaper transformation",
+        "solvis rebranding konzeptnote vision usecases"
+      ],
+      "source_recall_at_k": 0.0,
+      "multi_source_ok": true,
+      "citation_completeness": 1.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.3684210526315789,
+      "chunks_retrieved": 15,
+      "elapsed_s": 10.344563007354736,
+      "error": null
+    }
+  ]
+}
