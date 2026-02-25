@@ -108,6 +108,8 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 LITELLM_PLANNER_MODEL = os.getenv("LITELLM_PLANNER_MODEL") or "groq/llama-3.1-8b-instant"
 LITELLM_PRE_MODEL = os.getenv("LITELLM_PRE_MODEL") or "groq/llama-3.1-8b-instant"
 LITELLM_POST_MODEL = os.getenv("LITELLM_POST_MODEL") or "openai/gpt-4o"
+FINAL_REASONING_EFFORT = os.getenv("FINAL_REASONING_EFFORT", "medium")
+FINAL_REASONING_EFFORT_GPT_OSS = os.getenv("FINAL_REASONING_EFFORT_GPT_OSS", "low")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE_URL = os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -327,12 +329,20 @@ def _resolve_model_and_client(model: str):
 
     if model.startswith("groq/"):
         return _get_groq_client(), model.replace("groq/", "", 1)
-    elif model.startswith("openai/") and "gpt-oss" in model:
-        # gpt-oss models are served by Groq, not the BLAIQ proxy
-        return _get_groq_client(), model.replace("openai/", "", 1)
+    elif model.startswith("openai/"):
+        # Route openai/* through OpenAI-compatible client/base URL.
+        # This allows reasoning_effort controls for gpt-oss via compatible providers.
+        return _get_openai_client(), model.replace("openai/", "", 1)
     else:
         # openai/ prefix or any other → BLAIQ proxy
         return _get_openai_client(), model.replace("openai/", "", 1)
+
+
+def _resolve_final_reasoning_effort(model: str) -> str:
+    model_lower = (model or "").lower()
+    if "gpt-oss" in model_lower:
+        return FINAL_REASONING_EFFORT_GPT_OSS
+    return FINAL_REASONING_EFFORT
 
 def _invoke_llm(messages, model: str, **kwargs):
     """
@@ -2669,11 +2679,12 @@ def generate_answer(
         ]
 
         # Invoke LLM via the unified handler
+        reasoning_effort = _resolve_final_reasoning_effort(actual_model)
         content, used_model = _invoke_llm(
             messages,
             model=actual_model,
             max_tokens=LLM_MAX_OUTPUT_TOKENS,
-            reasoning_effort="medium"
+            reasoning_effort=reasoning_effort
         )
         return _enforce_sources_block(content, query, chunks)
 
@@ -2739,11 +2750,12 @@ IMPORTANT RULES FOR {mode_upper} FORMAT:
         # Add the current user query with context snippets
         messages.append({"role": "user", "content": formatted_user_prompt})
 
+        reasoning_effort = _resolve_final_reasoning_effort(actual_model)
         return _invoke_llm_stream(
             messages,
             model=actual_model,
             max_tokens=LLM_MAX_OUTPUT_TOKENS,
-            reasoning_effort="medium"
+            reasoning_effort=reasoning_effort
         )
 
     except Exception as e:
