@@ -10,7 +10,7 @@ import asyncio
 import sys
 import os
 
-# Add src to path
+#h Add src to path
 sys.path.append(os.path.join(os.getcwd(), "src"))
 
 from retriever.graphrag_retriever import GraphRAGRetriever
