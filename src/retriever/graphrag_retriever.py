@@ -369,7 +369,10 @@ def _invoke_llm(messages, model: str, **kwargs):
 
     # Anthropic via Bedrock/LiteLLM can reject explicit temperature in some thinking modes.
     if _is_anthropic_model_name(model_name):
-        kwargs.pop("temperature", None)
+        # Claude on Bedrock/LiteLLM requires temperature=1 with thinking paths.
+        # Force compatible value and avoid unsupported reasoning_effort mapping.
+        kwargs["temperature"] = 1
+        kwargs.pop("reasoning_effort", None)
 
     try:
         if os.getenv("DEBUG_LLM", "false").lower() == "true":
@@ -449,7 +452,10 @@ def _invoke_llm_stream(messages, model: str, **kwargs):
 
     # Anthropic via Bedrock/LiteLLM can reject explicit temperature in some thinking modes.
     if _is_anthropic_model_name(model_name):
-        kwargs.pop("temperature", None)
+        # Claude on Bedrock/LiteLLM requires temperature=1 with thinking paths.
+        # Force compatible value and avoid unsupported reasoning_effort mapping.
+        kwargs["temperature"] = 1
+        kwargs.pop("reasoning_effort", None)
 
     prompt_chars = sum(len(m.get("content", "")) for m in messages)
 
