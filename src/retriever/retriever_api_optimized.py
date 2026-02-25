@@ -22,7 +22,7 @@ from core.cache_manager import CacheManager
 from core.session_manager import SessionManager
 from core.async_retriever import AsyncRetriever
 from core.reranker import get_reranker
-from retriever.graphrag_retriever import GraphRAGRetriever, generate_answer
+from retriever.graphrag_retriever import GraphRAGRetriever, generate_answer, _enforce_sources_block
 from fastapi import Request
 from langchain_core.documents import Document
 
@@ -87,6 +87,7 @@ class QueryResponse(BaseModel):
     query: str
     answer: str
     chunks_retrieved: int
+    chunks: Optional[List[Dict[str, Any]]] = None
     retrieval_stats: Dict[str, Any]
     retrieval_time: float
     answer_time: float
@@ -201,6 +202,11 @@ async def shutdown():
     await cache_manager.close()
     if _global_retriever:
         _global_retriever.close()
+    for _, retriever in list(_retriever_pool.items()):
+        try:
+            retriever.close()
+        except Exception:
+            pass
 
 def is_conversational(query: str) -> bool:
     """Check if the query is a simple greeting or common small talk."""
@@ -215,6 +221,20 @@ def is_conversational(query: str) -> bool:
 
 # Global Retriever Instance for Reuse (Singleton Pattern)
 _global_retriever = None
+_retriever_pool = {}
+
+
+def canonical_doc_id(raw_doc_id: str) -> str:
+    """Normalize noisy doc ids to stable business-facing source labels."""
+    doc = (raw_doc_id or "").strip()
+    low = doc.lower()
+    if not doc:
+        return doc
+    if "pl_neuheiten_2025" in low:
+        return "Preisliste_2025"
+    if "produktneueinfu_hrun_mitdenke" in low or "produktneueinfuhrun_mitdenke" in low:
+        return "Neuer_Pufferspeicher_Produktneueinfuhrung_mitdenken"
+    return doc
 
 # Tenant Mapping Configuration
 TENANT_MAPPING = {
@@ -239,29 +259,50 @@ def resolve_tenant(request: Request) -> str:
     return collection
 
 def get_shared_retriever(request_config: Optional[QueryRequest] = None) -> GraphRAGRetriever:
-    """Gets or creates the shared retriever instance."""
+    """Gets or creates shared retriever instance(s), keyed by tenant/config."""
     global _global_retriever
-    
-    # Check if we can reuse the existing one
-    if _global_retriever is not None:
-        if request_config and any([
-            request_config.qdrant_url, 
+    global _retriever_pool
+
+    def _pool_key(cfg: Optional[QueryRequest]) -> str:
+        if cfg is None:
+            return "default"
+        return "|".join(
+            [
+                cfg.collection_name or "default",
+                cfg.qdrant_url or "",
+                cfg.qdrant_host or "",
+                str(cfg.qdrant_port or ""),
+                "apikey" if cfg.qdrant_api_key else "",
+            ]
+        )
+
+    key = _pool_key(request_config)
+    if key in _retriever_pool:
+        return _retriever_pool[key]
+
+    if request_config and any(
+        [
+            request_config.qdrant_url,
             request_config.qdrant_api_key,
-            request_config.collection_name and request_config.collection_name != _global_retriever.collection_name
-        ]):
-             logger.info(f"🔄 Creating specialized retriever for tenant: {request_config.collection_name}")
-             return GraphRAGRetriever(
-                qdrant_url=request_config.qdrant_url,
-                qdrant_host=request_config.qdrant_host,
-                qdrant_port=request_config.qdrant_port,
-                qdrant_api_key=request_config.qdrant_api_key,
-                collection_name=request_config.collection_name,
-                entity_extraction_prompt=request_config.entity_extraction_prompt,
-             )
-        return _global_retriever
-    
+            request_config.collection_name,
+        ]
+    ):
+        logger.info(f"🔄 Creating specialized retriever for tenant: {request_config.collection_name}")
+        retriever = GraphRAGRetriever(
+            qdrant_url=request_config.qdrant_url,
+            qdrant_host=request_config.qdrant_host,
+            qdrant_port=request_config.qdrant_port,
+            qdrant_api_key=request_config.qdrant_api_key,
+            collection_name=request_config.collection_name,
+            entity_extraction_prompt=request_config.entity_extraction_prompt,
+        )
+        _retriever_pool[key] = retriever
+        return retriever
+
     # Initialize default
-    _global_retriever = GraphRAGRetriever()
+    if _global_retriever is None:
+        _global_retriever = GraphRAGRetriever()
+    _retriever_pool[key] = _global_retriever
     return _global_retriever
 
 
@@ -293,12 +334,17 @@ async def query_graphrag_optimized(request: QueryRequest):
             request.collection_name
         )
     
-    if cached_result:
-        # Cache hit - return immediately
-        cached_result["cached"] = True
-        cached_result["cache_stats"] = cache_manager.get_stats()
-        logger.info(f"⚡ CACHE HIT for: {request.query[:50]}...")
-        return QueryResponse(**cached_result)
+        if cached_result:
+            # Cache hit - return immediately
+            cached_result["cached"] = True
+            cached_result["cache_stats"] = cache_manager.get_stats()
+            # If caller requests retrieval-only and cached payload has no chunks,
+            # skip cache so we can provide full diagnostics/chunk details.
+            if request.generate_answer is False and not cached_result.get("chunks"):
+                cached_result = None
+            else:
+                logger.info(f"⚡ CACHE HIT for: {request.query[:50]}...")
+                return QueryResponse(**cached_result)
     
     # Check for Conversational Fast Path
     if is_conversational(request.query):
@@ -380,15 +426,16 @@ async def query_graphrag_optimized(request: QueryRequest):
             all_top.extend(list(r_dict.keys())[:10])
         all_top = list(set(all_top[:30]))
         if all_top:
-            adjacent_results = retriever.get_adjacent_chunks(all_top[:20], window_size=1)
+            adj_window = 2 if retriever._is_table_query(request.query) else 1
+            adjacent_results = retriever.get_adjacent_chunks(all_top[:30], window_size=adj_window)
             if adjacent_results:
                 rankings["adjacent"] = adjacent_results
 
         # RRF Fusion
         if "graph" in rankings and rankings["graph"]:
-            weights = {"graph": 0.40, "vector": 0.45, "keyword": 0.10, "adjacent": 0.05}
+            weights = {"graph": 0.34, "vector": 0.40, "keyword": 0.10, "docid": 0.12, "adjacent": 0.04}
         else:
-            weights = {"vector": 0.70, "keyword": 0.25, "adjacent": 0.05}
+            weights = {"vector": 0.62, "keyword": 0.24, "docid": 0.10, "adjacent": 0.04}
         fused_results = retriever.weighted_rrf_fusion(rankings, weights=weights, k=60)
 
         # Reranking
@@ -396,15 +443,19 @@ async def query_graphrag_optimized(request: QueryRequest):
         global_reranker_enabled = os.getenv("ENABLE_RERANKER", "true").lower() == "true"
         if request.use_reranker and global_reranker_enabled:
             rerank_start = time.time()
-            candidates = retriever._retrieve_chunks(fused_results[:request.rerank_top_k])
+            pool_k = max(request.rerank_top_k, request.k * 4, 40)
+            candidates = retriever._retrieve_chunks(fused_results[:pool_k])
             if candidates:
                 reranker = get_reranker()
-                chunks = reranker.rerank(request.query, candidates, top_n=request.k)
+                reranked = reranker.rerank(request.query, candidates, top_n=pool_k)
+                chunks = retriever._select_diverse_chunks(reranked, request.query, request.k)
             else:
-                chunks = retriever._retrieve_chunks(fused_results[:request.k])
+                fallback_pool = retriever._retrieve_chunks(fused_results[:max(request.k * 4, 40)])
+                chunks = retriever._select_diverse_chunks(fallback_pool, request.query, request.k)
             rerank_time = time.time() - rerank_start
         else:
-            chunks = retriever._retrieve_chunks(fused_results[:request.k])
+            pool_chunks = retriever._retrieve_chunks(fused_results[:max(request.k * 4, 40)])
+            chunks = retriever._select_diverse_chunks(pool_chunks, request.query, request.k)
 
         retrieval_time = time.time() - retrieval_start
         logger.info(f"🚀 TOTAL Retrieval: {retrieval_time:.3f}s")
@@ -436,16 +487,40 @@ async def query_graphrag_optimized(request: QueryRequest):
             "graph_chunks": len(rankings.get("graph", {})),
             "vector_chunks": len(rankings.get("vector", {})),
             "keyword_chunks": len(rankings.get("keyword", {})),
+            "docid_chunks": len(rankings.get("docid", {})),
+            "adjacent_chunks": len(rankings.get("adjacent", {})),
             "entities_extracted": entities,
+            "planner_mode": plan.get("mode"),
+            "search_plan": search_plan,
             "parallel_timings": timings,
             "rerank_time": round(rerank_time, 3),
+            "top_docs": list(
+                dict.fromkeys([canonical_doc_id(c.metadata.get("doc_id", "")) for c in chunks])
+            )[:10],
             "filter_label": retriever.filter_label,
         }
+
+        chunk_details = [
+            {
+                "chunk_id": c.metadata.get("chunk_id", "unknown"),
+                "doc_id": canonical_doc_id(c.metadata.get("doc_id", "unknown")),
+                "chunk_index": c.metadata.get("chunk_index", 0),
+                "score": c.metadata.get("fusion_score", 0.0),
+                "metadata": {
+                    "qdrant_id": c.metadata.get("qdrant_id"),
+                    "retrieval_rank": c.metadata.get("retrieval_rank"),
+                    "page": c.metadata.get("page"),
+                },
+                "text": c.page_content,
+            }
+            for c in chunks
+        ]
 
         result = {
             "query": request.query,
             "answer": answer,
             "chunks_retrieved": len(chunks),
+            "chunks": chunk_details,
             "retrieval_stats": stats,
             "retrieval_time": round(retrieval_time, 3),
             "answer_time": round(answer_time, 3),
@@ -504,6 +579,24 @@ async def get_config():
 async def cache_stats():
     """Get cache statistics"""
     return cache_manager.get_stats()
+
+
+@app.post("/query/graphrag/debug")
+async def query_graphrag_debug(request: QueryRequest):
+    """
+    Debug endpoint for retrieval diagnostics.
+    Always runs with generate_answer=False and use_cache=False.
+    Returns planner mode, retrieval source counts, and top selected docs/chunks.
+    """
+    request.generate_answer = False
+    request.use_cache = False
+    result = await query_graphrag_optimized(request)
+    return {
+        "query": result.query,
+        "chunks_retrieved": result.chunks_retrieved,
+        "retrieval_stats": result.retrieval_stats,
+        "top_chunks": result.chunks[:10] if result.chunks else [],
+    }
 
 
 @app.post("/query/graphrag/stream")
@@ -608,8 +701,13 @@ async def query_graphrag_stream(request_data: QueryRequest, http_request: Reques
         metrics["sources"] = {k: len(v) for k, v in rankings.items()}
         metrics["timings"]["parallel_retrieval"] = timings
 
-        fused_results = retriever.weighted_rrf_fusion(rankings, k=60)
-        chunks = retriever._retrieve_chunks(fused_results[:request_data.k])
+        if "graph" in rankings and rankings["graph"]:
+            weights = {"graph": 0.34, "vector": 0.40, "keyword": 0.10, "docid": 0.12, "adjacent": 0.04}
+        else:
+            weights = {"vector": 0.62, "keyword": 0.24, "docid": 0.10, "adjacent": 0.04}
+        fused_results = retriever.weighted_rrf_fusion(rankings, weights=weights, k=60)
+        pool_chunks = retriever._retrieve_chunks(fused_results[:max(request_data.k * 4, 40)])
+        chunks = retriever._select_diverse_chunks(pool_chunks, context_query, request_data.k)
 
         # Inject HiveMind if available
         if special_results.get("hive_mind"):
@@ -664,6 +762,14 @@ async def query_graphrag_stream(request_data: QueryRequest, http_request: Reques
                 content = chunk.choices[0].delta.content
                 final_answer += content
                 yield f"data: {json.dumps({'delta': content})}\n\n"
+
+        # Ensure deterministic source citations for streamed answers.
+        enforced_answer = _enforce_sources_block(final_answer, context_query, chunks)
+        if enforced_answer != final_answer:
+            suffix = enforced_answer[len(final_answer):]
+            if suffix.strip():
+                yield f"data: {json.dumps({'delta': suffix})}\n\n"
+            final_answer = enforced_answer
 
         # ── 7. Save to History ──
         if request_data.session_id:

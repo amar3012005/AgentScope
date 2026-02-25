@@ -11,14 +11,14 @@
                              
 ┌─────────────────────────────────────────────────────────────┐
 │                    GraphRAG Retriever                        │
-│                                                              │
+│                                                             │
 │  Step 1: Query Expansion                    [~100ms]        │
 │  ├─ Extract keywords, numbers, patterns                     │
 │  └─ Chain-of-Thought expansion                              │
-│                                                              │
+│                                                             │
 │  Step 2: Entity Extraction (LLM)            [~500ms]        │
 │  └─ GPT-4o-mini: Extract entities from query                │
-│                                                              │
+│                                                             │
 │  Step 3: SEQUENTIAL Retrieval               [~4000ms] ❌    │
 │  ├─ Vector Search (Qdrant)      [800ms]  ──┐                │
 │  │   Wait...                                │                │

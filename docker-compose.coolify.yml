@@ -36,7 +36,7 @@ services:
       dockerfile: Dockerfile
     # container_name: graphrag-optimized-e0cwcccswckc8okk4k00skck
     ports:
-      - "${HOST_PORT:-8030}:8001" # Allow overriding the host port via environment variable (default 8020)
+      - "${HOST_PORT:-8020}:8001" # Allow overriding the host port via environment variable (default 8020)
     volumes:
       # Persistent data directories
       - graphrag_optimized_data:/app/data
@@ -66,17 +66,25 @@ services:
       # LLM Configuration (REQUIRED)
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_MODEL: ${OPENAI_MODEL:-groq/llama-3.1-8b-instant}
 
       # LiteLLM Model Configuration
-      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-ovh-Gpt-oss-20b}
-      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-gpt-4o-mini}
-      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-gpt-4o-mini}
+      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-groq/llama-3.1-8b-instant}
+      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-groq/llama-3.3-70b-versatile}
+      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-groq/llama-3.3-70b-versatile}
 
       # Optional: Fallback model and timeouts
       OPENAI_FALLBACK_MODEL: ${OPENAI_FALLBACK_MODEL}
       LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-25}
       LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-4000}
+      KEYWORD_TIME_BUDGET_S: ${KEYWORD_TIME_BUDGET_S:-0.9}
+      KEYWORD_MAX_TERMS: ${KEYWORD_MAX_TERMS:-6}
+      KEYWORD_PER_CALL_TIMEOUT_S: ${KEYWORD_PER_CALL_TIMEOUT_S:-0.7}
+      KEYWORD_PER_TERM_LIMIT: ${KEYWORD_PER_TERM_LIMIT:-40}
+      DOCID_TIME_BUDGET_S: ${DOCID_TIME_BUDGET_S:-0.7}
+      DOCID_MAX_TERMS: ${DOCID_MAX_TERMS:-6}
+      DOCID_PER_CALL_TIMEOUT_S: ${DOCID_PER_CALL_TIMEOUT_S:-0.6}
+      DOCID_PER_TERM_LIMIT: ${DOCID_PER_TERM_LIMIT:-25}
 
       # BGE-M3 Embedding Service
       BGE_M3_SERVICE_URL: ${BGE_M3_SERVICE_URL}

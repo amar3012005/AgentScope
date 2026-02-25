@@ -21,7 +21,7 @@ class AsyncRetriever:
     Expected speedup: 2-3x for retrieval phase
     """
     
-    def __init__(self, retriever, max_workers: int = 3):
+    def __init__(self, retriever, max_workers: int = 4):
         """
         Initialize async wrapper.
         
@@ -88,6 +88,26 @@ class AsyncRetriever:
         )
         
         elapsed = time.time() - start
+        return results, elapsed
+
+    async def run_docid_search(
+        self,
+        query: str,
+        expanded_query: Dict,
+        k: int,
+    ) -> Tuple[Dict[int, float], float]:
+        """Run document-id search in thread pool."""
+        start = time.time()
+        loop = asyncio.get_event_loop()
+
+        results = await loop.run_in_executor(
+            self.executor,
+            self.retriever.docid_search,
+            query,
+            expanded_query,
+            k,
+        )
+
         elapsed = time.time() - start
         return results, elapsed
     
@@ -148,6 +168,10 @@ class AsyncRetriever:
         if plan.get("use_keyword", True):
             tasks.append(self.run_keyword_search(query, expanded_query, k))
             task_map[idx] = "keyword"
+            idx += 1
+
+            tasks.append(self.run_docid_search(query, expanded_query, k))
+            task_map[idx] = "docid"
             idx += 1
             
         if plan.get("use_hive_mind", False):
