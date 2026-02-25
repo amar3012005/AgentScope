@@ -344,6 +344,11 @@ def _resolve_final_reasoning_effort(model: str) -> str:
         return FINAL_REASONING_EFFORT_GPT_OSS
     return FINAL_REASONING_EFFORT
 
+
+def _is_anthropic_model_name(model_name: str) -> bool:
+    ml = (model_name or "").lower()
+    return "claude" in ml or "anthropic" in ml
+
 def _invoke_llm(messages, model: str, **kwargs):
     """
     Unified completion call using Groq/OpenAI SDK directly.
@@ -361,6 +366,10 @@ def _invoke_llm(messages, model: str, **kwargs):
     # Groq does not support reasoning_effort — strip it for Groq calls
     if isinstance(client, Groq):
         kwargs.pop("reasoning_effort", None)
+
+    # Anthropic via Bedrock/LiteLLM can reject explicit temperature in some thinking modes.
+    if _is_anthropic_model_name(model_name):
+        kwargs.pop("temperature", None)
 
     try:
         if os.getenv("DEBUG_LLM", "false").lower() == "true":
@@ -383,7 +392,7 @@ def _invoke_llm(messages, model: str, **kwargs):
                 params["max_completion_tokens"] = kwargs.pop("max_tokens")
             params["timeout"] = 300
         else:
-            if "temperature" not in kwargs:
+            if "temperature" not in kwargs and not _is_anthropic_model_name(model_name):
                 params["temperature"] = 0.0
             if "max_tokens" not in kwargs and LLM_MAX_OUTPUT_TOKENS:
                 params["max_tokens"] = LLM_MAX_OUTPUT_TOKENS
@@ -438,6 +447,10 @@ def _invoke_llm_stream(messages, model: str, **kwargs):
     if isinstance(client, Groq):
         kwargs.pop("reasoning_effort", None)
 
+    # Anthropic via Bedrock/LiteLLM can reject explicit temperature in some thinking modes.
+    if _is_anthropic_model_name(model_name):
+        kwargs.pop("temperature", None)
+
     prompt_chars = sum(len(m.get("content", "")) for m in messages)
 
     if os.getenv("DEBUG_LLM", "false").lower() == "true":
@@ -461,7 +474,7 @@ def _invoke_llm_stream(messages, model: str, **kwargs):
                 params["max_completion_tokens"] = kwargs.pop("max_tokens")
             params["timeout"] = 300
         else:
-            if "temperature" not in kwargs:
+            if "temperature" not in kwargs and not _is_anthropic_model_name(model_name):
                 params["temperature"] = 0.0
             if "max_tokens" not in kwargs and LLM_MAX_OUTPUT_TOKENS:
                 params["max_tokens"] = LLM_MAX_OUTPUT_TOKENS
