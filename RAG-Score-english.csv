@@ -1,0 +1,21 @@
+Test-ID;Question Category;Score AMAR (0-2);Reason AMAR;Score BLAIQ -think (0-2);Reason BLAIQ -think;Score BLAIQ (0-2);Reason BLAIQ
+TS-A01;Math & Price Comp.;2;Correct difference (€4,850) and clean source citation.;2;Correct difference and sources.;2;Correct difference and sources.
+TS-A02;Agentic Logic (Persona);0;ERROR: Refuses answer ("cannot be determined") because name-to-ID mapping failed.;2;Perfect. Correct cross-doc mapping (Name -> Persona 1 -> Index 103).;2;Perfect. Correct cross-doc mapping (Index 103).
+TS-G01;Deciders & Budget;2;Correctly names budget (€162k) and decision makers (Eric & Gianni).;1;Slightly vague: Budget correct, but names "Management Circle" instead of specific people Eric/Gianni.;2;Perfect. Names budget and specific decision makers correctly.
+TS-G02;Strategy (Brands);2;Correct identification of sub-brands and target groups.;2;Correct identification of sub-brands and target groups.;2;Correct identification of sub-brands and target groups.
+TS-S01;Tech Specs (Current);2;Outstanding: Mentions limit (250mA) AND the normal range.;2;Correct limit (250mA).;2;Correct limit (250mA).
+TS-S02;Tech Function (Defrost);2;Correct explanation of loading valve and benefit (heating circuit stable).;2;Correct explanation.;2;Correct explanation.
+TS-H01;Hybrid & Pressure;2;Correct strategy classification and technical value (3 bar).;2;Correct strategy classification and technical value (3 bar).;2;Correct strategy classification and technical value (3 bar).
+TS-N01;Negative Test (Product);2;Correctly recognized that SolvisPia 25 does not exist.;2;Correctly recognized that the product does not exist.;2;Correctly recognized that the product does not exist.
+TS-N02;Negative Test (Year);2;Correctly recognized that no data is available for 2028.;2;Correctly recognized that no data is available for 2028.;2;Correctly recognized that no data is available for 2028.
+TS-A03;Math (Budget);2;Calculation correct (€18,500).;2;Calculation correct (€18,500).;2;Calculation correct (€18,500).
+TS-A04;Math (Index Max);2;Correct (Persona 3, Index 106).;2;Correct (Persona 3, Index 106).;2;Correct (Persona 3, Index 106).
+TS-A05;Math (Index Gap);2;Correct (Difference 15).;2;Correct (Difference 15).;2;Correct (Difference 15).
+TS-G03;Comm. Goals;0;ERROR (Retrieval): Cites goals for company "Sewerin" from a reference dossier instead of Solvis goals.;2;Perfect. Cites correct goals ("simple, tidy").;2;Perfect. Cites correct goals.
+TS-S03;Tech Function (Defrost II);2;Correct process explanation.;2;Correct process explanation.;2;Correct process explanation.
+TS-S04;Statistics 2025;0;ERROR (Retrieval): Failed to find press article. Cites whitepaper with cumulative figures since 2020 instead.;2;Perfect. Cites exact figures from press article (529k heating, 255k HPs).;2;Perfect. Cites exact figures.
+TS-H02;Visual Concept;2;Very good: Mentions specific details ("orange lines", "stratification").;1;Too generic: "Clear imagery" is correct, but misses core concept "stratification/layering".;1;Too generic: Misses the core concept "stratification".
+Unlabeled-01;RGB Color;2;Correct (195r 25g 36b).;2;Correct (195r 25g 36b).;2;Correct (195r 25g 36b).
+Unlabeled-02;Budget May 2026;0;ERROR (Hallucination): Invents €3,000 for Item H (is €0), wrong total (€18,500 instead of €16,500).;2;Perfect. Correct total (€16,500) and correct line items (H=0).;2;Perfect. Correct total (€16,500).
+Unlabeled-03;Product Count;2;Good solution. Lists found products correctly.;2;Perfect. Notes modularity (no fixed number) and categorizes cleanly.;0;CRITICAL: Hallucinates wrong categories (Lino=Ventilation, Tim=Drinking water). Factually incorrect.
+TOTAL SCORE;Max 38 Points;30;Issues with Retrieval (wrong docs) and Table Hallucination.;36;Test Winner. Only minor deductions for detail depth (names/visual concept).;34;Fast, but dangerous hallucinations regarding product knowledge.

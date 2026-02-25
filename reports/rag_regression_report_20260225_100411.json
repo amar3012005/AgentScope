@@ -1,0 +1,159 @@
+{
+  "summary": {
+    "cases_total": 6,
+    "cases_ok": 6,
+    "cases_failed": 0,
+    "avg_recall_at_k": 0.75,
+    "multi_source_coverage_rate": 1.0,
+    "hallucination_rate": null,
+    "avg_citation_completeness": null,
+    "avg_answer_overlap": null,
+    "critical_failures": [],
+    "gate_passed": true
+  },
+  "results": [
+    {
+      "test_id": "TS-A01",
+      "query": "Vergleiche den Listenpreis der reinen Wärmepumpe „SolvisLea 7 Pro“ mit der „SolvisPia 13“ aus der Preisliste Neuheiten 2025. Wie hoch ist die Preisdifferenz in Euro?",
+      "expected_sources": [
+        "pl neuheiten 2025 v2"
+      ],
+      "retrieved_sources": [
+        "20251124 35042 bro solvislea pro online",
+        "20251125 35196 bro solvispia final online",
+        "20251211 stiwa u bersicht online",
+        "pl neuheiten 2025 v2"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 20,
+      "elapsed_s": 12.506511926651001,
+      "error": null
+    },
+    {
+      "test_id": "TS-A02",
+      "query": "Welchen Indexwert für die Mediennutzung im Bereich „TV“ hat die Persona „Der Richtigmacher“?",
+      "expected_sources": [
+        "personas privatkunden",
+        "personas privatkunden solvis mediennutzung"
+      ],
+      "retrieved_sources": [
+        "personas privatkunden solvis mediennutzung",
+        "personas privatkunden",
+        "solvis gemeinwohlbilanz compressed",
+        "20251124 35042 bro solvislea pro online",
+        "20250701 35219 bro nachru stsatz wp druck compre",
+        "32431 3 f bedienung kunde solvisben max sc 3",
+        "33567 3 bedienung fu r kunden solvislino 5",
+        "20251125 35196 bro solvispia final online",
+        "33524 bro lino web",
+        "personas gescha ftskunden",
+        "solvis budgetplanung bb 2026 markdown table"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 20,
+      "elapsed_s": 6.206889867782593,
+      "error": null
+    },
+    {
+      "test_id": "TS-G01",
+      "query": "Wie hoch ist das freigegebene Gesamtbudget für die Roadshow und den Markenlaunch Leo, und wer hat laut Protokoll die Entscheidungskompetenz darüber?",
+      "expected_sources": [
+        "protokoll roadshow planung und markenlaunch leo",
+        "b b solvis vorbereitung kick off 2026 beantwortet"
+      ],
+      "retrieved_sources": [
+        "protokoll roadshow planung und markenlaunch leo",
+        "miriam protokoll leo termin",
+        "solvis gemeinwohlbilanz compressed",
+        "pl neuheiten 2025 v2",
+        "solv cd manual 2023 kurz 1 1 deprecated",
+        "solvis budgetplanung bb 2026 markdown table",
+        "33567 3 bedienung fu r kunden solvislino 5",
+        "personas gescha ftskunden"
+      ],
+      "source_recall_at_k": 0.5,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 20,
+      "elapsed_s": 6.309705972671509,
+      "error": null
+    },
+    {
+      "test_id": "TS-G02",
+      "query": "Welche zwei neuen Sub-Marken sollen laut der Dachmarken-Strategie entstehen und an welche jeweiligen Zielgruppen richten sie sich?",
+      "expected_sources": [
+        "dachmarke 1"
+      ],
+      "retrieved_sources": [
+        "territory reclaim made in germany dossier 2",
+        "solvis gemeinwohlbilanz compressed",
+        "b b solvis vorbereitung kick off 2026 beantwortet",
+        "protokoll roadshow planung und markenlaunch leo"
+      ],
+      "source_recall_at_k": 0.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 20,
+      "elapsed_s": 1.7035961151123047,
+      "error": null
+    },
+    {
+      "test_id": "TS-S01",
+      "query": "Beim SolvisBruno wird die Störung „Blockade Einschub“ (Code 3) gemeldet. Wie hoch darf die Stromaufnahme der Stokerschnecke laut Bedienungsanleitung maximal sein, um diesen Fehler zu vermeiden?",
+      "expected_sources": [
+        "34840 2 bedienung fu r kunden solvisbruno"
+      ],
+      "retrieved_sources": [
+        "34840 2 bedienung fu r kunden solvisbruno",
+        "35195 solvisbruno broschuere online"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 20,
+      "elapsed_s": 6.163714170455933,
+      "error": null
+    },
+    {
+      "test_id": "TS-S02",
+      "query": "Erkläre aus den Konzept-Dokumenten zum SolvisLeo, wie die „Beladeweiche“ im Abtaubetrieb der Wärmepumpe funktioniert und welchen Vorteil das für den Heizkreis hat.",
+      "expected_sources": [
+        "nutzen und vorteile des leo",
+        "einige produktvorteile des leo"
+      ],
+      "retrieved_sources": [
+        "nutzen und vorteile des leo",
+        "nutzen und vorteile der wp speicher 1",
+        "34438 bro privatkunden broschuere web",
+        "einige produktvorteile des leo",
+        "20251125 35196 bro solvispia final online",
+        "20251124 35042 bro solvislea pro online",
+        "32431 3 f bedienung kunde solvisben max sc 3",
+        "20250701 35219 bro nachru stsatz wp druck compre",
+        "whitepaper transformation"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 20,
+      "elapsed_s": 10.278403997421265,
+      "error": null
+    }
+  ]
+}

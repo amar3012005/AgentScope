@@ -1,0 +1,21 @@
+Test-ID;Frage-Kategorie;Bewertung AMAR (0-2);Begründung AMAR;Bewertung BLAIQ -think (0-2);Begründung BLAIQ -think;Bewertung BLAIQ (0-2);Begründung BLAIQ
+TS-A01;Rechnen & Preisvergleich;2;Korrekte Differenz (4.850 €) und saubere Quellenangabe.;2;Korrekte Differenz und Quellen.;2;Korrekte Differenz und Quellen.
+TS-A02;Agentische Logik (Persona);0;FEHLER: Verweigert die Antwort ("nicht ermittelt werden"), da das Mapping von Name zu Persona-ID misslingt.;2;Perfekt. Korrektes Cross-Doc-Mapping (Name -> Persona 1 -> Index 103).;2;Perfekt. Korrektes Cross-Doc-Mapping (Index 103).
+TS-G01;Entscheider & Budget;2;Nennt Budget (162.000 €) und Entscheider (Eric & Gianni) korrekt.;1;Leicht ungenau: Budget stimmt, nennt aber nur "Managementkreis" statt der spezifischen Personen Eric/Gianni.;2;Perfekt. Nennt Budget und spezifische Entscheider korrekt.
+TS-G02;Strategie (Marken);2;Korrekte Identifikation der Sub-Marken und Zielgruppen.;2;Korrekte Identifikation der Sub-Marken und Zielgruppen.;2;Korrekte Identifikation der Sub-Marken und Zielgruppen.
+TS-S01;Tech-Specs (Strom);2;Hervorragend: Nennt Limit (250mA) und zusätzlich den Normalbereich.;2;Korrektes Limit (250mA).;2;Korrektes Limit (250mA).
+TS-S02;Tech-Funktion (Abtauen);2;Korrekte Erklärung der Beladeweiche und des Vorteils (Heizkreis stabil).;2;Korrekte Erklärung.;2;Korrekte Erklärung.
+TS-H01;Hybrid & Druck;2;Korrekte Strategie-Einordnung und technischer Wert (3 bar).;2;Korrekte Strategie-Einordnung und technischer Wert (3 bar).;2;Korrekte Strategie-Einordnung und technischer Wert (3 bar).
+TS-N01;Negativ-Test (Produkt);2;Korrekt erkannt, dass SolvisPia 25 nicht existiert.;2;Korrekt erkannt, dass das Produkt nicht existiert.;2;Korrekt erkannt, dass das Produkt nicht existiert.
+TS-N02;Negativ-Test (Jahr);2;Korrekt erkannt, dass keine Daten für 2028 vorliegen.;2;Korrekt erkannt, dass keine Daten für 2028 vorliegen.;2;Korrekt erkannt, dass keine Daten für 2028 vorliegen.
+TS-A03;Rechnen (Budget);2;Rechnung korrekt (18.500 €).;2;Rechnung korrekt (18.500 €).;2;Rechnung korrekt (18.500 €).
+TS-A04;Rechnen (Index Max);2;Korrekt (Persona 3, Index 106).;2;Korrekt (Persona 3, Index 106).;2;Korrekt (Persona 3, Index 106).
+TS-A05;Rechnen (Index Gap);2;Korrekt (Differenz 15).;2;Korrekt (Differenz 15).;2;Korrekt (Differenz 15).
+TS-G03;Kommunikationsziele;0;FEHLER (Retrieval): Zitiert Ziele für die Firma "Sewerin" aus einem Referenz-Dossier statt die Solvis-Ziele.;2;Perfekt. Zitiert die korrekten Ziele ("einfach, aufgeräumt").;2;Perfekt. Zitiert die korrekten Ziele.
+TS-S03;Tech-Funktion (Abtauen II);2;Korrekte Erklärung des Prozesses.;2;Korrekte Erklärung des Prozesses.;2;Korrekte Erklärung des Prozesses.
+TS-S04;Statistik 2025;0;FEHLER (Retrieval): Findet den Presse-Artikel nicht. Zitiert stattdessen Whitepaper mit kumulierten Zahlen ab 2020.;2;Perfekt. Nennt exakte Zahlen aus dem Presse-Artikel (529k Heizungen, 255k WP).;2;Perfekt. Nennt exakte Zahlen.
+TS-H02;Visuelles Konzept;2;Sehr gut: Nennt spezifische Details ("orange Linien", "Schichtung").;1;Zu generisch: "Klare Bildsprache" ist richtig, verpasst aber das Kernkonzept "Schichtung/Layer".;1;Zu generisch: Verpasst das Kernkonzept "Schichtung".
+Unlabeled-01;RGB Farbe;2;Korrekt (195r 25g 36b).;2;Korrekt (195r 25g 36b).;2;Korrekt (195r 25g 36b).
+Unlabeled-02;Budget Mai 2026;0;FEHLER (Halluzination): Erfindet 3.000 € für Pos H (ist 0 €), Summe falsch (18.500 € statt 16.500 €).;2;Perfekt. Korrekte Summe (16.500 €) und korrekte Einzelposten (H=0).;2;Perfekt. Korrekte Summe (16.500 €).
+Unlabeled-03;Anzahl Produkte;2;Gut gelöst. Listet gefundene Produkte korrekt auf.;2;Perfekt. Weist auf Modularität hin (keine feste Zahl) und kategorisiert richtig.;0;KRITISCH: Halluziniert falsche Kategorien (Lino=Lüftung, Tim=Trinkwasser). Fachlich falsch.
+GESAMT PUNKTE;Maximal 38;30;Probleme bei Retrieval (falsche Dokumente) und Tabellen-Halluzination.;36;Testsieger. Einziger kleiner Punktabzug bei Detailtiefe (Namen/Visuelles Konzept).;34;Schnell, aber gefährliche Halluzinationen bei Produktwissen.

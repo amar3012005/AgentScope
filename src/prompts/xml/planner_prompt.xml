@@ -65,6 +65,8 @@
                 <rule>Generate 3-8 search keywords that would appear in relevant document chunks</rule>
                 <rule>Include: synonyms, related technical terms, German equivalents</rule>
                 <rule>Include exact numbers, amounts, page references if mentioned</rule>
+                <rule>Preserve exact model IDs and symbolic/table tokens as-is when present (e.g., "A", "B1", "H", "A+B1", "SolvisLea 7 Pro").</rule>
+                <rule>Do not normalize away short alphanumeric tokens that can identify rows, columns, or product variants.</rule>
                 <rule>Do NOT include stop words or generic terms</rule>
             </rules>
         </step>

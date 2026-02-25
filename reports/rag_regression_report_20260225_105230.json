@@ -1,0 +1,458 @@
+{
+  "summary": {
+    "cases_total": 19,
+    "cases_ok": 19,
+    "cases_failed": 0,
+    "avg_recall_at_k": 0.7249,
+    "multi_source_coverage_rate": 1.0,
+    "hallucination_rate": null,
+    "avg_citation_completeness": null,
+    "avg_answer_overlap": null,
+    "critical_failures": [],
+    "gate_passed": true
+  },
+  "results": [
+    {
+      "test_id": "TS-A01",
+      "query": "Vergleiche den Listenpreis der reinen Wärmepumpe „SolvisLea 7 Pro“ mit der „SolvisPia 13“ aus der Preisliste Neuheiten 2025. Wie hoch ist die Preisdifferenz in Euro?",
+      "expected_sources": [
+        "pl neuheiten 2025 v2"
+      ],
+      "retrieved_sources": [
+        "20251124 35042 bro solvislea pro online",
+        "preisliste 2025",
+        "20251125 35196 bro solvispia final online",
+        "20251211 stiwa u bersicht online"
+      ],
+      "source_recall_at_k": 0.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 6.381710052490234,
+      "error": null
+    },
+    {
+      "test_id": "TS-A02",
+      "query": "Welchen Indexwert für die Mediennutzung im Bereich „TV“ hat die Persona „Der Richtigmacher“?",
+      "expected_sources": [
+        "personas privatkunden",
+        "personas privatkunden solvis mediennutzung"
+      ],
+      "retrieved_sources": [
+        "personas privatkunden solvis mediennutzung",
+        "personas privatkunden",
+        "solvis gemeinwohlbilanz compressed",
+        "20251124 35042 bro solvislea pro online",
+        "20250701 35219 bro nachru stsatz wp druck compre",
+        "32431 3 f bedienung kunde solvisben max sc 3",
+        "20251125 35196 bro solvispia final online",
+        "personas gescha ftskunden",
+        "solvis budgetplanung bb 2026 markdown table"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 7.378530740737915,
+      "error": null
+    },
+    {
+      "test_id": "TS-G01",
+      "query": "Wie hoch ist das freigegebene Gesamtbudget für die Roadshow und den Markenlaunch Leo, und wer hat laut Protokoll die Entscheidungskompetenz darüber?",
+      "expected_sources": [
+        "protokoll roadshow planung und markenlaunch leo",
+        "b b solvis vorbereitung kick off 2026 beantwortet"
+      ],
+      "retrieved_sources": [
+        "protokoll roadshow planung und markenlaunch leo",
+        "miriam protokoll leo termin",
+        "solvis gemeinwohlbilanz compressed",
+        "preisliste 2025",
+        "solv cd manual 2023 kurz 1 1 deprecated",
+        "solvis budgetplanung bb 2026 markdown table",
+        "33567 3 bedienung fu r kunden solvislino 5",
+        "personas gescha ftskunden"
+      ],
+      "source_recall_at_k": 0.5,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 6.738371849060059,
+      "error": null
+    },
+    {
+      "test_id": "TS-G02",
+      "query": "Welche zwei neuen Sub-Marken sollen laut der Dachmarken-Strategie entstehen und an welche jeweiligen Zielgruppen richten sie sich?",
+      "expected_sources": [
+        "dachmarke 1"
+      ],
+      "retrieved_sources": [
+        "territory reclaim made in germany dossier 2",
+        "solvis gemeinwohlbilanz compressed",
+        "dachmarke 1",
+        "protokoll roadshow planung und markenlaunch leo",
+        "b b solvis vorbereitung kick off 2026 beantwortet"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 2.3821771144866943,
+      "error": null
+    },
+    {
+      "test_id": "TS-S01",
+      "query": "Beim SolvisBruno wird die Störung „Blockade Einschub“ (Code 3) gemeldet. Wie hoch darf die Stromaufnahme der Stokerschnecke laut Bedienungsanleitung maximal sein, um diesen Fehler zu vermeiden?",
+      "expected_sources": [
+        "34840 2 bedienung fu r kunden solvisbruno"
+      ],
+      "retrieved_sources": [
+        "34840 2 bedienung fu r kunden solvisbruno"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 5.749073028564453,
+      "error": null
+    },
+    {
+      "test_id": "TS-S02",
+      "query": "Erkläre aus den Konzept-Dokumenten zum SolvisLeo, wie die „Beladeweiche“ im Abtaubetrieb der Wärmepumpe funktioniert und welchen Vorteil das für den Heizkreis hat.",
+      "expected_sources": [
+        "nutzen und vorteile des leo",
+        "einige produktvorteile des leo"
+      ],
+      "retrieved_sources": [
+        "nutzen und vorteile des leo",
+        "nutzen und vorteile der wp speicher 1",
+        "einige produktvorteile des leo",
+        "34438 bro privatkunden broschuere web",
+        "20251125 35196 bro solvispia final online",
+        "20251124 35042 bro solvislea pro online",
+        "32431 3 f bedienung kunde solvisben max sc 3",
+        "whitepaper transformation"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 5.929821014404297,
+      "error": null
+    },
+    {
+      "test_id": "TS-H01",
+      "query": "Welche strategische Bedeutung hat „PV2 Heatpump“ im Rahmen der wärmegebundenen Elektrifizierung laut dem Whitepaper Transformation, und wie hoch ist der maximale Betriebsdruck des SolvisTom 3 kW laut dem technischen Datenblatt in der Broschüre?",
+      "expected_sources": [
+        "whitepaper transformation",
+        "31513 bro solvistim solvistom pv2heat web"
+      ],
+      "retrieved_sources": [
+        "31513 bro solvistim solvistom pv2heat web",
+        "whitepaper transformation"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 11.084069967269897,
+      "error": null
+    },
+    {
+      "test_id": "TS-N01",
+      "query": "Wie hoch ist der Listenpreis für das „WP-Paket SolvisPia 25 Hybrid“ in der Preisliste 2025?",
+      "expected_sources": [
+        "preisliste 2025"
+      ],
+      "retrieved_sources": [
+        "preisliste 2025",
+        "20251125 35196 bro solvispia final online"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 10.116812705993652,
+      "error": null
+    },
+    {
+      "test_id": "TS-N02",
+      "query": "Welche konkreten BAFA-Förderbeträge in Euro gelten laut den Dokumenten für das Jahr 2028 beim Einbau einer SolvisLea Pro?",
+      "expected_sources": [
+        "2025 zu förderungen"
+      ],
+      "retrieved_sources": [
+        "20251124 35042 bro solvislea pro online",
+        "34438 bro privatkunden broschuere web",
+        "solvis branding projekt skizze 1",
+        "20250701 35219 bro nachru stsatz wp druck compre",
+        "20251125 35196 bro solvispia final online"
+      ],
+      "source_recall_at_k": 0.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 6.4997358322143555,
+      "error": null
+    },
+    {
+      "test_id": "TS-A03",
+      "query": "Wie groß ist die Differenz zwischen der Jahressumme von A+B1 und B2?",
+      "expected_sources": [
+        "solvis budgetplanung bb 2026 markdown table"
+      ],
+      "retrieved_sources": [
+        "solvis budgetplanung bb 2026 markdown table",
+        "solvis gemeinwohlbilanz compressed",
+        "preisliste 2025",
+        "solv cd manual 2023 kurz 1 1 deprecated",
+        "33524 bro lino web",
+        "30792 bro heizsysteme web"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 10.048258066177368,
+      "error": null
+    },
+    {
+      "test_id": "TS-A04",
+      "query": "Welcher Persona‑Index ist bei „TV“ am höchsten, und wie hoch ist er?",
+      "expected_sources": [
+        "personas privatkunden solvis mediennutzung"
+      ],
+      "retrieved_sources": [
+        "personas privatkunden solvis mediennutzung",
+        "personas privatkunden",
+        "personas gescha ftskunden",
+        "32431 3 f bedienung kunde solvisben max sc 3",
+        "20250701 35219 bro nachru stsatz wp druck compre",
+        "solvis gemeinwohlbilanz compressed"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 6.899052143096924,
+      "error": null
+    },
+    {
+      "test_id": "TS-A05",
+      "query": "Wie groß ist der Abstand zwischen Persona 4 und Persona 2 bei „Online Audio“?",
+      "expected_sources": [
+        "personas privatkunden solvis mediennutzung"
+      ],
+      "retrieved_sources": [
+        "personas gescha ftskunden",
+        "personas privatkunden solvis mediennutzung",
+        "20251124 35042 bro solvislea pro online",
+        "protokoll roadshow planung und markenlaunch leo",
+        "35195 solvisbruno broschuere online",
+        "solv cd manual 2023 kurz 1 1 deprecated",
+        "solvis branding projekt skizze 1"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 10.346719026565552,
+      "error": null
+    },
+    {
+      "test_id": "TS-G03",
+      "query": "Welche Kommunikationschance ergibt sich aus der beschriebenen Zurückhaltung beim Heizungstausch, und welches explizite Kommunikationsziel wird für die neue Markenkommunikation formuliert?",
+      "expected_sources": [
+        "press waermepumpen auf standby",
+        "solvis rebranding konzeptnote vision usecases"
+      ],
+      "retrieved_sources": [
+        "press waermepumpen auf standby",
+        "whitepaper transformation",
+        "34438 bro privatkunden broschuere web",
+        "solvis gemeinwohlbilanz compressed",
+        "solvis rebranding konzeptnote vision usecases",
+        "neuer pufferspeicher produktneueinfuhrung mitdenken",
+        "solvis rebranding skizze 02 zukunft modular gedach",
+        "territory reclaim made in germany dossier 2"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 5.987481117248535,
+      "error": null
+    },
+    {
+      "test_id": "TS-S03",
+      "query": "Was passiert im Abtaubetrieb der Wärmepumpe und welcher Vorteil entsteht für den Heizkreis?",
+      "expected_sources": [
+        "nutzen und vorteile des leo"
+      ],
+      "retrieved_sources": [
+        "nutzen und vorteile des leo",
+        "nutzen und vorteile der wp speicher 1",
+        "einige produktvorteile des leo",
+        "32431 3 f bedienung kunde solvisben max sc 3",
+        "preisliste 2025",
+        "20251125 35196 bro solvispia final online"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 12.160429954528809,
+      "error": null
+    },
+    {
+      "test_id": "TS-S04",
+      "query": "Welche Zahlen nennt der Artikel zur Heizungs‑ und Wärmepumpenentwicklung 2025?",
+      "expected_sources": [
+        "press waermepumpen auf standby"
+      ],
+      "retrieved_sources": [
+        "20250701 35219 bro nachru stsatz wp druck compre",
+        "20251124 35042 bro solvislea pro online",
+        "press waermepumpen auf standby",
+        "preisliste 2025",
+        "20251125 35196 bro solvispia final online"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 9.975466012954712,
+      "error": null
+    },
+    {
+      "test_id": "TS-H02",
+      "query": "Welche Produktbotschaft zu SolvisLeo wird genannt und wie soll sie visuell gedacht werden?",
+      "expected_sources": [
+        "neuer pufferspeicher produktneueinführun mitdenken (1)"
+      ],
+      "retrieved_sources": [
+        "solvis rebranding skizze 02 zukunft modular gedach",
+        "solvis prototyp solvisleo pufferspeicher",
+        "b b solvis vorbereitung kick off 2026 beantwortet",
+        "pitch 24 11 2025 brand kit 4",
+        "solvis gemeinwohlbilanz compressed",
+        "neuer pufferspeicher produktneueinfuhrung mitdenken",
+        "solvis branding projekt skizze 1",
+        "34438 bro privatkunden broschuere web",
+        "whitepaper transformation",
+        "solvis rebranding konzeptnote vision usecases"
+      ],
+      "source_recall_at_k": 0.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 2.078105926513672,
+      "error": null
+    },
+    {
+      "test_id": "Unlabeled-01",
+      "query": "Wie ist der RGB Farbton für das Rot?",
+      "expected_sources": [
+        "solv cd manual 2023 kurz 1 (1) deprecated"
+      ],
+      "retrieved_sources": [
+        "protokoll roadshow planung und markenlaunch leo",
+        "solv cd manual 2023 kurz 1 1 deprecated",
+        "solvis gemeinwohlbilanz compressed"
+      ],
+      "source_recall_at_k": 0.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 9.614584922790527,
+      "error": null
+    },
+    {
+      "test_id": "Unlabeled-02",
+      "query": "Welches Marketingbudget gibt es für 2026 im Mai?",
+      "expected_sources": [],
+      "retrieved_sources": [
+        "solvis budgetplanung bb 2026 markdown table",
+        "solvis gemeinwohlbilanz compressed",
+        "territory reclaim made in germany dossier 2",
+        "solvis elektrifizierung transformation white p"
+      ],
+      "source_recall_at_k": 1.0,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 6.877847671508789,
+      "error": null
+    },
+    {
+      "test_id": "Unlabeled-03",
+      "query": "Wie viele Produkte hat Solvis?",
+      "expected_sources": [
+        "solvismax & solvisben (energiemanager): 📄 30792 bro heizsysteme web 305c41bd.txt (seiten 3",
+        "6 10) 📄 34438 bro privatkunden broschuere web 58562379.txt (seite 4) wärmepumpen (solvislea",
+        "mia",
+        "pia): 📄 34438 bro privatkunden broschuere web 58562379.txt (seiten 4 5) 📄 20251124 35042 bro solvislea pro online 1e92811a.txt (seiten 4 5) 📄 20251125 35196 bro solvispia final online 32bf84ce.txt (seiten 4 5) biomasse (solvislino & solvisbruno): 📄 33524 bro lino web 72533d25.txt (seiten 3 4) 📄 35195 solvisbruno broschuere online 88ac0adb.txt (seiten 5",
+        "8) strom zu wärme (solvistim & solvistom): 📄 31513 bro solvistim solvistom pv2heat web 4cfe0062.txt (seiten 4",
+        "5",
+        "8) solarthermie (solvisfera",
+        "cala",
+        "luna) & ältere wp (teo",
+        "vaero): 📄 solv cd manual 2023 kurz 1 1 deprecated 3ac712c0.txt (seiten 27 28) 📄 30792 bro heizsysteme web 305c41bd.txt (seite 11) regelung (solviscontrol 3 & solvisportal): 📄 34438 bro privatkunden broschuere web 58562379.txt (seiten 4",
+        "14) zukunftsprodukt (solvisleo): 📄 neuer pufferspeicher produktneueinfu hrun mitdenke 31b585ef.txt (seite 1) 📄 nutzen und vorteile der wp speicher 1 e4f56da8.txt (slide 2)"
+      ],
+      "retrieved_sources": [
+        "solvis rebranding skizze 04 produkte im system",
+        "20251124 35042 bro solvislea pro online",
+        "20251125 35196 bro solvispia final online",
+        "31513 bro solvistim solvistom pv2heat web",
+        "35195 solvisbruno broschuere online",
+        "solvis gemeinwohlbilanz compressed",
+        "solvis rebranding konzeptnote vision usecases"
+      ],
+      "source_recall_at_k": 0.2727272727272727,
+      "multi_source_ok": true,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 15,
+      "elapsed_s": 11.00285005569458,
+      "error": null
+    }
+  ]
+}

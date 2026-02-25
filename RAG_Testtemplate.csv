@@ -1,0 +1,1095 @@
+Test-ID;Kategorie;Frage;Goldene Antwort;RAG Antwort AMAR;RAG Antwort BLAIQ -think;RAG Antwort BLAIQ;Soll-Quelle(n);Geforderte Entities;Bewertung (0-2);Halluzination (ja/nein);Notizen
+TS-A01;Agentische Logik & Rechnen;Vergleiche den Listenpreis der reinen Wärmepumpe „SolvisLea 7 Pro“ mit der „SolvisPia 13“ aus der Preisliste Neuheiten 2025. Wie hoch ist die Preisdifferenz in Euro?;Die SolvisLea 7 Pro kostet 10.100,00 €. Die SolvisPia 13 kostet 14.950,00 €. Die Preisdifferenz beträgt 4.850,00 €.;"Die Preisliste Neuheiten 2025 listet die folgenden Listenpreise für die reinen Wärmepumpen auf:
+Vergleich der Listenpreise
+Produkt	Leistung	Listenpreis
+SolvisLea 7 Pro	7,0 kW [A2/W35]	10.100,00 €
+SolvisPia 13	13,0 kW [A2/W35]	14.950,00 €
+📄 PL_Neuheiten_2025_V2_32f94903, S. 4, 8, 9 für SolvisLea 7 Pro
+📄 PL_Neuheiten_2025_V2_32f94903, S. 18, 19 für SolvisPia 13
+Preisdifferenz
+Die Preisdifferenz zwischen der SolvisPia 13 und der SolvisLea 7 Pro beträgt 4.850,00 €.
+Answer
+Der Listenpreis der reinen Wärmepumpe „SolvisLea 7 Pro“ beträgt 10.100,00 €, während die „SolvisPia 13“ mit 14.950,00 € gelistet ist. Die Preisdifferenz zwischen diesen beiden Modellen beträgt somit 4.850,00 €.
+Context
+Die bereitgestellten Textausschnitte stammen aus einer Preisliste für Produktneuheiten 2025, die die Preise für verschiedene Komponenten von Heizsystemen auflistet.";"Preisvergleich: SolvisLea 7 Pro vs. SolvisPia 13
+
+Basierend auf der Preisliste Neuheiten 2025 ergeben sich folgende Listenpreise:
+Produktpreise
+
+    SolvisLea 7 Pro (reine Wärmepumpe): 10.100 €
+    SolvisPia 13: 14.950 €
+
+Preisdifferenz
+
+Die Preisdifferenz zwischen den beiden Produkten beträgt:
+
+4.850 €
+
+Die SolvisLea 7 Pro ist somit um 4.850 € günstiger als die SolvisPia 13.
+
+Quelle: Dokument PL_Neuheiten_2025_V2.pdf, Seite 19";"Preisvergleich: SolvisLea 7 Pro vs. SolvisPia 13
+Listenpreise (Neuheiten 2025)
+SolvisLea 7 Pro10.100 €SolvisPia 1314.950 €
+Preisdifferenz
+
+4.850 €
+
+Die SolvisPia 13 ist um 4.850 € teurer als die SolvisLea 7 Pro.
+Quelle
+
+Die Preise stammen aus der Preisliste ""Neuheiten 2025"" (Dokument: PL_Neuheiten_2025_V2.pdf):
+
+    SolvisLea 7 Pro: Seite 6
+    SolvisPia 13: Seite 16";PL_Neuheiten_2025_V2_32f94903.txt;PRODUCT (SolvisLea 7 Pro, SolvisPia 13), DOCUMENT (Preisliste Neuheiten 2025);;;
+TS-A02;Agentische Logik & Rechnen;Welchen Indexwert für die Mediennutzung im Bereich „TV“ hat die Persona „Der Richtigmacher“?;Der Indexwert beträgt 103.;"Die spezifische Mediennutzungsindexwert für ""TV"" für die Persona ""Der Richtigmacher"" kann aus den bereitgestellten Text-Snippets nicht ermittelt werden. Die Tabelle in Chunk 4 (Personas-Privatkunden-Solvis-Mediennutzung_a39de276) enthält zwar die Mediennutzungsindizes für verschiedene Personas (Persona 1 bis 4) und die Kategorie ""TV"", jedoch fehlt eine explizite Zuordnung des Namens ""Der Richtigmacher"" zu einer dieser Persona-Indexspalten.
+Context
+Die bereitgestellten Text-Snippets stammen aus verschiedenen Dokumenten, darunter Bedienungsanleitungen für Solvis-Produkte und Dokumente, die sich mit Kunden-Personas und deren Mediennutzung befassen. Das relevante Dokument für diese Anfrage ist Personas-Privatkunden-Solvis-Mediennutzung_a39de276, welches die Mediennutzung verschiedener Personas in Form von Indexwerten darstellt.
+Source
+📄 Dokument: Personas-Privatkunden-Solvis-Mediennutzung_a39de276
+(Die spezifische Seitenzahl für die Tabelle ist nicht explizit angegeben, aber der Inhalt ist in Chunk 4 enthalten.)";"Indexwert Mediennutzung TV: Persona „Der Richtigmacher""
+
+Der Indexwert der Persona „Der Richtigmacher"" für die Mediennutzung im Bereich TV beträgt:
+
+103
+
+Kontext: Diese Information stammt aus einer Übersicht zur Mediennutzung verschiedener Personas, die neben TV auch weitere Medienkanäle wie Zeitung, Printmedien, Hörfunk, Online-Audio, Plakat und mobile Medien umfasst.
+
+Quelle: Dokument Personas-Privatkunden-Solvis-Mediennutzung.pdf, Seite 1";"Indexwert Mediennutzung TV: Persona ""Der Richtigmacher""
+Ergebnis
+
+103
+
+Die Persona ""Der Richtigmacher"" hat einen Indexwert von 103 für die Mediennutzung im Bereich TV.
+Quelle
+
+Dokument: Personas-Privatkunden-Solvis-Mediennutzung.pdf, Seite 1
+
+Diese Information stammt aus einer Tabelle, die die Mediennutzung verschiedener Personas über die Kanäle TV, Zeitungen, Hörfunk und Online-Medien vergleicht.";"Personas_Privatkunden_455e073d.txt; Personas-Privatkunden-Solvis-Mediennutzung_a39de276.txt";PERSONA (Der Richtigmacher → Persona 1), METRIC (TV Index 103);;;Benötigt Cross-Doc Mapping Persona-Name → Persona-Nummer.
+TS-G01;Multi-Hop & GraphRAG;Wie hoch ist das freigegebene Gesamtbudget für die Roadshow und den Markenlaunch Leo, und wer hat laut Protokoll die Entscheidungskompetenz darüber?;Das freigegebene Gesamtbudget beträgt 162.000 €. Die Entscheidungskompetenz liegt bei Eric und Gianni.;"Answer
+Budget und Entscheidungskompetenz für Roadshow und Markenlaunch Leo
+Das freigegebene Gesamtbudget für die Roadshow und den Markenlaunch Leo beträgt 162.000 €. Laut Protokoll hat der Managementkreis die Gesamtbudgetfreigabe erteilt. Darüber hinaus sind Eric/Gianni für Entscheidungen über Inhalte, Timing und Budgetverschiebungen im Rahmen dieses Projekts zuständig 📄 Protokoll-_Roadshow-Planung_und_Markenlaunch_Leo_3567458c, S. 2; B_B_Solvis_Vorbereitung_Kick-Off_2026_beantwortet__c3aa0399, S. 5.
+Context
+Die vorliegenden Textausschnitte stammen aus internen Protokollen und Vorbereitungsdokumenten für eine Roadshow und einen Markenlaunch des Produkts ""Leo"". Sie dokumentieren Planungsdetails, Zielsetzungen und Verantwortlichkeiten.
+Source
+📄 Dokument Protokoll-_Roadshow-Planung_und_Markenlaunch_Leo_3567458c, Seite 2; Dokument B_B_Solvis_Vorbereitung_Kick-Off_2026_beantwortet__c3aa0399, Seite 5";"Freigegebenes Gesamtbudget für Roadshow und Markenlaunch Leo
+Budgethöhe
+
+Das freigegebene Gesamtbudget für die Roadshow und den Markenlaunch des „Leo"" beträgt:
+
+162.000 €
+Entscheidungskompetenz
+
+Laut Protokoll wurde das Budget vom Managementkreis genehmigt.
+Zusätzliche Information zur Budgetflexibilität
+
+Es besteht die Möglichkeit, Mittel im Verlauf des Projekts flexibel zwischen den Bereichen Markenentwicklung und Assets zu verschieben, um auf veränderte Prioritäten reagieren zu können.
+
+Quelle: Dokument Protokoll-_Roadshow-Planung_und_Markenlaunch_Leo.pdf, Seite 2";"Budget und Entscheidungskompetenz: Roadshow und Markenlaunch Leo
+Freigegebenes Gesamtbudget
+
+162.000 €
+Entscheidungskompetenz
+
+Die Entscheidungskompetenz für Inhalte, Timing und Budgetverschiebungen liegt bei:
+
+    Eric
+    Gianni
+
+Quelle
+
+Dokument: Protokoll-_Roadshow-Planung_und_Markenlaunch_Leo.pdf, Seite 2
+
+Diese Angaben stammen aus dem Protokoll zur Planung und zum Markenlaunch des „Leo"", das strategische und organisatorische Aspekte der Roadshow behandelt.";"Protokoll-_Roadshow-Planung_und_Markenlaunch_Leo_3567458c.txt; B_B_Solvis_Vorbereitung_Kick-Off_2026_beantwortet__c3aa0399.txt";EVENT (Roadshow, Markenlaunch Leo), PERSON (Eric, Gianni), DECISION (Budgetfreigabe);;;
+TS-G02;Multi-Hop & GraphRAG;Welche zwei neuen Sub-Marken sollen laut der Dachmarken-Strategie entstehen und an welche jeweiligen Zielgruppen richten sie sich?;1. Solvis Sync (Einsteigermarke, für preisbewusste Endkunden). 2. Solvis Pro (Premium-Linie, für anspruchsvolle Haushalte).;"Answer
+Neue Sub-Marken und ihre Zielgruppen laut Dachmarken-Strategie
+Laut der Solvis Dachmarken-Strategie sollen zwei neue Sub-Marken entstehen, die sich an unterschiedliche Kundengruppen richten:
+Sub-Marke	Zielgruppe
+Solvis Sync	Preisbewusste Endkunden oder Haushalte, die schrittweise in die Solvis-Welt einsteigen möchten. Sie zeichnet sich durch reduzierte Komplexität und ein fokussiertes Produktportfolio aus.
+Solvis Pro	Anspruchsvolle Haushalte, die maximale Unabhängigkeit und Komfort wünschen. Diese Linie repräsentiert die Premium- und Performance-Klasse mit Fokus auf Elektrifizierung und Zukunftsfunktionen.
+Context
+Die vorliegenden Textausschnitte stammen aus Dokumenten, die sich mit der Dachmarken- und Subbrand-Strategie der Solvis GmbH befassen. Sie erläutern die geplante Aufteilung des Produktportfolios in verschiedene Marken, um spezifische Kundensegmente besser ansprechen zu können.
+Source
+📄 Dokument Dachmarke__1__1e15bb8c, Seiten 1-2";"Neue Sub-Marken laut Dachmarken-Strategie
+
+Laut der Dachmarken-Strategie sollen zwei neue Sub-Marken entstehen:
+1. Solvis Sync
+
+Zielgruppe:
+
+    Einsteiger-Segment
+    Preisbewusste Endkunden
+    Haushalte, die schrittweise in die Solvis-Welt einsteigen möchten
+
+2. Solvis Pro
+
+Zielgruppe:
+
+    Premium- und Performance-Segment
+    Anspruchsvolle Haushalte
+    Kunden, die maximale Unabhängigkeit, Komfort und Elektrifizierung wünschen
+
+Strategischer Hintergrund
+
+Die Subbrand-Strategie verfolgt das Ziel, das Produktportfolio klarer zu strukturieren und unterschiedliche Kundengruppen sowie Preissensibilitäten gezielt anzusprechen. Dadurch wird eine bessere Fokussierung und Orientierung sowohl für Kunden als auch für den Vertrieb ermöglicht.
+
+Quelle: Dokument Dachmarke__1__.pdf, Seiten 1-2";"Neue Sub-Marken der Dachmarken-Strategie
+
+Laut der Dachmarken-Strategie entstehen zwei neue Sub-Marken:
+1. Solvis Sync
+
+Zielgruppe:
+
+    Preisbewusste Endkunden
+    Haushalte, die schrittweise in das Solvis-Ökosystem einsteigen möchten
+    Positionierung: Einsteiger-Marke
+
+2. Solvis Pro
+
+Zielgruppe:
+
+    Anspruchsvolle Haushalte
+    Kunden, die auf Premium- und Performance-Lösungen setzen
+    Interessenten für Elektrifizierung, Wärmepumpen und Speicher
+    Nutzer von Zukunftsfunktionen wie Software und KI
+
+Kontext
+
+Die Dachmarke Solvis dient als vertrauenswürdiges Fundament, während die beiden Sub-Marken eine klare Zielgruppenansprache und Produktunterscheidung ermöglichen.
+Quelle
+
+Dokument: Dachmarke.pdf, Seiten 1-2
+(Kurzfassung der Subbrand-Strategie)";Dachmarke__1__1e15bb8c.txt;ORG/BRAND (Solvis Sync, Solvis Pro);;;
+TS-S01;Semantische Suche & Detailwissen;Beim SolvisBruno wird die Störung „Blockade Einschub“ (Code 3) gemeldet. Wie hoch darf die Stromaufnahme der Stokerschnecke laut Bedienungsanleitung maximal sein, um diesen Fehler zu vermeiden?;Die Stromaufnahme darf nicht größer als 250 mA sein (Normalbereich liegt zwischen 195 mA und 220 mA).;"Answer
+Maximale Stromaufnahme der Stokerschnecke bei SolvisBruno
+Laut der Bedienungsanleitung darf die Stromaufnahme der Stokerschnecke für den SolvisBruno maximal 250 mA betragen, um die Störung „Blockade Einschub“ (Code 3) zu vermeiden. Im Normalbetrieb liegt die Stromaufnahme der Stokerschnecke zwischen 195 mA und 220 mA 📄 34840-2-_Bedienung_fu_r_Kunden_SolvisBruno_5d1dbe1a, S. 5.
+Context
+Die vorliegenden Textausschnitte stammen aus der Bedienungsanleitung für den Pelletkessel SolvisBruno. Sie enthalten detaillierte Informationen zur Fehlerbehebung, einschließlich spezifischer Grenzwerte für Komponenten wie die Stokerschnecke.
+Source
+📄 Dokument 34840-2-_Bedienung_fu_r_Kunden_SolvisBruno_5d1dbe1a, Seite 5";"Maximale Stromaufnahme der Stokerschnecke beim SolvisBruno
+Antwort
+
+Die maximale Stromaufnahme der Stokerschnecke beim SolvisBruno darf nicht größer als 250 mA sein, um die Störung „Blockade Einschub"" (Code 3) zu vermeiden.
+Hintergrund
+
+Dieser Wert stellt einen kritischen Schwellenwert dar:
+
+    Bei Überschreitung des Grenzwerts von 250 mA wird eine Blockade der Stokerschnecke erkannt
+    Mögliche Ursachen für eine Blockade:
+    Fremdkörper in der Schnecke
+    Überfüllung des Brennstoffbehälters
+    Mechanische Hindernisse
+
+Die Strommessung dient als Überwachungsfunktion, um Beschädigungen der Stokerschnecke durch Blockaden frühzeitig zu erkennen und zu verhindern.
+
+Quelle: Dokument 34840-2-Bedienung_für_Kunden_SolvisBruno.pdf, Seiten 54-55";"Maximale Stromaufnahme der Stokerschnecke beim SolvisBruno
+Antwort
+
+Bei der Störung „Blockade Einschub"" (Code 3) darf die Stromaufnahme der Stokerschnecke maximal 250 mA betragen.
+Hintergrund
+
+Die Stokerschnecke wird beim SolvisBruno kontinuierlich überwacht. Überschreitet die Stromaufnahme über einen bestimmten Zeitraum den Wert von 250 mA, wird eine Blockade erkannt. Dies kann durch:
+
+    Überlastung
+    Fremdkörper im Einschub
+
+verursacht werden.
+Quelle
+
+Dokument: 34840-2-Bedienung_für_Kunden_SolvisBruno.pdf, Seiten 18-21
+(Abschnitt zur Fehlerbehandlung und Störung „Blockade Einschub"")";34840-2-_Bedienung_fu_r_Kunden_SolvisBruno_5d1dbe1a.txt;PRODUCT (SolvisBruno), COMPONENT (Stokerschnecke), SPECIFICATION (250 mA);;;
+TS-S02;Semantische Suche & Detailwissen;Erkläre aus den Konzept-Dokumenten zum SolvisLeo, wie die „Beladeweiche“ im Abtaubetrieb der Wärmepumpe funktioniert und welchen Vorteil das für den Heizkreis hat.;Im Abtaubetrieb bleibt der Warmwasser-Puffer im Speicher stabil. Die Wärme des Heizungspuffers wird zum Abtauen genutzt. Der Vorteil ist, dass der Heizkreis nicht abkühlt und die Raumtemperatur stabil bleibt (Komfortgewinn).;"Die „Beladeweiche“ im Abtaubetrieb der Wärmepumpe
+Die „Beladeweiche“ spielt eine wichtige Rolle im Abtaubetrieb der Wärmepumpe, um den Komfort im Heizkreis aufrechtzuerhalten.
+
+Funktionsweise im Abtaubetrieb:
+Während des Abtauvorgangs bleibt der Warmwasser-Pufferspeicher (WW-Puffer) im System stabil. Dies ermöglicht es, die Wärme aus dem Heizungspuffer gezielt für den Abtauprozess der Wärmepumpe zu nutzen.
+
+Vorteil für den Heizkreis:
+Durch diese intelligente Nutzung der gespeicherten Wärme kühlt der Heizkreis nicht ab. Dies führt dazu, dass die Raumtemperatur konstant bleibt und somit ein hoher Komfort für die Bewohner gewährleistet wird.
+Context
+Das Dokument ist eine Präsentation oder eine Sammlung von Folien, die die Vorteile und Funktionen von Solvis-Wärmepumpenspeichern erläutert. Es dient dazu, technische Konzepte und deren Nutzen für den Endverbraucher und das Handwerk darzustellen.
+Source
+📄 Nutzen_und_Vorteile_der_WP-Speicher__1__e4f56da8, Slide 11";"Funktion der Beladeweiche im Abtaubetrieb des SolvisLeo
+Funktionsweise
+
+Die Beladeweiche im SolvisLeo-Speicher sorgt für eine hydraulische Trennung zwischen Lade- und Heizkreis. Im Abtaubetrieb der Wärmepumpe ermöglicht diese Trennung folgende Funktion:
+
+    Die Wärme aus dem Heizungspuffer kann genutzt werden, um den Wärmetauscher der Wärmepumpe von Eis zu befreien
+    Dabei bleibt der Warmwasserpuffer im Speicher stabil
+    Der Abtauvorgang erfolgt ohne Beeinträchtigung des Heizkreises
+
+Vorteile für den Heizkreis
+
+Die Beladeweiche bietet folgende konkrete Vorteile:
+
+    Keine Abkühlung des Heizkreises während des Abtauvorgangs
+    Konstante Raumtemperatur bleibt erhalten
+    Kein Komfortverlust für die Bewohner
+    Effizienter Abtauvorgang ohne Kompromisse bei der Heizleistung
+
+Technischer Hintergrund
+
+Diese innovative Lösung ist Teil der hydraulischen Optimierungen im Inneren des SolvisLeo-Speichers. Die intelligente Trennung der Kreisläufe ermöglicht es, dass die Wärmepumpe ihre Wartungsfunktion (Abtauen) durchführen kann, ohne dass dies zu Lasten des Heizkomforts geht.
+
+Quelle: Dokument Nutzen_und_Vorteile_des_Leo.pdf, Seiten 11-12";"Funktion der Beladeweiche im Abtaubetrieb beim SolvisLeo
+Funktionsweise
+
+Im Abtaubetrieb der SolvisLeo-Wärmepumpe übernimmt die Beladeweiche eine wichtige Steuerungsfunktion:
+
+    Sie sorgt dafür, dass der Warmwasserspeicher (WW-Puffer) im Speicher stabil bleibt
+    Gleichzeitig ermöglicht sie, dass Wärme aus dem Heizungspuffer genutzt wird, um den Wärmetauscher der Wärmepumpe zu enteisen
+    Dieser Vorgang verhindert, dass Eisablagerungen den Wärmeübergang stören
+
+Vorteil für den Heizkreis
+
+Der entscheidende Vorteil:
+
+    Der Heizkreis kühlt während des Abtauens nicht ab
+    Die Raumtemperatur bleibt stabil
+    Es entsteht ein Komfortgewinn für die Bewohner
+
+Die Beladeweiche ermöglicht somit einen reibungslosen Abtauvorgang ohne Beeinträchtigung des Heizkomforts.
+Kontext
+
+Diese Funktion ist Teil der internen Innovation des SolvisLeo-Speichers und optimiert den Betrieb der Wärmepumpe, indem sie den Heizkreis vor Temperaturschwankungen während des Abtauvorgangs schützt.
+Quelle
+
+Dokument: Nutzen_und_Vorteile_des_Leo_28354545.pdf, Seite 11";"Nutzen_und_Vorteile_des_Leo_28354545.txt; Einige_Produktvorteile_des_Leo_4e1b2c22.txt";PRODUCT (SolvisLeo), FEATURE (Beladeweiche), COMPONENT (Wärmepumpe, Heizkreis);;;
+TS-H01;Hybrid-Szenarien;Welche strategische Bedeutung hat „PV2 Heatpump“ im Rahmen der wärmegebundenen Elektrifizierung laut dem Whitepaper Transformation, und wie hoch ist der maximale Betriebsdruck des SolvisTom 3 kW laut dem technischen Datenblatt in der Broschüre?;Strategie: PV2 Heatpump steht für die direkte Kopplung von Photovoltaik und Wärmepumpe, um überschüssigen Solarstrom gezielt als Wärme zwischenzulagern und den Eigenverbrauchsanteil zu steigern. Technische Spezifikation: Der maximale Betriebsdruck des SolvisTom 3 kW beträgt 3 bar.;"Strategische Bedeutung von „PV2 Heatpump“ und Betriebsdruck des SolvisTom 3 kW
+Strategische Bedeutung von „PV2 Heatpump“
+Im Rahmen der wärmegebundenen Elektrifizierung stellt „PV2 Heatpump“ laut dem „Whitepaper Transformation“ einen entscheidenden Baustein dar. Es steht für die direkte Kopplung von Photovoltaik (PV) und Wärmepumpe. Der Kern der Strategie liegt darin, überschüssigen Solarstrom gezielt zu nutzen, um Wärme zu erzeugen und diese in einem Speicher zwischenzulagern. Dies ermöglicht eine deutliche Steigerung des Eigenverbrauchsanteils von PV-Anlagen und macht die Wärmepumpe zum Herzstück der wärmegebundenen Elektrifizierung.
+
+📄 Whitepaper_Transformation_9006a7e4, chunk_012; Whitepaper_Transformation_9006a7e4, chunk_011
+Maximaler Betriebsdruck des SolvisTom 3 kW
+Der maximale Betriebsdruck für das Modell SolvisTom 3 kW beträgt laut dem technischen Datenblatt in der Broschüre 3 bar.
+
+📄 31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web_4cfe0062, chunk_016; 31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web_4cfe0062, chunk_015
+Context
+Das „Whitepaper Transformation“ scheint ein strategisches Dokument zu sein, das die zukünftige Ausrichtung und technologischen Konzepte von Solvis im Bereich der Energiewende und Elektrifizierung darlegt. Die Broschüre „31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web_4cfe0062“ ist ein technisches Datenblatt, das spezifische Leistungsparameter und technische Spezifikationen für die Produkte SolvisTim und SolvisTom auflistet.
+Source
+📄 Whitepaper_Transformation_9006a7e4, chunk_012; Whitepaper_Transformation_9006a7e4, chunk_011
+31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web_4cfe0062, chunk_016; 31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web_4cfe0062, chunk_015
+(Hinweis: Seitenzahlen sind in den bereitgestellten Textausschnitten nicht verfügbar.)";"Strategische Bedeutung von „PV2 Heatpump"" und maximaler Betriebsdruck des SolvisTom 3 kW
+Strategische Bedeutung von „PV2 Heatpump""
+
+Laut dem Whitepaper Transformation hat „PV2 Heatpump"" eine zentrale strategische Bedeutung im Rahmen der wärmegebundenen Elektrifizierung:
+
+Kernfunktion
+Direkte Kopplung von Photovoltaik und Wärmepumpe
+Gezielte Nutzung von überschüssigem Solarstrom zur Wärmeerzeugung
+Zwischenlagerung der erzeugten Wärme im Speicher
+Strategischer Nutzen
+Entscheidender Baustein der Elektrifizierungsstrategie
+Deutliche Steigerung des Eigenverbrauchsanteils von PV-Anlagen
+Technische Umsetzung der Vision einer ganzheitlichen Energielösung
+SOLVIS-Lösungen
+
+SOLVIS hat mit den Produkten SolvisTim und SolvisTom bereits früh entsprechende Lösungen geschaffen, die diese strategische Vision technisch erlebbar machen.
+
+Maximaler Betriebsdruck des SolvisTom 3 kW
+
+Laut dem technischen Datenblatt in der Broschüre beträgt der maximale Betriebsdruck des SolvisTom 3 kW:
+
+3 bar
+
+Quellen:
+
+Dokument Whitepaper_Transformation.pdf, Seite 7
+Dokument 31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web.pdf, Seiten 1-2 und 5-6";"Strategische Bedeutung von „PV2 Heatpump"" und technische Daten zum SolvisTom 3 kW
+Strategische Bedeutung von „PV2 Heatpump""
+
+Laut dem Whitepaper „Transformation"" hat „PV2 Heatpump"" eine zentrale strategische Bedeutung im Rahmen der wärmegebundenen Elektrifizierung:
+
+    Direkte Kopplung von Photovoltaik und Wärmepumpe
+    Überschüssiger Solarstrom wird gezielt genutzt, um Wärme zu erzeugen und im Speicher zwischenzulagern
+    Dies ist ein entscheidender Baustein der Elektrifizierungsstrategie von SOLVIS
+    Der Eigenverbrauchsanteil von PV-Anlagen wird dadurch deutlich gesteigert
+
+Umsetzung bei SOLVIS
+
+SOLVIS hat mit den Produkten SolvisTim und SolvisTom bereits früh entsprechende Lösungen geschaffen, die die Integration von Strom und Wärme ermöglichen.
+Maximaler Betriebsdruck des SolvisTom 3 kW
+
+Laut dem technischen Datenblatt in der Broschüre beträgt der maximale Betriebsdruck des SolvisTom 3 kW:
+
+3 bar
+Quellen
+
+    Whitepaper „Transformation"", Seite 7 (Strategische Bedeutung von PV2 Heatpump)
+    Broschüre „SolvisTim und SolvisTom – PV2Heat"" (Dokument: 31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web.pdf), Seite 7 (Technische Daten SolvisTom 3 kW)";"Whitepaper_Transformation_9006a7e4.txt; 31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web_4cfe0062.txt";CONCEPT (PV2 Heatpump), SPEC (3 bar), PRODUCT (SolvisTom 3 kW);;;
+TS-N01;Negativ-Tests & Edge Cases;Wie hoch ist der Listenpreis für das „WP-Paket SolvisPia 25 Hybrid“ in der Preisliste 2025?;Ein „WP-Paket SolvisPia 25 Hybrid“ existiert in der bereitgestellten Preisliste nicht (es gibt nur SolvisPia 12, 13 und 17).;"Answer
+Listenpreis für „WP-Paket SolvisPia 25 Hybrid“
+Die angeforderten Informationen zum Listenpreis für das „WP-Paket SolvisPia 25 Hybrid“ sind in den bereitgestellten Text-Snippets nicht enthalten.
+
+Es werden zwar Preise für andere SolvisPia-Pakete aufgeführt, wie zum Beispiel:
+
+
+    WP-Paket SolvisPia 12 Hybrid
+
+    WP-Paket SolvisPia 13 Hybrid
+
+    WP-Paket SolvisPia 17 Hybrid
+
+
+
+jedoch keine Informationen zu einem „SolvisPia 25 Hybrid“-Paket.
+Context
+Die bereitgestellten Text-Snippets stammen aus verschiedenen Dokumenten, darunter Broschüren und Preislisten von Solvis (z.B. „20250701_35219_BRO_Nachru_stsatz_WP__Druck_-compre_60ccdced“, „PL_Neuheiten_2025_V2_32f94903“, „34438_BRO_Privatkunden_Broschuere_Web_58562379“). Sie enthalten Produktbeschreibungen, technische Daten und Paketpreise für verschiedene Heizsysteme und Wärmepumpen von Solvis.
+Source
+📄 Die Suche wurde in folgenden Dokumenten und Chunks durchgeführt:
+
+
+    20250701_35219_BRO_Nachru_stsatz_WP__Druck_-compre_60ccdced (CHUNK 1)
+
+    PL_Neuheiten_2025_V2_32f94903 (CHUNK 2, CHUNK 4, CHUNK 5, CHUNK 10)
+
+    34438_BRO_Privatkunden_Broschuere_Web_58562379 (CHUNK 3, CHUNK 7)
+
+    20251124_35042_BRO_SolvisLea_Pro__ONLINE__1e92811a (CHUNK 8)
+
+    20251125_35196_BRO_SolvisPia_FINAL__ONLINE__32bf84ce (CHUNK 9)
+
+    PL_Neuheiten_2025_V2_32f94903 (CHUNK 6)
+
+
+
+(Hinweis: Seitenzahlen sind in den bereitgestellten Textausschnitten nicht immer verfügbar oder relevant für die Suche nach spezifischen Paketnamen.)";"Listenpreis „WP-Paket SolvisPia 25 Hybrid""
+Antwort
+
+Leider konnte ich in den mir vorliegenden Dokumenten keine Informationen zum „WP-Paket SolvisPia 25 Hybrid"" finden.
+Verfügbare Informationen
+
+Die Preisliste 2025 enthält Angaben zu folgenden SolvisPia WP-Paketen:
+
+    SolvisPia 12 (Hybrid und monovalent)
+    SolvisPia 13 (Hybrid und monovalent)
+    SolvisPia 17 (Hybrid und monovalent)
+
+Ein SolvisPia 25 Hybrid wird in den vorliegenden Preisunterlagen nicht aufgeführt.
+Mögliche Gründe
+
+    Das Produkt könnte unter einer anderen Bezeichnung geführt werden
+    Es könnte sich um eine zukünftige Produktvariante handeln
+    Möglicherweise liegt ein Tippfehler in der Produktbezeichnung vor
+
+Für eine verlässliche Auskunft empfehle ich die Prüfung der vollständigen aktuellen Preisliste oder Rücksprache mit dem Vertrieb.
+
+Quelle: Dokument PL_Neuheiten_2025_V2.pdf";"Listenpreis „WP-Paket SolvisPia 25 Hybrid""
+Antwort
+
+Leider konnte ich in den mir vorliegenden Dokumenten keine Informationen zum „WP-Paket SolvisPia 25 Hybrid"" finden.
+Verfügbare Informationen
+
+Die Preisliste Neuheiten 2025 (PL_Neuheiten_2025_V2.pdf) enthält verschiedene WP-Pakete für folgende SolvisPia-Modelle:
+
+    SolvisPia 12
+    SolvisPia 13
+    SolvisPia 17
+
+Sowie für:
+
+    SolvisLea
+    SolvisMia
+
+Ein „SolvisPia 25 Hybrid"" wird in den verfügbaren Dokumenten nicht aufgeführt.
+Empfehlung
+
+Für eine verlässliche Auskunft zum Listenpreis des „WP-Paket SolvisPia 25 Hybrid"" empfehle ich:
+
+    Prüfung der vollständigen Preisliste 2025
+    Rücksprache mit dem Vertrieb oder der Produktabteilung
+
+Quelle
+
+Dokument: PL_Neuheiten_2025_V2.pdf (keine spezifische Seite, da Produkt nicht enthalten)";Preisliste 2025;PRODUCT (SolvisPia 25 Hybrid), PRICE (negative lookup);;;
+TS-N02;Negativ-Tests & Edge Cases;Welche konkreten BAFA-Förderbeträge in Euro gelten laut den Dokumenten für das Jahr 2028 beim Einbau einer SolvisLea Pro?;Dazu liegen keine Informationen vor. Die Dokumente (Stand 2024/2025) erwähnen Förderungen bis zu 70% über die KfW / BEG-Förderung 2025, aber keine Euro-Beträge für das Jahr 2028.;"Answer
+BAFA-Förderbeträge für SolvisLea Pro im Jahr 2028
+Die von Ihnen angefragten konkreten BAFA-Förderbeträge in Euro für das Jahr 2028 im Zusammenhang mit dem Einbau einer SolvisLea Pro sind in den bereitgestellten Dokumenten nicht enthalten.
+
+Die Dokumente (insbesondere CHUNK 3) erwähnen zwar allgemeine Fördergrundsätze und prozentuale Sätze wie:
+
+
+    30 % Basisförderung
+
+    20 % Klimageschwindigkeitsbonus
+
+    5 % Effizienzbonus (für Kältemittel Propan R290)
+
+    30 % Einkommensbonus
+
+
+
+sowie eine maximale Förderhöhe von 30.000 € und eine maximale prozentuale Förderung von 70 %. Es wird auch ein fiktives Beispiel mit einer Förderung von 16.500 € bei Gesamtkosten von 36.000 € genannt.
+
+Es gibt jedoch keine spezifischen Angaben zum Jahr 2028 oder zu konkreten Euro-Beträgen, die sich direkt auf die SolvisLea Pro beziehen und als verbindliche BAFA-Förderhöhe für dieses spezifische Jahr ausgewiesen sind.
+Context
+Die bereitgestellten Text-Snippets stammen aus verschiedenen Dokumenten von Solvis, darunter Broschüren und Preislisten für das Modelljahr 2025. CHUNK 3 diskutiert allgemeine Förderrichtlinien (GEG, BEG) und gibt ein hypothetisches Beispiel für die Förderung einer Wärmepumpe, ohne jedoch spezifische Jahreszahlen wie 2028 oder feste Euro-Beträge für einzelne Produkte zu nennen.
+Source
+📄 34438_BRO_Privatkunden_Broschuere_Web_58562379, chunk_006 (enthält allgemeine Förderinformationen und ein fiktives Beispiel)";"BAFA-Förderbeträge 2028 für SolvisLea Pro
+Antwort
+
+Laut den vorliegenden Dokumenten konnten keine konkreten BAFA-Förderbeträge in Euro für das Jahr 2028 beim Einbau einer SolvisLea Pro gefunden werden.
+
+Verfügbare Informationen
+
+Die mir zugänglichen Dokumente enthalten:
+
+Technische Daten zur SolvisLea-Serie
+Produktpakete und Ausstattungsvarianten
+Preislisten (z.B. SolvisLea 7 Pro: 10.100 € Listenpreis)
+Allgemeine Förder- und Bonusinformationen
+
+Jedoch keine spezifischen BAFA-Förderwerte für das Jahr 2028.
+
+Hintergrund
+
+BAFA-Förderungen werden in der Regel:
+
+Jährlich aktualisiert und angepasst
+In separaten Förderprogrammen und -richtlinien veröffentlicht
+Nicht in den technischen Produktdokumentationen detailliert aufgeführt
+Empfehlung
+
+Für aktuelle und verbindliche BAFA-Förderbeträge für 2028 empfehle ich:
+
+Prüfung der offiziellen BAFA-Website
+Kontakt zum SOLVIS-Vertrieb für aktuelle Förderinformationen
+Beratung durch einen Fachhandwerker oder Energieberater
+
+Quelle: Kontext aus Dokumentenrecherche (keine spezifischen BAFA-Beträge für 2028 vorhanden)";"BAFA-Förderbeträge 2028 für SolvisLea Pro
+Antwort
+
+Leider enthalten die mir vorliegenden Dokumente keine Informationen zu BAFA-Förderbeträgen für das Jahr 2028 beim Einbau einer SolvisLea Pro.
+
+Verfügbare Informationen
+
+Die vorhandenen Dokumente zur SolvisLea Pro behandeln:
+
+Technische Spezifikationen
+Komponenten und Ausstattung
+Listenpreise (z. B. SolvisLea 7 Pro: 10.100 €)
+Anwendungsbereiche
+
+Förderinformationen, insbesondere für das Jahr 2028, sind nicht enthalten.
+
+Hintergrund
+
+BAFA-Fördersätze werden in der Regel:
+
+Jährlich durch das Bundesamt für Wirtschaft und Ausfuhrkontrolle (BAFA) festgelegt
+Im Rahmen der Bundesförderung für effiziente Gebäude (BEG) veröffentlicht
+Kurzfristig angepasst (Planungen für 2028 sind aktuell noch nicht verfügbar)
+Empfehlung
+
+Für aktuelle und zukünftige Förderinformationen empfehle ich:
+
+BAFA-Website:
+www.bafa.de
+Förderdatenbank des Bundes
+Rücksprache mit dem Solvis-Vertrieb oder der technischen Beratung
+Quelle
+
+Dokument: PL_Neuheiten_2025_V2.pdf (keine spezifischen Förderinformationen enthalten)";Dokumente 2024/2025 zu Förderungen;PROGRAM (BAFA/KfW/BEG), YEAR (2028);;;
+TS-A03;Agentische Logik & Rechnen;Wie groß ist die Differenz zwischen der Jahressumme von A+B1 und B2?;48.000 € − 29.500 € = 18.500 €.;"Answer
+Differenz der Jahressummen von A+B1 und B2
+Die Jahressumme für den Aufgabenbereich A+B1 (Markenstrategie & Identitätsentwicklung) beträgt 48.000 €.
+Die Jahressumme für den Aufgabenbereich B2 (Anwendung/Operationalisierung CD-Update) beträgt 29.500 €.
+
+Die Differenz zwischen diesen beiden Jahressummen berechnet sich wie folgt:
+48.000 € - 29.500 € = 18.500 €
+
+Die Differenz beträgt somit 18.500 €.
+Context
+Die bereitgestellten Text-Snippets enthalten eine Budget-/Ressourcenplanung für das Jahr 2026, die hauptsächlich das Marketingbudget von SOLVIS darstellt. Die Tabelle ist nach Aufgabenbereichen (A–H) und Monaten (Jan–Dez 2026) gegliedert und enthält Jahressummen für jeden Aufgabenbereich.
+Source
+📄 solvis_budgetplanung_bb_2026_markdown_table_57d779a8, CHUNK 1";"Antwort
+
+Die Differenz zwischen der Jahressumme von A+B1 und B2 beträgt 18.500 EUR.
+
+    A+B1 (Markenstrategie & Identitätsentwicklung): 48.000 EUR
+    B2 (Anwendung/Operationalisierung CD-Update): 29.500 EUR
+    Differenz: 48.000 EUR − 29.500 EUR = 18.500 EUR
+
+Kontext
+
+Die Angaben stammen aus der Budget- und Ressourcenplanung für das Jahr 2026. Darin sind die Ausgaben nach verschiedenen Aufgabenbereichen und Monaten aufgeschlüsselt. Die Positionen A+B1 und B2 beziehen sich auf unterschiedliche Aspekte der Markenentwicklung und deren operative Umsetzung.
+Quelle
+
+Dokument: solvis_budgetplanung_bb_2026.pdf, Seite 1";"Differenz zwischen Jahressumme A+B1 und B2
+
+Die Differenz zwischen den Jahressummen der beiden Aufgabenbereiche im Marketingbudget 2026 beträgt 18.500 €.
+Budgetübersicht
+A+B1 (Markenstrategie & Identitätsentwicklung)48.000 €B2 (Anwendung/Operationalisierung CD-Update)29.500 €Differenz18.500 €
+Interpretation
+
+Der Aufgabenbereich Markenstrategie & Identitätsentwicklung (A+B1) ist mit 48.000 € um 18.500 € höher budgetiert als die Anwendung/Operationalisierung des CD-Updates (B2) mit 29.500 €. Dies zeigt, dass der strategischen Markenarbeit im Jahr 2026 ein höherer Stellenwert bzw. höherer Ressourcenbedarf zugemessen wird als der operativen Umsetzung des Corporate Design Updates.
+
+Quelle: Dokument solvis_budgetplanung_bb_2026_markdown_table.pdf";/Users/christianstrube/Desktop/SOLVIS-RAG/Files/images-in-md/solvis_budgetplanung_bb_2026_markdown_table.md;BUDGET (A+B1, B2), AMOUNT (48.000 €, 29.500 €, 18.500 €);;;
+TS-A04;Agentische Logik & Rechnen;Welcher Persona‑Index ist bei „TV“ am höchsten, und wie hoch ist er?;Persona 3 mit 106.;"Answer
+Höchster Persona-Index für „TV“
+Der höchste Persona-Index für die Mediennutzung im Bereich „TV“ ist 106. Dieser Wert gehört zur Persona 3.
+
+Die Mediennutzungswerte für „TV“ im Vergleich der Personas sind wie folgt:
+Mediennutzung	Persona 1 Index	Persona 2 Index	Persona 3 Index	Persona 4 Index
+TV	103	100	106	104
+Context
+Die bereitgestellten Text-Snippets enthalten eine Analyse der Mediennutzung verschiedener Personas, die für Marketing- und Kommunikationsstrategien relevant sind. CHUNK 4 präsentiert eine Tabelle, die quantitative Indexwerte für die Nutzung verschiedener Medienkanäle durch vier definierte Personas zeigt.
+Source
+📄 Personas-Privatkunden-Solvis-Mediennutzung_a39de276, Chunk-ID: Personas-Privatkunden-Solvis-Mediennutzung_a39de276_chunk_001";"Antwort
+
+Der Persona-Index bei „TV"" ist am höchsten für Persona 3 mit einem Wert von 106.
+Quelle
+
+Diese Information stammt aus dem Dokument Personas-Privatkunden-Solvis-Mediennutzung.pdf (Seite 1), das die Mediennutzung verschiedener Personas im Detail beschreibt.";"Antwort
+
+Der Persona-Index bei „TV"" ist am höchsten für Persona 3 mit einem Wert von 106.
+Quelle
+
+Diese Information stammt aus dem Dokument Personas-Privatkunden-Solvis-Mediennutzung.pdf (Seite 1), das die Mediennutzung verschiedener Personas im Detail beschreibt.";/Users/christianstrube/Desktop/SOLVIS-RAG/Files/Personas-Privatkunden-Solvis-Mediennutzung.xlsx;PERSONA (3), METRIC (TV Index 106);;;
+TS-A05;Agentische Logik & Rechnen;Wie groß ist der Abstand zwischen Persona 4 und Persona 2 bei „Online Audio“?;110 − 95 = 15.;"Die Persona 4 hat einen Indexwert von 110 für ""Online Audio"", während die Persona 2 einen Indexwert von 95 für denselben Bereich aufweist. Der Abstand zwischen diesen beiden Werten beträgt 15.
+Berechnung des Abstands
+
+
+    Wert für Persona 4 (Online Audio): 110
+
+    Wert für Persona 2 (Online Audio): 95
+
+    Abstand: 110 - 95 = 15
+
+Context
+Die Daten stammen aus einer Analyse der Mediennutzung von verschiedenen Kunden-Personas, die für Marketingzwecke erstellt wurde.
+Source
+📄 Document Personas-Privatkunden-Solvis-Mediennutzung_a39de276, Sheet: Tabelle1";"Antwort
+
+Der Abstand zwischen Persona 4 und Persona 2 bei „Online Audio"" beträgt 15 Indexpunkte.
+
+    Persona 4: Index 110
+    Persona 2: Index 95
+    Differenz: 110 - 95 = 15
+
+Persona 4 weist somit eine um 15 Punkte höhere Mediennutzung im Bereich „Online Audio"" auf als Persona 2.
+Quelle
+
+Dokument: Personas-Privatkunden-Solvis-Mediennutzung.pdf, Seite 1
+
+Die Werte stammen aus einer Tabelle, die die Mediennutzung verschiedener Personas im Detail beschreibt und die relative Nutzungshäufigkeit oder -intensität der jeweiligen Medienformen repräsentiert.";"Antwort
+
+Der Abstand zwischen Persona 4 und Persona 2 bei „Online Audio"" beträgt 15 Punkte.
+Details
+
+    Persona 2 hat einen Index von 95
+    Persona 4 hat einen Index von 110
+    Differenz: 110 - 95 = 15 Punkte
+
+Quelle
+
+Diese Information stammt aus dem Dokument Personas-Privatkunden-Solvis-Mediennutzung.pdf (Seite 1), das die Mediennutzung verschiedener Personas vergleicht.";/Users/christianstrube/Desktop/SOLVIS-RAG/Files/Personas-Privatkunden-Solvis-Mediennutzung.xlsx;PERSONA (4,2), METRIC (Online Audio Index);;;
+TS-G03;Multi-Hop & GraphRAG;Welche Kommunikationschance ergibt sich aus der beschriebenen Zurückhaltung beim Heizungstausch, und welches explizite Kommunikationsziel wird für die neue Markenkommunikation formuliert?;"Chance: Orientierung/Planungssicherheit bieten, weil Verbraucher verunsichert sind (GEG‑Debatte, Wärmeplanung). Ziel: einfacher, verständlicher kommunizieren; emotional, aber faktenbasiert; dynamisch, nicht beliebig; Fokus auf Vertrauen als Lösungsanbieter – unabhängig vom Ausgangs‑Setup der Kunden.";"Kommunikationschance und Kommunikationsziel
+Aus der beschriebenen Zurückhaltung beim Heizungstausch ergibt sich die Kommunikationschance, potenziellen Kund:innen Orientierung und Sicherheit in einem unsicheren Markt zu bieten, insbesondere durch die Betonung von Planungssicherheit und Verlässlichkeit 📄 press_waermepumpen_auf_standby_aaef6b49, chunk_004.
+
+Ein explizites Kommunikationsziel für eine neue Markenkommunikation, wie es im Fall von Sewerin formuliert wurde, ist die Schaffung einer klaren, differenzierenden Markenstrategie, die intern wie extern wirkt. Das Ziel ist es, die Vision sichtbar zu machen und die Marke erfolgreich in die Zukunft zu führen 📄 TERRITORY_Reclaim_Made_in_Germany_Dossier-2_f94e1bad, Seite 7.
+Context
+Die Informationen stammen aus einem Presseartikel über den Wärmepumpenmarkt und einem Dossier über Markenkommunikation und ""Made in Germany"".
+Source
+📄
+
+
+    Dokument: press_waermepumpen_auf_standby_aaef6b49
+
+    Dokument: TERRITORY_Reclaim_Made_in_Germany_Dossier-2_f94e1bad, Seite 7";"Antwort
+
+Aus der Zurückhaltung beim Heizungstausch ergibt sich die Kommunikationschance, Orientierung und Sicherheit in einem unsicheren Markt zu bieten. Insbesondere die Forderung nach Planungssicherheit und Verlässlichkeit wird als zentraler Ansatzpunkt genannt.
+Explizites Kommunikationsziel
+
+Das explizite Kommunikationsziel für die neue Markenkommunikation ist es, eine „einfachere, aufgeräumte, verständliche Kommunikation"" zu schaffen, die:
+
+    emotional wirkt
+    dennoch auf Fakten und technischem Unterbau basiert
+    die Marke als vertrauenswürdigen Lösungsanbieter positioniert
+    unabhängig vom individuellen Grundsetup der Kund:innen funktioniert
+
+Kontext
+
+Diese strategische Ausrichtung bezieht sich auf die aktuelle Marktsituation und die damit verbundenen Chancen für die Markenkommunikation von Solvis.
+Quelle
+
+Dokument: solvis_rebranding_konzeptnote_vision_usecases.pdf, Seite 3";"Antwort
+
+Aus der beschriebenen Zurückhaltung beim Heizungstausch ergeben sich folgende Kommunikationschancen und Kommunikationsziele:
+Kommunikationschance
+
+Die Verunsicherung der Verbraucher durch Debatten um das Gebäudeenergiegesetz (GEG) und die kommunale Wärmeplanung ist eine Hauptursache für die Investitionszurückhaltung.
+
+Solvis kann hier mit klarer, vertrauensbildender Kommunikation punkten, die:
+
+    Orientierung und Sicherheit in einem unsicheren Markt bietet
+    Planungssicherheit und Klarheit betont
+
+Explizites Kommunikationsziel der neuen Markenkommunikation
+
+Die neue Markenkommunikation von Solvis verfolgt das Ziel:
+
+    Einfache, aufgeräumte und verständliche Kommunikation zu bieten
+    Emotional wirksam zu sein, aber nicht auf Kosten von Fakten und technischem Unterbau
+    Vertrauen als Lösungsanbieter aufzubauen
+    Unabhängig vom Grundsetup der Kund:innen zuhause zu funktionieren
+
+Quellen
+
+Diese Informationen stammen aus:
+
+    press_waermepumpen_auf_standby.pdf (Seiten 1-3): Beschreibung des Wärmepumpenmarktes und der Herausforderungen beim Heizungstausch
+    solvis_rebranding_konzeptnote_vision_usecases.pdf (Seite 3): Definition der Kommunikationsziele der neuen Markenstrategie";"/Users/christianstrube/Desktop/SOLVIS-RAG/Files/images-in-md/press_waermepumpen_auf_standby.md; /Users/christianstrube/Desktop/SOLVIS-RAG/Files/images-in-md/solvis_rebranding_konzeptnote_vision_usecases.md";TOPIC (Nachfrage/Zurückhaltung), GOAL (Kommunikationsziel Vertrauen);;;
+TS-S03;Semantische Suche & Detailwissen;Was passiert im Abtaubetrieb der Wärmepumpe und welcher Vorteil entsteht für den Heizkreis?;"Der Warmwasser‑Puffer bleibt stabil; Wärme aus dem Heizungspuffer wird zum Abtauen genutzt; der Heizkreis kühlt nicht ab, die Raumtemperatur bleibt stabil (Komfortgewinn).";"Was passiert im Abtaubetrieb und welcher Vorteil entsteht für den Heizkreis?
+Was passiert im Abtaubetrieb?
+Bei Außentemperaturen unter 7 °C kann sich Kondensat am Wärmeübertrager der Wärmepumpe ansammeln und gefrieren, was den Wärmeübergang verschlechtert. Die Abtaufunktion befreit den Wärmetauscher von Eis, um einen störungsfreien und effizienten Betrieb zu gewährleisten. Dazu kehrt der Wärmepumpenprozess um: Ein Teil der Wärme wird dem Speicherwasser entzogen und dem Luftwärmeübertrager zugeführt, um das Eis zu schmelzen. Während dieses Vorgangs sind die E-Heizstäbe deaktiviert, und eine Beladung des Speichers ist nicht möglich. Die Funktion stellt sicher, dass die Wärmepumpe nicht einfriert und betriebsbereit bleibt 📄 32431-3-f_Bedienung_Kunde_SolvisBen_Max_SC-3_bbf746cf, chunk_122, S. 7; chunk_138, S. 45.
+Vorteil für den Heizkreis
+Der Hauptvorteil für den Heizkreis besteht darin, dass nach erfolgreicher Abtauung die Wärmepumpe wieder voll einsatzbereit ist. Eine Wärmeanforderung des Heizkreises kann erst nach Abschluss des Abtauvorgangs fortgesetzt werden. Dies stellt sicher, dass die Wärmepumpe auch bei niedrigen Außentemperaturen effizient arbeitet und der Heizkreis kontinuierlich mit Wärme versorgt werden kann, sobald die Abtauung abgeschlossen ist 📄 32431-3-f_Bedienung_Kunde_SolvisBen_Max_SC-3_bbf746cf, chunk_122, S. 7.
+Context
+Die Textausschnitte stammen aus Bedienungsanleitungen für Solvis Heizsysteme (SolvisBen, SolvisMax, SolvisLea) und beschreiben technische Funktionen und Vorteile der Produkte.
+Source
+📄
+
+
+    Dokument: 32431-3-f_Bedienung_Kunde_SolvisBen_Max_SC-3_bbf746cf, Seite 7
+
+    Dokument: 32431-3-f_Bedienung_Kunde_SolvisBen_Max_SC-3_bbf746cf, Seite 45";"Antwort
+
+Im Abtaubetrieb der Wärmepumpe wird der Wärmetauscher von Eis befreit, um den störungsfreien und effizienten Betrieb sicherzustellen. Dabei läuft folgender Prozess ab:
+Funktionsweise des Abtaubetriebs
+
+    Der Wärmepumpenprozess wird umgekehrt: Statt Wärme zu erzeugen, wird Wärme aus dem Pufferspeicher entzogen und dem Luftwärmeübertrager zugeführt.
+    Diese Wärme taut das Kondensat am Wärmetauscher auf.
+    Während dieser Phase sind die elektrischen Heizstäbe deaktiviert, da keine Beladung des Speichers stattfindet.
+
+Vorteil für den Heizkreis
+
+Der entscheidende Vorteil für den Heizkreis ist, dass die Raumtemperatur konstant bleibt. Der Heizkreis kühlt während des Abtaubetriebs nicht ab, was einen Komfortgewinn bedeutet: Die Räume werden nicht kälter, während die Wärmepumpe abtaut.
+Quelle
+
+Dokument: 32431-3-f_Bedienung_Kunde_SolvisBen_Max_SC-3.pdf, Seite 40
+(Abschnitt zur Funktionsweise und Betriebsarten der Wärmepumpe im SolvisControl-System)";"Abtaubetrieb der Wärmepumpe
+Was passiert im Abtaubetrieb?
+
+Im Abtaubetrieb wird der Wärmetauscher der Wärmepumpe von Eis befreit, um einen störungsfreien und effizienten Betrieb sicherzustellen.
+Warum ist das notwendig?
+
+Bei Außentemperaturen unter 7 °C kann Kondensat am Wärmeübertrager gefrieren, was den Wärmeübergang verschlechtert.
+Wie funktioniert der Abtauvorgang?
+
+Während des Abtaubetriebs wird der Wärmepumpenprozess umgekehrt:
+
+    Dem Speicherwasser wird etwas Wärme entzogen
+    Diese Wärme wird genutzt, um den Luftwärmeübertrager zu beheizen und zu enteisen
+    Sobald der Wärmetauscher vollständig abgetaut ist, schaltet sich die Abtaufunktion ab
+    Die Wärmepumpe ist dann wieder einsatzbereit
+
+Anzeige
+
+Der Abtauvorgang wird im Hauptmenü durch eine Schneeflocke symbolisiert und im Anlagenschema angezeigt.
+Vorteil für den Heizkreis
+
+Der entscheidende Vorteil ist, dass die Wärme des Heizungspuffers für den Abtauvorgang genutzt werden kann. Dies führt zu:
+
+    Stabiler Raumtemperatur: Der Heizkreis kühlt nicht ab
+    Komfortgewinn: Die Heizleistung bleibt während des Abtauvorgangs erhalten
+    Keine spürbaren Temperaturschwankungen in den beheizten Räumen
+
+Quelle: Dokument 32431-3-f_Bedienung_Kunde_SolvisBen_Max_SC-3.pdf, Seiten 40-41";/Users/christianstrube/Desktop/SOLVIS-RAG/Files/Nutzen und Vorteile des Leo.pptx;PROCESS (Abtaubetrieb), EFFECT (Heizkreis stabil);;;
+TS-S04;Semantische Suche & Detailwissen;Welche Zahlen nennt der Artikel zur Heizungs‑ und Wärmepumpenentwicklung 2025?;"Jan–Okt 2025: 529.000 Heizungen (‑14%); 620.000 Gesamtjahr (‑14%); 255.000 Wärmepumpen (+57%); ca. 230.000 neue Gasheizungen.";"Zahlen zur Heizungs- und Wärmepumpenentwicklung 2025
+Die bereitgestellten Textausschnitte nennen für das Jahr 2025 folgende Zahlen und Entwicklungen im Bereich Heizung und Wärmepumpen:
+
+
+    Marktanteil-Meilenstein: Im ersten Halbjahr 2025 wurden erstmals mehr Wärmepumpensysteme als Gasbrennwertsysteme im für SOLVIS relevanten Markt abgesetzt. Dies markiert einen wichtigen Kipppunkt in der Heiztechnik 📄 Whitepaper_Transformation_9006a7e4, chunk_001; chunk_002.
+
+    Quelle für Installationszahlen: Die Quelle ""bwp 02/2025"" wird zitiert 📄 20251124_35042_BRO_SolvisLea_Pro__ONLINE__1e92811a, chunk_002; chunk_001.
+
+    Kumulative Installationen (seit 2020): Basierend auf der zitierten Quelle wird angegeben, dass es mehr als 1 Million neu installierte Wärmepumpen seit 2020 gibt 📄 20251124_35042_BRO_SolvisLea_Pro__ONLINE__1e92811a, chunk_002; chunk_001.
+
+
+
+Es ist wichtig zu beachten, dass die Texte keine spezifische Zahl für die Anzahl der neu installierten Wärmepumpen ausschließlich im Jahr 2025 nennen. Die genannte Million ist eine kumulative Zahl seit 2020.
+Context
+Die Textausschnitte stammen aus verschiedenen Broschüren und Whitepapern von SOLVIS, die sich mit Wärmepumpen, Heizsystemen, Markttransformationen und Förderungen befassen.
+Source
+📄
+
+
+    Dokument: Whitepaper_Transformation_9006a7e4, chunk_001 & chunk_002
+
+    Dokument: 20251124_35042_BRO_SolvisLea_Pro__ONLINE__1e92811a, chunk_002 & chunk_001";"Antwort
+
+Der Artikel nennt folgende Zahlen zur Heizungs- und Wärmepumpenentwicklung 2025:
+Gesamter Heizungsmarkt
+
+    Januar bis Oktober 2025: 529.000 verkaufte Heizungen
+    Rückgang: -14 % gegenüber dem Vorjahreszeitraum
+    Prognose Gesamtjahr 2025: ca. 620.000 neu installierte Heizungen
+    Rückgang: -14 % gegenüber 2024
+
+Wärmepumpen
+
+    Januar bis Oktober 2025: 255.000 verkaufte Geräte
+    Zuwachs: +57 % gegenüber dem Vorjahr
+    Zielmarke (jährlich): ca. 500.000 Wärmepumpen
+    Diese Marke wird laut BDH mit dem aktuellen Absatz noch nicht erreicht
+
+Gasheizungen
+
+    Januar bis Oktober 2025: 230.000 neu installierte Gasheizungen
+
+Kontext
+
+Die Zahlen stammen vom Bundesverband der Deutschen Heizungsindustrie (BDH) und zeigen einen paradoxen Trend: Während der Gesamtmarkt schrumpft, wächst das Wärmepumpensegment deutlich. Als Hauptursache für die zurückhaltende Nachfrage werden die Verunsicherung durch Debatten um das Gebäudeenergiegesetz (GEG) und kommunale Wärmeplanungen genannt.
+Quelle
+
+Dokument: press_waermepumpen_auf_standby.pdf, Seiten 1-2";"Zahlen zur Heizungs- und Wärmepumpenentwicklung 2025
+
+Der Artikel nennt folgende konkrete Zahlen:
+Gesamtmarkt Heizungen
+
+    529.000 Heizungen wurden in den ersten zehn Monaten (Januar bis Oktober) 2025 verkauft
+    Dies entspricht einem Rückgang von 14 Prozent gegenüber dem Vorjahreszeitraum
+    Für das Gesamtjahr 2025 werden etwa 620.000 neu installierte Heizungen erwartet
+    Auch dies bedeutet einen Rückgang von 14 Prozent im Jahresvergleich
+
+Wärmepumpen
+
+    255.000 Wärmepumpen wurden von Januar bis Oktober 2025 verkauft
+    Dies entspricht einem Anstieg von 57 Prozent gegenüber dem Vorjahreszeitraum
+    Das politische Ziel von 500.000 Wärmepumpen pro Jahr wird jedoch verfehlt
+
+Gasheizungen
+
+    230.000 neue Gasheizungen wurden bis Oktober 2025 installiert
+
+Einordnung
+
+Trotz des deutlichen Wachstums bei Wärmepumpen (+57 %) zeigt sich am Gesamtmarkt eine Zurückhaltung beim Heizungstausch. Die Zahl der installierten Gasheizungen liegt nahezu gleichauf mit den Wärmepumpen.
+
+Quelle: Dokument press_waermepumpen_auf_standby.pdf, Seiten 1-3 (Bundesverband der Deutschen Heizungsindustrie, BDH)";/Users/christianstrube/Desktop/SOLVIS-RAG/Files/images-in-md/press_waermepumpen_auf_standby.md;METRIC (Absatz, Prozent, Zeitraum);;;
+TS-H02;Hybrid-Szenarien;Welche Produktbotschaft zu SolvisLeo wird genannt und wie soll sie visuell gedacht werden?;"SolvisLeo als „Energie‑Manager für Wärmepumpen“; visuell über Schichtungen/Ebenen/„sortierte Energie“ vs. Chaos im klassischen Puffer; Holz/Nachhaltigkeit als Gestaltungselement.";"Produktbotschaft und visuelle Konzeption für SolvisLeo
+Produktbotschaft SolvisLeo
+Die zentrale Produktbotschaft für SolvisLeo positioniert ihn als einen für Wärmepumpen optimierten Pufferspeicher. Sein Hauptmerkmal ist die konsequent erhaltene Temperaturschichtung (""oben warm, unten kalt""), die im Gegensatz zu klassischen Pufferspeichern steht, bei denen sich das Wasser vermischt. Dies verhindert den Verlust wertvoller Temperaturzonen und ermöglicht dem Energiemanagement, klar trennbare warme und kalte Bereiche zu erkennen, anstatt nur einen ""mittelwarmen Brei"". Die Innovation im Inneren, die ""Beladeweiche"", sorgt für ein optimales Speichermanagement und gewährleistet ""die beste Verbindung der Wärmepumpe zum Heizsystem"". Die Produktreihe umfasst die Größen SolvisLeo 180, SolvisLeo 650 und SolvisLeo 650 XL 📄 Neuer_Pufferspeicher_Produktneueinfu_hrun_mitdenke_31b585ef_chunk_002, S. 1; chunk_003, S. 1; Nutzen_und_Vorteile_der_WP-Speicher__1__e4f56da8_chunk_001, S. 2; chunk_002, S. 2; Nutzen_und_Vorteile_des_Leo_28354545_chunk_001, S. 2; chunk_002, S. 2. Die Produkteinführung ist für März/April 2026 geplant 📄 Neuer_Pufferspeicher_Produktneueinfu_hrun_mitdenke_31b585ef_chunk_002, S. 1.
+Visuelle Konzeption
+Die visuelle Konzeption soll die Botschaft des Gesamtsystems und der Systemkompetenz von SOLVIS unterstreichen. Dies wird durch die Darstellung von Produkten als Teil eines vernetzten Systems erreicht, oft visualisiert durch orange Linien, die Komponenten verbinden und Energie- oder Datenflüsse symbolisieren. Das Design strebt einen ""Signature Look & Feel (Energiefluss)"" an und soll einen ""Visuellen Shift in Richtung Premium"" vermitteln. Es wird ein ""Farbraum, außerhalb marktüblicher Cluster"" angestrebt, um hohe Wiedererkennbarkeit zu gewährleisten, mit einer Tonalität, die wärmer und menschlicher als die der Konkurrenz ist, um Behaglichkeit und Vertrauen zu schaffen. Statt reiner Produktfotos können auch abstrakte System-Illustrationen mit Icons (z.B. Solarpanel, Batteriesymbol, Haus) und organischen Linien (""Energiepfade"") verwendet werden, um Modularität, Vernetzung und ein intelligentes Energiesystem zu kommunizieren 📄 solvis_rebranding_skizze_04_produkte_im_system_e81bb8d7_chunk_001, S. 1; solvis_rebranding_skizze_05_connect_0dd7125a_chunk_001, S. 1; solvis_rebranding_skizze_02_zukunft_modular_gedach_7e95c9c1_chunk_001, S. 1; Solvis_Branding_Projekt_Skizze__1__f5dae8ac_chunk_002, S. 3.
+Context
+Die Textausschnitte stammen aus Dokumenten, die sich mit der Produkteinführung des SolvisLeo Pufferspeichers, dem Rebranding der Marke SOLVIS und der visuellen Darstellung von Produktsystemen befassen.
+Source
+📄
+
+
+    Dokument: Neuer_Pufferspeicher_Produktneueinfu_hrun_mitdenke_31b585ef, Chunk-ID: chunk_002, S. 1; Chunk-ID: chunk_003, S. 1
+
+    Dokument: Nutzen_und_Vorteile_der_WP-Speicher__1__e4f56da8, Chunk-ID: chunk_001, S. 2; Chunk-ID: chunk_002, S. 2
+
+    Dokument: Nutzen_und_Vorteile_des_Leo_28354545, Chunk-ID: chunk_001, S. 2; Chunk-ID: chunk_002, S. 2
+
+    Dokument: solvis_rebranding_skizze_04_produkte_im_system_e81bb8d7, Chunk-ID: chunk_001, S. 1
+
+    Dokument: solvis_rebranding_skizze_05_connect_0dd7125a, Chunk-ID: chunk_001, S. 1
+
+    Dokument: solvis_rebranding_skizze_02_zukunft_modular_gedach_7e95c9c1, Chunk-ID: chunk_001, S. 1
+
+    Dokument: Solvis_Branding_Projekt_Skizze__1__f5dae8ac, Chunk-ID: chunk_002, S. 3";"Antwort
+
+Die Produktbotschaft für SolvisLeo wird folgendermaßen beschrieben:
+Kommunikationsstrategie
+
+Die Botschaft zielt auf eine einfache, aufgeräumte und verständliche Kommunikation ab, die:
+
+    emotional wirkt
+    gleichzeitig auf Fakten und technischem Unterbau basiert
+    Solvis als vertrauenswürdigen Lösungsanbieter positioniert
+    unabhängig vom individuellen Kunden-Setup funktioniert
+
+Visuelle Umsetzung
+
+Visuell soll die Kommunikation durch eine klare und vertrauenswürdige Bildsprache konzipiert werden, die folgende Eigenschaften vermittelt:
+
+    Planungssicherheit
+    Verlässlichkeit
+    Technische Transparenz
+    Nicht komplex wirkend – trotz technischer Tiefe
+
+Kontext
+
+Diese Produktbotschaft ist Teil der Rebranding-Strategie, in der Solvis als Plattformanbieter und Energie-Ökosystem positioniert wird. Die visuelle und kommunikative Gestaltung soll eine emotionale, aber sachlich fundierte Markenwelt schaffen.
+Quelle
+
+Dokument: solvis_rebranding_konzeptnote_vision_usecases.pdf, Seite 1";"Produktbotschaft zu SolvisLeo
+Kernbotschaft
+
+Die Produktbotschaft des SolvisLeo ist darauf ausgerichtet:
+
+    Einfache, verständliche und vertrauensbildende Kommunikation
+    Orientierung und Planungssicherheit im Heizungsmarkt zu bieten
+    Technische Details klar und faktenbasiert darzustellen
+    Praktische Vorteile hervorzuheben, wie die stabile Raumtemperatur
+
+Die Kommunikation ist lösungsorientiert aufgebaut, um die konkreten Vorteile des Speichers verständlich zu machen.
+Visuelle Umsetzung
+
+Die visuelle Gestaltung folgt folgenden Prinzipien:
+Stil
+
+    Klar und aufgeräumt
+    Reduktion auf das Wesentliche
+
+Symbolik
+
+    Einsatz von Symbolen zur Vereinfachung technischer Inhalte
+    Beispiel: Schneeflocke als Symbol für den Abtaubetrieb
+
+Gesamtkonzept
+
+    Die visuelle Darstellung unterstützt die Verständlichkeit
+    Sie ist Teil der Rebranding-Strategie von Solvis
+    Ziel ist eine emotional wirksame, aber faktenbasierte Kommunikation
+
+Kontext: Diese Produktbotschaft ist eingebettet in die übergeordnete Kommunikationsstrategie des Solvis-Rebrandings, die Vertrauen und Klarheit in einem verunsicherten Heizungsmarkt schaffen soll.
+
+Quelle: Dokument Neuer_Pufferspeicher_Produktneueinfu_hrun_mitdenke_31b585ef.pdf, Seiten 1-16";/Users/christianstrube/Desktop/SOLVIS-RAG/Files/Neuer Pufferspeicher_Produktneueinführun_mitdenken (1).docx;PRODUCT (SolvisLeo), MESSAGE (Energie‑Manager), VISUAL (Schichtungen/Ebenen);;;
+;;Wie ist der RGB Farbton für das Rot?;195r 25g 36b;"RGB Farbton für Solvis-Rot
+Der RGB-Farbton für Solvis-Rot wird wie folgt angegeben:
+
+
+    RGB: 195r 25g 36b
+
+
+
+Dieser Wert ist für die Verwendung im Bildschirmmodus (RGB) definiert 📄 SOLV_CD-Manual_2023_kurz_1__1_-deprecated_3ac712c0, chunk_006, S. 11.
+Context
+Die Textausschnitte stammen aus dem SOLVIS Corporate Design Manual, das detaillierte Richtlinien für die visuelle Gestaltung der Marke festlegt, einschließlich spezifischer Farbcodes für verschiedene Anwendungsbereiche wie Druck und Bildschirm.
+Source
+📄
+
+
+    Dokument: SOLV_CD-Manual_2023_kurz_1__1_-deprecated_3ac712c0, Chunk-ID: chunk_006, Seite 11";"Antwort
+
+Der RGB-Farbton für das Solvis-Rot ist:
+
+195r 25g 36b
+
+Dieser Farbton wird in der Typografie und im Markenzeichen verwendet und ist Teil der Primärfarben des Solvis-Erscheinungsbildes.
+Kontext
+
+Die Information stammt aus dem Abschnitt über die Farbdefinitionen und die Primärfarben innerhalb des Solvis-Gestaltungshandbuchs. Dort werden die Farbdefinitionen für Solvis-Rot und Solvis-Grau im Vierfarbdruck, in PANTONE- und RGB-Farbsystemen detailliert beschrieben.
+Quelle
+
+Dokument: SOLV_CD-Manual_2023_kurz_1.pdf, Seite 10";"RGB-Farbton für Solvis-Rot
+
+Der RGB-Farbton für das Solvis-Rot lautet:
+
+195r 25g 36b
+
+Dieser Farbwert ist Teil der Farbdefinitionen im Erscheinungsbild der Marke Solvis und wird in digitalen Anwendungen verwendet.
+
+Quelle: Dokument SOLV_CD-Manual_2023_kurz.pdf, Seite 10";SOLV_CD-Manual_2023_kurz 1 (1)-deprecated.pdf;;;;
+;;Welches Marketingbudget gibt es für 2026 im Mai?;"Das Marketingbudget für Mai 2026 beträgt:
+A+B1 (Markenstrategie & Identitätsentwicklung): 4000 €
+B2 (Anwendung/Operationialisierung CD-Update: 2000 €
+C (Launch Solvis Leo & Roadshow): 0€
+D (Digital Go-Live & Leads inkl. Online: 5000€
+E (Partner-Kommunikation): 4000€
+F (Content & Success Stories): 0€
+G (Betrieb, Service & Betreuung): 1500 €
+H (Plattform & Customer Journey): 0€
+
+Insgesamt: 16500€";"Marketingbudget für Mai 2026
+Das Marketingbudget für den Monat Mai 2026 beträgt insgesamt 18.500 €.
+
+Dieses Budget verteilt sich auf verschiedene Aufgabenbereiche wie folgt:
+Detaillierte Aufschlüsselung des Marketingbudgets für Mai 2026
+Aufgabenbereich	Budget Mai 2026
+A+B1 (Markenstrategie & Identitätsentwicklung)	4.000 €
+B2 (Anwendung/Operationalisierung CD-Update)	2.000 €
+C (Launch Solvis Leo & Roadshow)	0 €
+D (Digital Go-Live & Leads inkl. Online Shop)	5.000 €
+E (Partner-Kommunikation)	4.000 €
+F (Content & Success Stories)	0 €
+G (Betrieb, Service & Betreuung)	1.500 €
+H (Plattform & Customer Journey)	3.000 €
+Gesamtsumme Mai 2026	18.500 €
+Context
+Die Textausschnitte stammen aus einer Budget- und Ressourcenplanung für das Jahr 2026, die hauptsächlich das Marketingbudget von SOLVIS darstellt.
+Source
+📄
+
+
+    Dokument: solvis_budgetplanung_bb_2026_markdown_table_57d779a8, Chunk-ID: chunk_001 (Kontext), Chunk-ID: chunk_002 (Tabelle)";"Antwort
+
+Das Marketingbudget für Mai 2026 beträgt 16.500 Euro.
+Kontext
+
+Dieser Betrag ist Teil der Budget- und Ressourcenplanung für das Jahr 2026, die verschiedene Aufgabenbereiche (A–H) und Monate umfasst. Die Budgetsummen sind monatsweise in der Tabelle aufgelistet.
+Quelle
+
+Dokument: solvis_budgetplanung_bb_2026.pdf, Seite 1";"Marketingbudget für Mai 2026
+
+Das Gesamtmarketingbudget für den Monat Mai 2026 beträgt 16.500 €.
+Budgetverteilung nach Aufgabenbereichen
+A+B1 (Markenstrategie & Identitätsentwicklung)4.000 €B2 (Anwendung/Operationalisierung CD-Update)2.000 €C (Launch Solvis Leo & Roadshow)0 €D (Digital Go-Live & Leads)5.000 €E (Partner-Kommunikation)4.000 €F (Content & Success Stories)0 €G (Betrieb, Service & Betreuung)1.500 €H (Plattform & Customer Journey)0 €Gesamt16.500 €
+Schwerpunkte im Mai 2026
+
+Die Hauptbudgetposten liegen in:
+
+    Digital Go-Live & Leads (5.000 €)
+    Markenstrategie & Identitätsentwicklung (4.000 €)
+    Partner-Kommunikation (4.000 €)
+
+Quelle: Dokument solvis_budgetplanung_bb_2026_markdown_table.pdf, Seite 1";;;;;
+;;Wie viele Produkte hat Solvis?;"Eine exakte, einstellige Zahl lässt sich nicht nennen, da Solvis kein klassischer Einzelgerätehersteller ist, sondern ein modulares Energie-Ökosystem anbietet. Basierend auf den Unterlagen umfasst das Portfolio jedoch rund 14 Kern-Produktfamilien, die sich in unzähligen Leistungsklassen und Varianten kombinieren lassen.
+
+Das Produktportfolio (Kern-Familien)
+
+Die Produkte lassen sich in folgende Hauptkategorien unterteilen:
+
+Energiemanager / Schichtenspeicher:
+
+    SolvisMax (Das Multitalent – bis 950 Liter)
+
+    SolvisBen (Kompaktkessel – 230 Liter)
+    (Beide wahlweise als Solo-, Wärmepumpen- oder Hybrid-System mit Gas/Öl erhältlich)
+
+Wärmepumpen (Luft/Wasser):
+
+    SolvisLea (inkl. Lea Pro & Lea Premium)
+
+    SolvisMia
+
+    SolvisPia (für die gehobene Leistungsklasse)
+    (In älteren Unterlagen zudem SolvisVaero und SolvisTeo)
+
+Biomasse / Pelletheizungen:
+
+    SolvisLino (Vollautomatischer Pelletkessel)
+
+    SolvisBruno (Pelletkaminofen für den Wohnraum)
+
+Strom zu Wärme (PV2Heat) / Sektorenkopplung:
+
+    SolvisTim (Integrierbarer E-Heizstab)
+
+    SolvisTom (Wandhängende Speicherladestation)
+
+Solarthermie (Kollektoren):
+
+    SolvisFera & SolvisCala (Flachkollektoren)
+
+    SolvisLuna (Vakuumröhrenkollektoren)
+
+Besonderheit: Modularität
+Das eigentliche ""Produkt"" von Solvis ist die Kombinierbarkeit. Die verschiedenen Energiequellen (Sonne, Strom, Holz, Gas/Öl) werden im Schichtenspeicher gebündelt und intelligent über die zentrale Regelung SolvisControl-3 sowie das SolvisPortal (Software) gesteuert.
+
+(Hinweis: Für 2026 ist zusätzlich der neue Wärmepumpenspeicher SolvisLeo geplant).";"Answer
+Basierend auf den vorliegenden Textausschnitten bietet SOLVIS mindestens 11 verschiedene Produkte an. Diese sind:
+
+
+    SolvisLino (Holzpelletkessel) 📄 SOLV_CD-Manual_2023_kurz_1__1_-deprecated_3ac712c0, S. 28
+
+    SolvisMax (modulares Heizsystem/Drei-Schichten-Speicher) 📄 SOLV_CD-Manual_2023_kurz_1__1_-deprecated_3ac712c0, S. 28
+
+    SolvisTeo (Erdwärme/Wärmepumpe) 📄 SOLV_CD-Manual_2023_kurz_1__1_-deprecated_3ac712c0, S. 28
+
+    SolvisVaero (Luft/Wasser-Wärmepumpe) 📄 SOLV_CD-Manual_2023_kurz_1__1_-deprecated_3ac712c0, S. 28
+
+    SolvisFera (Solar-Kollektor) 📄 SOLV_CD-Manual_2023_kurz_1__1_-deprecated_3ac712c0, S. 29
+
+    SolvisCala (Solar-Kollektor) 📄 SOLV_CD-Manual_2023_kurz_1__1_-deprecated_3ac712c0, S. 29
+
+    SolvisLuna (Solar-Kollektor) 📄 SOLV_CD-Manual_2023_kurz_1__1_-deprecated_3ac712c0, S. 29
+
+    SolvisLea Pro 📄 20251124_35042_BRO_SolvisLea_Pro__ONLINE__1e92811a, S. 23
+
+    SolvisTim 📄 31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web_4cfe0062, S. 11
+
+    SolvisTom 📄 31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web_4cfe0062, S. 11
+
+    SolvisPia 📄 20251125_35196_BRO_SolvisPia_FINAL__ONLINE__32bf84ce, S. 23
+
+Context
+Die Textausschnitte stammen aus verschiedenen Dokumenten von SOLVIS, darunter Handbücher und Broschüren, die Produkte und Systeme des Unternehmens vorstellen.
+Source
+📄 Dokument: SOLV_CD-Manual_2023_kurz_1__1_-deprecated_3ac712c0, Seiten 28, 29, 32, 33
+Dokument: 20251124_35042_BRO_SolvisLea_Pro__ONLINE__1e92811a, Seiten 23, 24
+Dokument: 31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web_4cfe0062, Seite 11
+Dokument: 20251125_35196_BRO_SolvisPia_FINAL__ONLINE__32bf84ce, Seiten 23";"Antwort
+
+Die genaue Anzahl der Produkte von Solvis wird in den verfügbaren Dokumenten nicht explizit genannt.
+
+Allerdings zeigt sich, dass Solvis ein breites und modulares Produktportfolio anbietet, das verschiedene Heizsysteme, Wärmepumpen, Pelletheizungen und Energiemanagementsysteme umfasst.
+Bekannte Produktfamilien
+
+Folgende Produktlinien werden genannt:
+
+    SolvisMax
+    SolvisBen
+    SolvisLea
+    SolvisMia
+    SolvisPia
+    SolvisLino
+    SolvisTim
+    SolvisTom
+    SolvisTeo
+    SolvisVaero
+
+Besonderheit: Modularität
+
+Die Modularität und Erweiterbarkeit der Systeme ermöglicht es, sie individuell an die Bedürfnisse der Kunden anzupassen. Das bedeutet, dass die Produktvielfalt durch Kombinationsmöglichkeiten und Ausbaustufen noch größer ist, als es die reinen Produktnamen vermuten lassen.
+Kontext
+
+Die Information stammt aus Abschnitten, die sich auf das Produktportfolio und die modulare Architektur der Solvis-Heizsysteme beziehen. Diese betonen die Flexibilität und Vielfalt der Lösungen.
+Quelle
+
+Dokument: 30792_BRO_Heizsysteme_Web.pdf, Seiten 15–16";"Anzahl der Produkte von Solvis
+
+Die genaue Anzahl der Produkte von Solvis wird in den vorliegenden Unterlagen nicht explizit genannt.
+Produktportfolio
+
+Solvis bietet ein breites und modulares Produktportfolio an, das folgende Produktfamilien umfasst:
+
+    SolvisMax (Heizkessel mit integriertem Schichtenspeicher)
+    SolvisBen (Pelletheizung)
+    SolvisLea (Wärmepumpe)
+    SolvisPia (Photovoltaik-Integration)
+    SolvisLino (Lüftungssystem)
+    SolvisTim (Trinkwasserstation)
+    SolvisTom (Solarthermie)
+    SolvisVaero (Luft-Wasser-Wärmepumpe)
+
+Besonderheit: Modularität
+
+Ein zentrales Merkmal des Solvis-Portfolios ist die Modularität und Erweiterbarkeit der Systeme:
+
+    Verschiedene Energieträger können kombiniert werden
+    Systeme lassen sich nachträglich erweitern
+    Flexible Anpassung an individuelle Kundenbedürfnisse
+
+Diese modulare Bauweise ermöglicht es, dass aus den Produktfamilien zahlreiche Systemkombinationen entstehen können.
+
+Quelle: Dokument 30792_BRO_Heizsysteme_Web.pdf, Seiten 15-16";"    SolvisMax & SolvisBen (Energiemanager):
+    📄 30792_BRO_Heizsysteme_Web_305c41bd.txt (Seiten 3, 6-10)
+    📄 34438_BRO_Privatkunden_Broschuere_Web_58562379.txt (Seite 4)
+
+    Wärmepumpen (SolvisLea, Mia, Pia):
+    📄 34438_BRO_Privatkunden_Broschuere_Web_58562379.txt (Seiten 4-5)
+    📄 20251124_35042_BRO_SolvisLea_Pro__ONLINE__1e92811a.txt (Seiten 4-5)
+    📄 20251125_35196_BRO_SolvisPia_FINAL__ONLINE__32bf84ce.txt (Seiten 4-5)
+
+    Biomasse (SolvisLino & SolvisBruno):
+    📄 33524_BRO_Lino_Web_72533d25.txt (Seiten 3-4)
+    📄 35195_SolvisBruno_Broschuere_online_88ac0adb.txt (Seiten 5, 8)
+
+    Strom zu Wärme (SolvisTim & SolvisTom):
+    📄 31513_BRO_SolvisTim_SolvisTom__PV2Heat__Web_4cfe0062.txt (Seiten 4, 5, 8)
+
+    Solarthermie (SolvisFera, Cala, Luna) & ältere WP (Teo, Vaero):
+    📄 SOLV_CD-Manual_2023_kurz_1__1_-deprecated_3ac712c0.txt (Seiten 27-28)
+    📄 30792_BRO_Heizsysteme_Web_305c41bd.txt (Seite 11)
+
+    Regelung (SolvisControl-3 & SolvisPortal):
+    📄 34438_BRO_Privatkunden_Broschuere_Web_58562379.txt (Seiten 4, 14)
+
+    Zukunftsprodukt (SolvisLeo):
+    📄 Neuer_Pufferspeicher_Produktneueinfu_hrun_mitdenke_31b585ef.txt (Seite 1)
+    📄 Nutzen_und_Vorteile_der_WP-Speicher__1__e4f56da8.txt (Slide 2)";;;;

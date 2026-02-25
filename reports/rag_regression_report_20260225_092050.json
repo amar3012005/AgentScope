@@ -1,0 +1,51 @@
+{
+  "summary": {
+    "cases_total": 2,
+    "cases_ok": 0,
+    "cases_failed": 2,
+    "avg_recall_at_k": 0.0,
+    "multi_source_coverage_rate": 0.0,
+    "hallucination_rate": 0.0,
+    "avg_citation_completeness": 0.0,
+    "avg_answer_overlap": 0.0,
+    "critical_failures": [
+      "TS-A02: execution_error"
+    ],
+    "gate_passed": false
+  },
+  "results": [
+    {
+      "test_id": "TS-A01",
+      "query": "Vergleiche den Listenpreis der reinen Wärmepumpe „SolvisLea 7 Pro“ mit der „SolvisPia 13“ aus der Preisliste Neuheiten 2025. Wie hoch ist die Preisdifferenz in Euro?",
+      "expected_sources": [
+        "pl neuheiten 2025 v2"
+      ],
+      "retrieved_sources": [],
+      "source_recall_at_k": 0.0,
+      "multi_source_ok": false,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 0,
+      "elapsed_s": 0.08717989921569824,
+      "error": "HTTP 403: {\"detail\":\"Invalid API Key\"}"
+    },
+    {
+      "test_id": "TS-A02",
+      "query": "Welchen Indexwert für die Mediennutzung im Bereich „TV“ hat die Persona „Der Richtigmacher“?",
+      "expected_sources": [
+        "personas privatkunden",
+        "personas privatkunden solvis mediennutzung"
+      ],
+      "retrieved_sources": [],
+      "source_recall_at_k": 0.0,
+      "multi_source_ok": false,
+      "citation_completeness": 0.0,
+      "hallucination_flag": false,
+      "answer_overlap": 0.0,
+      "chunks_retrieved": 0,
+      "elapsed_s": 0.0674889087677002,
+      "error": "HTTP 403: {\"detail\":\"Invalid API Key\"}"
+    }
+  ]
+}
