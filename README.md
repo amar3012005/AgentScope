@@ -8,8 +8,8 @@ A sophisticated document processing and retrieval system combining vector search
 
 ### Live Endpoints (Production)
 
-- **Pipeline API**: https://rag-pipeline.api.blaiq.ai
-- **Retriever API**: https://rag-retriever.api.blaiq.ai
+- **Pipeline API**: https://second.amar.blaiq.ai/pipeline
+- **Retriever API**: https://second.amar.blaiq.ai/retriever
 - **Qdrant Vector DB**: https://qdrant.api.blaiq.ai
 
 **Note**: All endpoints are secured with HTTPS and Let's Encrypt certificates.
@@ -51,7 +51,7 @@ All API endpoints require authentication via API key:
 
 ### Pipeline API Examples
 
-Base URL: `https://rag-pipeline.api.blaiq.ai`  
+Base URL: `https://second.amar.blaiq.ai/pipeline`  
 Version: `2.3.0`
 
 #### 1. Upload Documents with Metadata
@@ -63,7 +63,7 @@ Upload documents with flexible metadata that will be stored in Qdrant for filter
 **Supported formats**: PDF, DOCX, PPTX, XLSX, TXT, MD
 ```bash
 # Upload with metadata
-curl -X POST "https://rag-pipeline.api.blaiq.ai/upload" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/upload" \
   -H "X-API-Key: ************" \
   -F "files=@report_q1.pdf" \
   -F "files=@meeting_notes.txt" \
@@ -183,7 +183,7 @@ curl ... -F "folder_path=data/user01"  # Upload
 #### 2. Upload Without Metadata
 ```bash
 # Simple upload (metadata will be empty but structure preserved)
-curl -X POST "https://rag-pipeline.api.blaiq.ai/upload" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/upload" \
   -H "X-API-Key: ************" \
   -F "files=@document.pdf" \
   -F "folder_path=data/user01"
@@ -216,11 +216,11 @@ Retrieve a hierarchical tree structure of files and folders (like Unix `tree` co
 - `folder_name` (optional): Folder path to list (default: `"data"`)
 ```bash
 # Get entire data directory structure
-curl -X GET "https://rag-pipeline.api.blaiq.ai/get-user-files?folder_name=data" \
+curl -X GET "https://second.amar.blaiq.ai/pipeline/get-user-files?folder_name=data" \
   -H "X-API-Key: ************"
 
 # Get specific user's files
-curl -X GET "https://rag-pipeline.api.blaiq.ai/get-user-files?folder_name=data/user01" \
+curl -X GET "https://second.amar.blaiq.ai/pipeline/get-user-files?folder_name=data/user01" \
   -H "X-API-Key: ************"
 ```
 
@@ -299,15 +299,15 @@ Retrieve a flat, paginated list of files with optional search filtering. Unlike 
 
 ```bash
 # Get first page (50 items)
-curl -X GET "https://rag-pipeline.api.blaiq.ai/get-user-files-flat?folder_name=data/user01" \
+curl -X GET "https://second.amar.blaiq.ai/pipeline/get-user-files-flat?folder_name=data/user01" \
   -H "X-API-Key: ************"
 
 # Get second page with custom limit
-curl -X GET "https://rag-pipeline.api.blaiq.ai/get-user-files-flat?folder_name=data/user01&page=2&limit=100" \
+curl -X GET "https://second.amar.blaiq.ai/pipeline/get-user-files-flat?folder_name=data/user01&page=2&limit=100" \
   -H "X-API-Key: ************"
 
 # Search for specific files
-curl -X GET "https://rag-pipeline.api.blaiq.ai/get-user-files-flat?folder_name=data&search=report" \
+curl -X GET "https://second.amar.blaiq.ai/pipeline/get-user-files-flat?folder_name=data&search=report" \
   -H "X-API-Key: ************"
 ```
 
@@ -386,7 +386,7 @@ Delete multiple files from a specific folder. Returns detailed results for each 
 ```
 ```bash
 # Delete multiple files
-curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-file" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/delete-file" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{
@@ -457,7 +457,7 @@ Delete an entire folder and all its contents recursively.
 ```
 ```bash
 # Delete user folder
-curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-folder" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/delete-folder" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{
@@ -478,7 +478,7 @@ curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-folder" \
 **Security - Protected Operations**:
 ```bash
 # ❌ BLOCKED: Attempt to delete root directory
-curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-folder" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/delete-folder" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{"folder_name": "data"}'
@@ -489,7 +489,7 @@ curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-folder" \
 }
 
 # ❌ BLOCKED: Path traversal attempt
-curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-folder" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/delete-folder" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{"folder_name": "data/../etc"}'
@@ -500,7 +500,7 @@ curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-folder" \
 }
 
 # ❌ BLOCKED: Absolute path outside data/
-curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-folder" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/delete-folder" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{"folder_name": "/etc/passwd"}'
@@ -524,13 +524,13 @@ curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-folder" \
 #### Example 1: User Offboarding
 ```bash
 # 1. Check what files exist
-curl -X GET "https://rag-pipeline.api.blaiq.ai/get-user-files?folder_name=data/user01" \
+curl -X GET "https://second.amar.blaiq.ai/pipeline/get-user-files?folder_name=data/user01" \
   -H "X-API-Key: ************"
 
 # 2. Backup important files (application logic)
 
 # 3. Delete user's folder
-curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-folder" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/delete-folder" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{"folder_name": "data/user01"}'
@@ -539,11 +539,11 @@ curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-folder" \
 #### Example 2: Selective File Cleanup
 ```bash
 # 1. List all files
-curl -X GET "https://rag-pipeline.api.blaiq.ai/get-user-files?folder_name=data/project_x" \
+curl -X GET "https://second.amar.blaiq.ai/pipeline/get-user-files?folder_name=data/project_x" \
   -H "X-API-Key: ************"
 
 # 2. Delete only temporary files
-curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-file" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/delete-file" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{
@@ -558,7 +558,7 @@ import requests
 import json
 
 API_KEY = "************"
-BASE_URL = "https://rag-pipeline.api.blaiq.ai"
+BASE_URL = "https://second.amar.blaiq.ai/pipeline"
 
 def get_storage_report(folder):
     """Get storage usage for a folder"""
@@ -605,7 +605,7 @@ cleanup = "all"         # Delete entire folder (for temporary/one-time processin
 
 **⚠️ CRITICAL**: Use the **exact same `folder_path`** as used in upload!
 ```bash
-curl -X POST "https://rag-pipeline.api.blaiq.ai/process" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/process" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{
@@ -684,7 +684,7 @@ data/
 
 #### 4. Check Job Status
 ```bash
-curl "https://rag-pipeline.api.blaiq.ai/status/job_1761667639115" \
+curl "https://second.amar.blaiq.ai/pipeline/status/job_1761667639115" \
   -H "X-API-Key: ************"
 ```
 
@@ -704,7 +704,7 @@ curl "https://rag-pipeline.api.blaiq.ai/status/job_1761667639115" \
 
 #### 5. Get Processing Results
 ```bash
-curl "https://rag-pipeline.api.blaiq.ai/result/job_1761667639115" \
+curl "https://second.amar.blaiq.ai/pipeline/result/job_1761667639115" \
   -H "X-API-Key: ************"
 ```
 
@@ -746,7 +746,7 @@ Remove all vector embeddings for a specific document from Qdrant collection.
 - `filter_label`: Tenant filter label
 
 ```bash
-curl -X DELETE "https://rag-pipeline.api.blaiq.ai/document/qdrant?doc_id=report_q1_abc123&collection_name=user01_documents&filter_label=user01_documents" \
+curl -X DELETE "https://second.amar.blaiq.ai/pipeline/document/qdrant?doc_id=report_q1_abc123&collection_name=user01_documents&filter_label=user01_documents" \
   -H "X-API-Key: ************"
 ```
 
@@ -775,7 +775,7 @@ Remove document, chunks, orphaned entities, and relationships from Neo4j graph.
 - `filter_label`: Tenant filter label
 
 ```bash
-curl -X DELETE "https://rag-pipeline.api.blaiq.ai/document/neo4j?doc_id=report_q1_abc123&filter_label=user01_documents" \
+curl -X DELETE "https://second.amar.blaiq.ai/pipeline/document/neo4j?doc_id=report_q1_abc123&filter_label=user01_documents" \
   -H "X-API-Key: ************"
 ```
 
@@ -808,15 +808,15 @@ curl -X DELETE "https://rag-pipeline.api.blaiq.ai/document/neo4j?doc_id=report_q
 
 ```bash
 # Step 1: Delete from Qdrant (vector embeddings)
-curl -X DELETE "https://rag-pipeline.api.blaiq.ai/document/qdrant?doc_id=report_q1_abc123&collection_name=user01_documents&filter_label=user01_documents" \
+curl -X DELETE "https://second.amar.blaiq.ai/pipeline/document/qdrant?doc_id=report_q1_abc123&collection_name=user01_documents&filter_label=user01_documents" \
   -H "X-API-Key: ************"
 
 # Step 2: Delete from Neo4j (graph data) - if using GraphRAG
-curl -X DELETE "https://rag-pipeline.api.blaiq.ai/document/neo4j?doc_id=report_q1_abc123&filter_label=user01_documents" \
+curl -X DELETE "https://second.amar.blaiq.ai/pipeline/document/neo4j?doc_id=report_q1_abc123&filter_label=user01_documents" \
   -H "X-API-Key: ************"
 
 # Step 3: Delete source files (optional)
-curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-file" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/delete-file" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{
@@ -833,7 +833,7 @@ curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-file" \
 import requests
 
 API_KEY = "************"
-BASE_URL = "https://rag-pipeline.api.blaiq.ai"
+BASE_URL = "https://second.amar.blaiq.ai/pipeline"
 
 def delete_document_completely(doc_id, collection_name, filter_label):
     """
@@ -1146,7 +1146,7 @@ print(f"Documents created by: {users}")
 
 ## 🔍 Retriever API
 
-Base URL: `https://rag-retriever.api.blaiq.ai`  
+Base URL: `https://second.amar.blaiq.ai/retriever`  
 Version: `3.0.0`
 
 The Retriever API provides two query modes for searching your processed documents with optional LLM-powered answer generation.
@@ -1176,7 +1176,7 @@ Traditional RAG retrieval using vector similarity and keyword search. Best for s
 5. Optional: LLM answer generation
 
 ```bash
-curl -X POST "https://rag-retriever.api.blaiq.ai/query/rag" \
+curl -X POST "https://second.amar.blaiq.ai/retriever/query/rag" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1225,7 +1225,7 @@ Hybrid retrieval combining knowledge graph traversal with vector and keyword sea
 7. Optional: Mermaid graph visualization
 
 ```bash
-curl -X POST "https://rag-retriever.api.blaiq.ai/query/graphrag" \
+curl -X POST "https://second.amar.blaiq.ai/retriever/query/graphrag" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1298,7 +1298,7 @@ curl -X POST "https://rag-retriever.api.blaiq.ai/query/graphrag" \
 Get only retrieved chunks without LLM answer generation (useful for custom processing):
 
 ```bash
-curl -X POST "https://rag-retriever.api.blaiq.ai/query/graphrag" \
+curl -X POST "https://second.amar.blaiq.ai/retriever/query/graphrag" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1378,7 +1378,7 @@ When `include_graph: true`, the response includes Mermaid diagram code for visua
 Override default prompts for answer generation and entity extraction:
 
 ```bash
-curl -X POST "https://rag-retriever.api.blaiq.ai/query/graphrag" \
+curl -X POST "https://second.amar.blaiq.ai/retriever/query/graphrag" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1404,7 +1404,7 @@ curl -X POST "https://rag-retriever.api.blaiq.ai/query/graphrag" \
 ### Check System Status
 
 ```bash
-curl "https://rag-retriever.api.blaiq.ai/status" \
+curl "https://second.amar.blaiq.ai/retriever/status" \
   -H "X-API-Key: ************"
 ```
 
@@ -1553,27 +1553,27 @@ The `metadata` object can contain any JSON-serializable key-value pairs:
 ### Example 1: Multi-User Document Management
 ```bash
 # User 1 uploads documents
-curl -X POST "https://rag-pipeline.api.blaiq.ai/upload" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/upload" \
   -H "X-API-Key: ************" \
   -F "files=@user1_doc.pdf" \
   -F "folder_path=data/user01" \
   -F 'metadata={"user1_doc.pdf": {"user_id": "user01", "department": "Sales"}}'
 
 # User 2 uploads documents
-curl -X POST "https://rag-pipeline.api.blaiq.ai/upload" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/upload" \
   -H "X-API-Key: ************" \
   -F "files=@user2_doc.pdf" \
   -F "folder_path=data/user02" \
   -F 'metadata={"user2_doc.pdf": {"user_id": "user02", "department": "Engineering"}}'
 
 # Process User 1's documents
-curl -X POST "https://rag-pipeline.api.blaiq.ai/process" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/process" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{"folder_path": "data/user01", "collection_name": "user01_docs"}'
 
 # Process User 2's documents
-curl -X POST "https://rag-pipeline.api.blaiq.ai/process" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/process" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{"folder_path": "data/user02", "collection_name": "user02_docs"}'
@@ -1590,7 +1590,7 @@ curl -X POST "https://qdrant.api.blaiq.ai/collections/user01_docs/points/scroll"
 import requests
 
 API_KEY = "************"
-BASE_URL = "https://rag-pipeline.api.blaiq.ai"
+BASE_URL = "https://second.amar.blaiq.ai/pipeline"
 QDRANT_URL = "https://qdrant.api.blaiq.ai"
 QDRANT_API_KEY = "************"
 
@@ -1652,23 +1652,23 @@ for point in engineering_docs[0]:
 ### Example 3: Complete Lifecycle with Cleanup
 ```bash
 # 1. Upload documents
-curl -X POST "https://rag-pipeline.api.blaiq.ai/upload" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/upload" \
   -H "X-API-Key: ************" \
   -F "files=@temp_analysis.pdf" \
   -F "folder_path=data/temp_project"
 
 # 2. List uploaded files
-curl -X GET "https://rag-pipeline.api.blaiq.ai/get-user-files?folder_name=data/temp_project" \
+curl -X GET "https://second.amar.blaiq.ai/pipeline/get-user-files?folder_name=data/temp_project" \
   -H "X-API-Key: ************"
 
 # 3. Process documents
-curl -X POST "https://rag-pipeline.api.blaiq.ai/process" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/process" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{"folder_path": "data/temp_project", "collection_name": "temp_docs"}'
 
 # 4. After use - Clean up temporary project
-curl -X POST "https://rag-pipeline.api.blaiq.ai/delete-folder" \
+curl -X POST "https://second.amar.blaiq.ai/pipeline/delete-folder" \
   -H "X-API-Key: ************" \
   -H "Content-Type: application/json" \
   -d '{"folder_name": "data/temp_project"}'
@@ -1949,13 +1949,14 @@ For production deployments, consider monitoring:
 
 ### API Specifications
 
-- **Pipeline API OpenAPI/Swagger**: `https://rag-pipeline.api.blaiq.ai/docs`
-- **Retriever API OpenAPI/Swagger**: `https://rag-retriever.api.blaiq.ai/docs`
+- **Pipeline API OpenAPI/Swagger**: `https://second.amar.blaiq.ai/pipeline/docs`
+- **Retriever API OpenAPI/Swagger**: `https://second.amar.blaiq.ai/retriever/docs`
+- **Consolidated Endpoint Reference**: [API_ENDPOINTS.md](API_ENDPOINTS.md)
 - **Qdrant API Documentation**: https://qdrant.tech/documentation/
 
 ### API Endpoints Summary
 
-#### Pipeline API (`https://rag-pipeline.api.blaiq.ai`)
+#### Pipeline API (`https://second.amar.blaiq.ai/pipeline`)
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
@@ -1977,7 +1978,7 @@ For production deployments, consider monitoring:
 | `/document/qdrant` | DELETE | Delete document vectors from Qdrant |
 | `/document/neo4j` | DELETE | Delete document from Neo4j graph |
 
-#### Retriever API (`https://rag-retriever.api.blaiq.ai`)
+#### Retriever API (`https://second.amar.blaiq.ai/retriever`)
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|

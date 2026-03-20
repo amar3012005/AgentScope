@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #1a1a1a; color: #fff; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        .success { color: #4ade80; }
+        .error { color: #ef4444; }
+        pre { background: #333; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>BLAIQ API Test</h1>
+    <div>
+        <button onclick="testEndpoint('GET', 'http://localhost:6080/')">Test Orchestrator</button>
+        <button onclick="testEndpoint('GET', 'http://localhost:6001/')">Test GraphRAG</button>
+        <button onclick="testEndpoint('GET', 'http://localhost:6002/')">Test Echo</button>
+        <button onclick="testEndpoint('GET', 'http://localhost:6003/')">Test Content Creator</button>
+        <button onclick="testOrchestrate()">Test /orchestrate</button>
+        <button onclick="testEchoExecute()">Test Echo /execute</button>
+    </div>
+    <div id="results"></div>
+
+    <script>
+        async function testEndpoint(method, url) {
+            const results = document.getElementById('results');
+            results.innerHTML += `<p>Testing ${method} ${url}...</p>`;
+
+            try {
+                const response = await fetch(url, { method });
+                const data = await response.json();
+                results.innerHTML += `<p class="success">✓ ${url} - HTTP ${response.status}</p><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (err) {
+                results.innerHTML += `<p class="error">✗ ${url} - ${err.message}</p>`;
+            }
+        }
+
+        async function testOrchestrate() {
+            const results = document.getElementById('results');
+            const url = 'http://localhost:6080/orchestrate';
+            const payload = {
+                task: "Hello from frontend",
+                target_agent: "blaiq-graph-rag",
+                payload: {},
+                protocol: "auto",
+                method: "POST"
+            };
+
+            results.innerHTML += `<p>Testing POST ${url}...</p><pre>${JSON.stringify(payload, null, 2)}</pre>`;
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                results.innerHTML += `<p class="success">✓ HTTP ${response.status}</p><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (err) {
+                results.innerHTML += `<p class="error">✗ ${err.message}</p>`;
+            }
+        }
+
+        async function testEchoExecute() {
+            const results = document.getElementById('results');
+            const url = 'http://localhost:6002/execute';
+            const payload = {
+                task: "Hello echo",
+                payload: {}
+            };
+
+            results.innerHTML += `<p>Testing POST ${url}...</p><pre>${JSON.stringify(payload, null, 2)}</pre>`;
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                results.innerHTML += `<p class="success">✓ HTTP ${response.status}</p><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (err) {
+                results.innerHTML += `<p class="error">✗ ${err.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

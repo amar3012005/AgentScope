@@ -332,7 +332,16 @@ async def query_rag(request: QueryRequest):
         retrieval_time = time.time() - retrieval_start
 
         if not chunks:
-            raise HTTPException(404, "No relevant chunks found for your query")
+            logger.warning(f"No chunks found for query: {request.query[:50]}...")
+            return QueryResponse(
+                query=request.query,
+                answer="I don't have any specific documents in my knowledge base related to your question.",
+                chunks_retrieved=0,
+                retrieval_stats={**stats, "warning": "No relevant documents found in knowledge base."},
+                retrieval_time=round(retrieval_time, 2),
+                answer_time=0.0,
+                total_time=round(retrieval_time, 2),
+            )
 
         # If generate_answer=False, return only chunks
         if not request.generate_answer:
@@ -464,7 +473,16 @@ async def query_graphrag(request: QueryRequest):
         retrieval_time = time.time() - retrieval_start
 
         if not chunks:
-            raise HTTPException(404, "No relevant chunks found for your query")
+            logger.warning(f"No chunks found for query: {request.query[:50]}...")
+            return QueryResponse(
+                query=request.query,
+                answer="I don't have any specific documents in my knowledge base related to your question.",
+                chunks_retrieved=0,
+                retrieval_stats={**stats, "warning": "No relevant documents found in knowledge base."},
+                retrieval_time=round(retrieval_time, 2),
+                answer_time=0.0,
+                total_time=round(retrieval_time, 2),
+            )
 
         # Optional: Get graph visualization
         graph_data = None

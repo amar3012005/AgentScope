@@ -528,10 +528,12 @@ class GraphRAGRetriever:
         qdrant_port: Optional[int] = None,
         qdrant_api_key: Optional[str] = None,
         collection_name: Optional[str] = None,
+        neo4j_uri: Optional[str] = None,
+        neo4j_user: Optional[str] = None,
+        neo4j_password: Optional[str] = None,
         entity_extraction_prompt: Optional[
             str
         ] = None,  # 251204–BundB Jun: configurable entity extraction prompt
-        # Neo4j uses env vars / config.yaml
     ):
         """
         Initialize GraphRAG retriever with Qdrant and Neo4j
@@ -549,10 +551,15 @@ class GraphRAGRetriever:
         """
         self.debug = debug
         self.neo4j_driver = None
+        self.qdrant_url = (qdrant_url or QDRANT_URL or "").rstrip("/")
+        self.qdrant_api_key = qdrant_api_key or QDRANT_API_KEY
+        self.neo4j_uri = neo4j_uri or NEO4J_URI
+        self.neo4j_user = neo4j_user or NEO4J_USER
+        self.neo4j_password = neo4j_password or NEO4J_PASSWORD
 
         # === QDRANT CONNECTION ===
-        final_url = qdrant_url or QDRANT_URL
-        final_api_key = qdrant_api_key or QDRANT_API_KEY
+        final_url = self.qdrant_url or None
+        final_api_key = self.qdrant_api_key
         final_host = qdrant_host or QDRANT_HOST
         final_port = qdrant_port or QDRANT_PORT
 
@@ -603,6 +610,7 @@ class GraphRAGRetriever:
         # Sync with QDRANT_COLLECTION environment variable if not provided
         self.collection_name = collection_name or QDRANT_COLLECTION
         self.filter_label = self.collection_name
+        self.vector_name = os.getenv("QDRANT_VECTOR_NAME", "text")  # Default vector name for Qdrant search
 
         if not self.filter_label:
             print("⚠️ WARNING: No collection_name/filter_label provided!")
@@ -610,20 +618,21 @@ class GraphRAGRetriever:
         else:
             print(f"   📁 Collection: {self.collection_name}")
             print(f"   🏷️ Filter label (tenant): {self.filter_label}")
+            print(f"   📐 Vector name: {self.vector_name}")
 
         # === NEO4J CONNECTION ===
         try:
-            if not NEO4J_PASSWORD:
+            if not self.neo4j_password:
                 raise ValueError("NEO4J_PASSWORD not set in environment")
 
             self.neo4j_driver = GraphDatabase.driver(
-                NEO4J_URI,
-                auth=(NEO4J_USER, NEO4J_PASSWORD),
+                self.neo4j_uri,
+                auth=(self.neo4j_user, self.neo4j_password),
             )
             # Test connection
             with self.neo4j_driver.session() as session:
                 session.run("RETURN 1")
-            print(f"✅ Neo4j connected at {NEO4J_URI}")
+            print(f"✅ Neo4j connected at {self.neo4j_uri}")
         except Exception as e:
             print(f"⚠️ Neo4j connection failed: {e}")
             print("   GraphRAG will work with reduced graph features")
@@ -1051,10 +1060,10 @@ class GraphRAGRetriever:
         if not search_terms:
             return {}
 
-        q_url = os.getenv("QDRANT_URL", "https://qdrant.api.blaiq.ai").rstrip("/")
+        q_url = (self.qdrant_url or os.getenv("QDRANT_URL", "https://qdrant.api.blaiq.ai")).rstrip("/")
         scroll_url = f"{q_url}/collections/{self.collection_name}/points/scroll"
         headers = {}
-        api_key = os.getenv("QDRANT_API_KEY") or (self.qdrant_client._api_key if hasattr(self.qdrant_client, "_api_key") else None)
+        api_key = self.qdrant_api_key or (self.qdrant_client._api_key if hasattr(self.qdrant_client, "_api_key") else None)
         if api_key:
             headers["api-key"] = api_key
 
@@ -1656,14 +1665,27 @@ Output ONLY a JSON object with this structure:
 
         import requests as req_lib
 
-        q_url = os.getenv("QDRANT_URL", "https://qdrant.api.blaiq.ai").rstrip("/")
-        api_key = os.getenv("QDRANT_API_KEY")
+        q_url = (self.qdrant_url or os.getenv("QDRANT_URL", "https://qdrant.api.blaiq.ai")).rstrip("/")
+        api_key = self.qdrant_api_key or os.getenv("QDRANT_API_KEY")
         headers = {"api-key": api_key} if api_key else {}
 
         # Strategy 1: REST API direct call
         try:
             search_url = f"{q_url}/collections/{self.collection_name}/points/search"
-            payload = {
+
+            # Try named vector first (newer collections)
+            payload_with_name = {
+                "vector": {
+                    "name": self.vector_name,
+                    "vector": query_embedding,
+                },
+                "limit": k,
+                "with_payload": False,
+                "score_threshold": 0.1
+            }
+
+            # Try unnamed vector (legacy collections)
+            payload_without_name = {
                 "vector": query_embedding,
                 "limit": k,
                 "with_payload": False,
@@ -1671,9 +1693,15 @@ Output ONLY a JSON object with this structure:
             }
 
             if self.debug:
-                print(f"DEBUG: Vector search to {search_url} (k={k})")
+                print(f"DEBUG: Vector search to {search_url} (k={k}, vector={self.vector_name})")
 
-            resp = req_lib.post(search_url, json=payload, headers=headers, verify=False, timeout=15.0)
+            # Try with named vector first
+            resp = req_lib.post(search_url, json=payload_with_name, headers=headers, verify=False, timeout=15.0)
+
+            # If named vector fails with "not configured" error, try without name
+            if resp.status_code == 400 and "not configured" in resp.text.lower():
+                print(f"  ⚠️ Named vector '{self.vector_name}' not found, trying legacy vector format...")
+                resp = req_lib.post(search_url, json=payload_without_name, headers=headers, verify=False, timeout=15.0)
 
             if resp.status_code == 200:
                 results = resp.json().get("result", [])
@@ -1693,12 +1721,15 @@ Output ONLY a JSON object with this structure:
         # Strategy 2: QdrantClient fallback
         try:
             print(f"  🔄 Falling back to QdrantClient for vector search...")
-            results = self.qdrant_client.search(
+            # Use query_points for newer QdrantClient API
+            from qdrant_client.models import NamedVector
+            results = self.qdrant_client.query_points(
                 collection_name=self.collection_name,
-                query_vector=query_embedding,
+                query=NamedVector(name=self.vector_name, vector=query_embedding),
                 limit=k,
                 score_threshold=0.1,
-            )
+                with_payload=False,
+            ).points
             return {
                 point.id: point.score
                 for point in results
@@ -1747,11 +1778,11 @@ Output ONLY a JSON object with this structure:
         import requests
         from concurrent.futures import ThreadPoolExecutor
 
-        q_url = os.getenv("QDRANT_URL", "https://qdrant.api.blaiq.ai").rstrip("/")
+        q_url = (self.qdrant_url or os.getenv("QDRANT_URL", "https://qdrant.api.blaiq.ai")).rstrip("/")
         scroll_url = f"{q_url}/collections/{self.collection_name}/points/scroll"
 
         headers = {}
-        api_key = os.getenv("QDRANT_API_KEY") or (self.qdrant_client._api_key if hasattr(self.qdrant_client, "_api_key") else None)
+        api_key = self.qdrant_api_key or (self.qdrant_client._api_key if hasattr(self.qdrant_client, "_api_key") else None)
         if api_key:
             headers["api-key"] = api_key
 
@@ -1850,8 +1881,8 @@ Output ONLY a JSON object with this structure:
         import requests
         from concurrent.futures import ThreadPoolExecutor
 
-        q_url = os.getenv("QDRANT_URL", "https://qdrant.api.blaiq.ai").rstrip("/")
-        api_key = os.getenv("QDRANT_API_KEY") or (self.qdrant_client._api_key if hasattr(self.qdrant_client, "_api_key") else None)
+        q_url = (self.qdrant_url or os.getenv("QDRANT_URL", "https://qdrant.api.blaiq.ai")).rstrip("/")
+        api_key = self.qdrant_api_key or (self.qdrant_client._api_key if hasattr(self.qdrant_client, "_api_key") else None)
         headers = {"api-key": api_key} if api_key else {}
 
         # 1. Fetch original blocks to get metadata
@@ -1956,11 +1987,11 @@ Output ONLY a JSON object with this structure:
             # Manual REST call to bypass QdrantClient connection issues
             import requests
             
-            q_url = os.getenv("QDRANT_URL", "https://qdrant.api.blaiq.ai").rstrip("/")
+            q_url = (self.qdrant_url or os.getenv("QDRANT_URL", "https://qdrant.api.blaiq.ai")).rstrip("/")
             retrieve_url = f"{q_url}/collections/{self.collection_name}/points"
             
             headers = {}
-            api_key = os.getenv("QDRANT_API_KEY") or (self.qdrant_client._api_key if hasattr(self.qdrant_client, "_api_key") else None)
+            api_key = self.qdrant_api_key or (self.qdrant_client._api_key if hasattr(self.qdrant_client, "_api_key") else None)
             if api_key:
                 headers["api-key"] = api_key
             

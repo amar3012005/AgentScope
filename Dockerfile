@@ -38,7 +38,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     "optimum[onnxruntime]" \
     onnx \
     onnxruntime-tools \
-    requests
+    requests \
+    python-multipart \
+    pypdf \
+    python-docx
 
 # ============================================================================
 # Runtime Stage

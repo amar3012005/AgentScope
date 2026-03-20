@@ -180,6 +180,55 @@
             font-weight: 500;
         }
 
+        .agent-timeline {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #fafafa;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+        }
+
+        .agent-timeline-title {
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .agent-step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.78rem;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+        }
+
+        .agent-step:last-child {
+            margin-bottom: 0;
+        }
+
+        .agent-step.active {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .agent-step.done {
+            color: #15803d;
+        }
+
+        .agent-step.failed {
+            color: #b91c1c;
+        }
+
+        .agent-step-time {
+            color: var(--text-muted);
+            min-width: 64px;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+        }
+
         /* Reasoning / Thinking style */
         .reasoning-block {
             background: #fdf6f2;
@@ -1146,7 +1195,36 @@
         };
 
         const API_URL = window.location.origin;
+        const API_BASE_PATH = (
+            new URLSearchParams(window.location.search).get('api_base')
+            || '/core'
+        ).replace(/\/$/, '');
+        const FALLBACK_API_BASE_PATH = '/retriever';
+        const API_ROOT = /^https?:\/\//i.test(API_BASE_PATH) ? API_BASE_PATH : (API_URL + API_BASE_PATH);
+        const FALLBACK_API_ROOT = API_URL + FALLBACK_API_BASE_PATH;
+        const TENANT_ID = new URLSearchParams(window.location.search).get('tenant_id') || localStorage.getItem('blaiq_tenant_id') || 'default';
+        const ROOM_NUMBER = new URLSearchParams(window.location.search).get('room') || sessionStorage.getItem('blaiq_room_number') || ('room_' + Math.random().toString(36).substring(2, 8));
         let queryCount = 0;
+        localStorage.setItem('blaiq_tenant_id', TENANT_ID);
+        sessionStorage.setItem('blaiq_room_number', ROOM_NUMBER);
+
+        function shouldFallback(status) {
+            return [404, 405, 500, 501, 502, 503, 504].includes(status);
+        }
+
+        async function fetchWithFallback(path, options = {}, allowFallback = true) {
+            try {
+                const primary = await fetch(API_ROOT + path, options);
+                if (primary.ok || !allowFallback || !shouldFallback(primary.status)) {
+                    return { response: primary, usedFallback: false };
+                }
+            } catch (e) {
+                if (!allowFallback) throw e;
+            }
+
+            const fallback = await fetch(FALLBACK_API_ROOT + path, options);
+            return { response: fallback, usedFallback: true };
+        }
 
         const els = {
             send: document.getElementById('sendBtn'),
@@ -1164,6 +1242,7 @@
             SESSION_ID = 'sess_' + Math.random().toString(36).substring(2, 15);
             localStorage.setItem('graphrag_session_id', SESSION_ID);
         }
+        const chatHistory = [];
 
         // Auto-resize textarea
         els.input.addEventListener('input', function () {
@@ -1173,13 +1252,16 @@
 
         async function loadHistory() {
             try {
-                const r = await fetch(API_URL + "/history/" + SESSION_ID);
+                const { response: r } = await fetchWithFallback("/history/" + SESSION_ID, {
+                    headers: { 'X-Tenant-Id': TENANT_ID }
+                }, true);
                 if (r.ok) {
                     const data = await r.json();
                     if (data.history && data.history.length > 0) {
                         if (els.empty) els.empty.style.display = 'none';
                         data.history.forEach(msg => {
                             appendMessage(msg.role === 'user' ? 'user' : 'assistant', msg.content);
+                            chatHistory.push({ role: msg.role, content: msg.content });
                         });
                     }
                 }
@@ -1190,9 +1272,9 @@
 
         async function health() {
             try {
-                const r = await fetch(API_URL + "/");
+                const { response: r, usedFallback } = await fetchWithFallback("/", {}, true);
                 if (r.ok) {
-                    els.status.innerText = "Online";
+                    els.status.innerText = usedFallback ? "Online (compat)" : "Online";
                     els.dot.className = "status-dot online";
                 }
             } catch (e) {
@@ -1226,6 +1308,7 @@
             }
 
             appendMessage("user", text);
+            chatHistory.push({ role: "user", content: text });
 
             const start = performance.now();
             els.status.innerText = "Thinking...";
@@ -1236,43 +1319,131 @@
             const msgEl = document.getElementById(msgId);
             const textEl = msgEl.querySelector('.message-text');
 
+            // Pipeline elements
+            let terminalEl = null;
+            let planningEl = null;
+            let thinkingEl = null;
+            let modeBadgeEl = null;
+            let agentTimelineEl = null;
+            const seenAgentStates = new Set();
+            const selectedMode = els.mode.value;
+
+            function ensureTerminal() {
+                if (!terminalEl) {
+                    terminalEl = document.createElement('div');
+                    terminalEl.className = 'pipeline-terminal';
+                    textEl.before(terminalEl);
+                }
+                return terminalEl;
+            }
+
+            function addPipelineLog(logText) {
+                const terminal = ensureTerminal();
+                const logEntry = document.createElement('div');
+                logEntry.className = 'pipeline-log-entry';
+                const ts = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                logEntry.innerHTML = `<span class="pipeline-ts">[${ts}]</span> <span class="pipeline-status">${logText}</span>`;
+                terminal.appendChild(logEntry);
+                terminal.scrollTop = terminal.scrollHeight;
+            }
+
+            function ensureAgentTimeline() {
+                if (!agentTimelineEl) {
+                    agentTimelineEl = document.createElement('div');
+                    agentTimelineEl.className = 'agent-timeline';
+                    agentTimelineEl.innerHTML = `
+                        <div class="agent-timeline-title">Agent Orchestration</div>
+                        <div class="agent-timeline-body"></div>
+                    `;
+                    textEl.before(agentTimelineEl);
+                }
+                return agentTimelineEl.querySelector('.agent-timeline-body');
+            }
+
+            function addAgentState(state) {
+                if (!state) return;
+                const phase = state.phase || 'unknown';
+                const agent = state.agent || 'unknown-agent';
+                const key = `${phase}:${agent}`;
+                if (seenAgentStates.has(key)) return;
+                seenAgentStates.add(key);
+
+                const body = ensureAgentTimeline();
+                const row = document.createElement('div');
+                const cls =
+                    phase === 'completed' ? 'done'
+                        : (phase.includes('failed') || phase === 'agent_error' || phase === 'dispatch_failed' || phase === 'timeout') ? 'failed'
+                            : (phase === 'streaming' || phase === 'dispatching') ? 'active'
+                                : '';
+                row.className = `agent-step ${cls}`;
+                const ts = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                row.innerHTML = `<span class="agent-step-time">[${ts}]</span><span>${phase.toUpperCase()} • ${agent}</span>`;
+                body.appendChild(row);
+                els.status.innerText = `Core • ${phase}`;
+                els.dot.className = "status-dot online";
+            }
+
+            function mapStatusToErrorMessage(response, sourceName) {
+                return `${sourceName} stream failed (${response.status})`;
+            }
+
+            // Show mode badge if non-default
+            if (selectedMode && selectedMode !== 'DEFAULT') {
+                modeBadgeEl = document.createElement('div');
+                const modeClass = selectedMode.toLowerCase();
+                const modeIcons = { 'TABLE': '📊', 'EMAIL': '📧', 'INVOICE': '🧾' };
+                modeBadgeEl.className = `mode-badge ${modeClass}`;
+                modeBadgeEl.innerHTML = `${modeIcons[selectedMode] || '📄'} ${selectedMode} MODE`;
+                textEl.before(modeBadgeEl);
+            }
+
             try {
-                const response = await fetch(API_URL + "/query/graphrag/stream", {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        query: text,
-                        session_id: SESSION_ID,
-                        mode: "local",
-                        use_reranker: false,
-                        use_cache: true,
-                        k: 10,
-                        content_mode: els.mode.value
-                    })
+                const body = JSON.stringify({
+                    query: text,
+                    tenant_id: TENANT_ID,
+                    session_id: SESSION_ID,
+                    room_number: ROOM_NUMBER,
+                    chat_history: chatHistory.slice(-12),
+                    mode: "local",
+                    use_reranker: false,
+                    use_cache: true,
+                    k: 10,
+                    content_mode: els.mode.value
                 });
 
-                const reader = response.body.getReader();
+                let streamResponse;
+                let usedFallback = false;
+                try {
+                    streamResponse = await fetch(API_ROOT + "/query/graphrag/stream", {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body
+                    });
+                    if (!streamResponse.ok && shouldFallback(streamResponse.status)) {
+                        throw new Error(mapStatusToErrorMessage(streamResponse, "Core"));
+                    }
+                } catch (primaryErr) {
+                    streamResponse = await fetch(FALLBACK_API_ROOT + "/query/graphrag/stream", {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body
+                    });
+                    usedFallback = true;
+                }
+
+                if (!streamResponse.ok) {
+                    throw new Error(`Stream request failed (${streamResponse.status})`);
+                }
+
+                if (usedFallback) {
+                    addPipelineLog("⚠️ Core stream unavailable. Switched to retriever compatibility mode.");
+                }
+
+                const reader = streamResponse.body.getReader();
                 const decoder = new TextDecoder();
                 let fullText = "";
                 let metricsData = null;
                 let ttfc = null;
-
-                // Pipeline elements
-                let terminalEl = null;
-                let planningEl = null;
-                let thinkingEl = null;
-                let modeBadgeEl = null;
-                const selectedMode = els.mode.value;
-
-                // Show mode badge if non-default
-                if (selectedMode && selectedMode !== 'DEFAULT') {
-                    modeBadgeEl = document.createElement('div');
-                    const modeClass = selectedMode.toLowerCase();
-                    const modeIcons = { 'TABLE': '📊', 'EMAIL': '📧', 'INVOICE': '🧾' };
-                    modeBadgeEl.className = `mode-badge ${modeClass}`;
-                    modeBadgeEl.innerHTML = `${modeIcons[selectedMode] || '📄'} ${selectedMode} MODE`;
-                    textEl.before(modeBadgeEl);
-                }
 
                 while (true) {
                     const { value, done } = await reader.read();
@@ -1281,78 +1452,64 @@
                     const lines = chunk.split("\n");
 
                     for (const line of lines) {
-                        if (line.startsWith("data: ")) {
-                            const dataStr = line.replace("data: ", "").trim();
-                            if (dataStr === "[DONE]") continue;
-                            try {
-                                const data = JSON.parse(dataStr);
+                        if (!line.startsWith("data: ")) continue;
+                        const dataStr = line.replace("data: ", "").trim();
+                        if (dataStr === "[DONE]") continue;
 
-                                // 1. Handle Pipeline Logs
-                                if (data.log) {
-                                    if (!terminalEl) {
-                                        terminalEl = document.createElement('div');
-                                        terminalEl.className = 'pipeline-terminal';
-                                        textEl.before(terminalEl);
-                                    }
-                                    const logEntry = document.createElement('div');
-                                    logEntry.className = 'pipeline-log-entry';
-                                    const ts = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                                    logEntry.innerHTML = `<span class="pipeline-ts">[${ts}]</span> <span class="pipeline-status">${data.log}</span>`;
-                                    terminalEl.appendChild(logEntry);
-                                    terminalEl.scrollTop = terminalEl.scrollHeight;
+                        try {
+                            const data = JSON.parse(dataStr);
+
+                            if (data.agent_state) {
+                                addAgentState(data.agent_state);
+                            }
+
+                            if (data.log) {
+                                addPipelineLog(data.log);
+                            }
+
+                            if (data.planning) {
+                                if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+
+                                if (!planningEl) {
+                                    planningEl = document.createElement('div');
+                                    planningEl.className = 'planning-tag';
+                                    textEl.before(planningEl);
                                 }
+                                const p = data.planning;
+                                const active = Object.keys(p.search_plan || {}).filter(k => p.search_plan[k]).map(k => k.replace('use_', ''));
+                                const entities = (p.entities || []).slice(0, 5).join(', ');
+                                let html = `🎯 <strong>${p.mode}</strong> &nbsp;|&nbsp; 🧩 ${active.join(', ').toUpperCase()}`;
+                                if (entities) html += ` &nbsp;|&nbsp; 🔍 ${entities}`;
+                                planningEl.innerHTML = html;
 
-                                // 2. Handle Planning Tags (unified planner output)
-                                if (data.planning) {
-                                    // Remove thinking indicator if it was shown
+                                thinkingEl = document.createElement('div');
+                                thinkingEl.className = 'thinking-indicator';
+                                thinkingEl.innerHTML = `<div class="thinking-dots"><span></span><span></span><span></span></div> Retrieving and synthesizing knowledge...`;
+                                textEl.before(thinkingEl);
+                            }
+
+                            if (data.delta || data.answer) {
+                                if (ttfc === null) {
+                                    ttfc = Math.round(performance.now() - start);
                                     if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
-
-                                    if (!planningEl) {
-                                        planningEl = document.createElement('div');
-                                        planningEl.className = 'planning-tag';
-                                        textEl.before(planningEl);
-                                    }
-                                    const p = data.planning;
-                                    const active = Object.keys(p.search_plan || {}).filter(k => p.search_plan[k]).map(k => k.replace('use_', ''));
-                                    const entities = (p.entities || []).slice(0, 5).join(', ');
-                                    let html = `🎯 <strong>${p.mode}</strong> &nbsp;|&nbsp; 🧩 ${active.join(', ').toUpperCase()}`;
-                                    if (entities) html += ` &nbsp;|&nbsp; 🔍 ${entities}`;
-                                    planningEl.innerHTML = html;
-
-                                    // Show thinking indicator while retrieval happens
-                                    thinkingEl = document.createElement('div');
-                                    thinkingEl.className = 'thinking-indicator';
-                                    thinkingEl.innerHTML = `<div class="thinking-dots"><span></span><span></span><span></span></div> Retrieving and synthesizing knowledge...`;
-                                    textEl.before(thinkingEl);
+                                    if (terminalEl) terminalEl.style.opacity = "0.7";
                                 }
-
-                                // 3. Handle Streaming Content
-                                if (data.delta || data.answer) {
-                                    if (ttfc === null) {
-                                        ttfc = Math.round(performance.now() - start);
-                                        // Remove thinking indicator
-                                        if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
-                                        // Collapse terminal
-                                        if (terminalEl) terminalEl.style.opacity = "0.7";
-                                    }
-                                    const content = data.delta || data.answer;
-                                    fullText += content;
-                                    textEl.innerHTML = formatMessage(fullText, true);
-                                    els.box.scrollTop = els.box.scrollHeight;
-                                } else if (data.metrics) {
-                                    metricsData = data.metrics;
-                                }
-                            } catch (e) { }
-                        }
+                                const content = data.delta || data.answer;
+                                fullText += content;
+                                textEl.innerHTML = formatMessage(fullText, true);
+                                els.box.scrollTop = els.box.scrollHeight;
+                            } else if (data.metrics) {
+                                metricsData = data.metrics;
+                            }
+                        } catch (e) { }
                     }
                 }
 
-                // Final render with isStreaming=false for proper formatting
                 if (fullText) {
                     textEl.innerHTML = formatMessage(fullText, false);
+                    chatHistory.push({ role: "assistant", content: fullText });
                 }
 
-                // Add sources if metrics available
                 if (metricsData) {
                     addSourcesAndMetrics(msgEl, metricsData, ttfc);
                 }

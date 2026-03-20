@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BLAIQ Inbox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0f0f11;
+      --bg-secondary: #16161a;
+      --bg-tertiary: #1c1c21;
+      --bg-hover: #232329;
+      --border: #2a2a31;
+      --border-hover: #3a3a44;
+      --text-primary: #fafafa;
+      --text-secondary: #a1a1aa;
+      --text-muted: #71717a;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --accent-soft: rgba(99, 102, 241, 0.1);
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      overflow: hidden;
+    }
+
+    .app { display: flex; height: 100vh; width: 100vw; }
+
+    .sidebar {
+      width: 260px;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-header {
+      padding: 20px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .nav-section { padding: 12px; flex: 1; overflow-y: auto; }
+
+    .nav-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0 8px;
+      margin-bottom: 8px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-decoration: none;
+      margin-bottom: 2px;
+    }
+
+    .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .nav-item.active { background: var(--accent-soft); color: var(--accent); }
+    .nav-icon { width: 18px; height: 18px; opacity: 0.7; }
+    .nav-item.active .nav-icon { opacity: 1; }
+
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .header {
+      height: 60px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      background: var(--bg-secondary);
+    }
+
+    .header-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .header-breadcrumb { color: var(--text-muted); }
+    .header-actions { display: flex; gap: 12px; }
+
+    .header-btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .header-btn:hover { border-color: var(--border-hover); color: var(--text-primary); background: var(--bg-hover); }
+
+    .content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    .page-header { margin-bottom: 24px; }
+    .page-header h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+    .page-header p { color: var(--text-secondary); font-size: 14px; }
+
+    .inbox-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .inbox-item {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 20px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .inbox-item:hover { border-color: var(--border-hover); background: var(--bg-hover); }
+    .inbox-item.unread { border-left: 3px solid var(--accent); }
+
+    .inbox-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--bg-tertiary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .inbox-content { flex: 1; }
+    .inbox-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .inbox-badge { padding: 2px 8px; background: var(--accent); color: white; border-radius: 999px; font-size: 10px; font-weight: 600; }
+    .inbox-desc { font-size: 13px; color: var(--text-secondary); }
+    .inbox-meta { font-size: 12px; color: var(--text-muted); text-align: right; }
+    .inbox-time { margin-bottom: 4px; }
+    .inbox-agent { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: var(--bg-tertiary); border-radius: 4px; }
+
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-icon">◆</div>
+          <span>BLAIQ</span>
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Navigation</div>
+        <a href="/static/search.html" class="nav-item" data-nav="search">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <path d="m21 21-4.3-4.3"></path>
+          </svg>
+          Search
+        </a>
+        <a href="/static/inbox.html" class="nav-item active" data-nav="inbox">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 8a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8z"></path>
+            <path d="m22 8-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 8"></path>
+          </svg>
+          Inbox
+        </a>
+        <a href="/static/agents.html" class="nav-item" data-nav="agents">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 8V4H8"></path>
+            <rect width="16" height="12" x="4" y="8" rx="2"></rect>
+            <path d="M2 14h2"></path>
+            <path d="M20 14h2"></path>
+            <path d="M15 13v2"></path>
+            <path d="M9 13v2"></path>
+          </svg>
+          Agents
+        </a>
+        <a href="/static/workflows.html" class="nav-item" data-nav="workflows">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path>
+          </svg>
+          Workflows
+        </a>
+        <a href="/static/prompt-library.html" class="nav-item" data-nav="prompts">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+          </svg>
+          Prompt Library
+        </a>
+        <a href="/static/integrations.html" class="nav-item" data-nav="integrations">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"></path>
+          </svg>
+          Integrations
+        </a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="header">
+        <div class="header-title">
+          <span>Inbox</span>
+          <span class="header-breadcrumb">/</span>
+          <span style="color: var(--text-secondary);">Notifications</span>
+        </div>
+        <div class="header-actions">
+          <button class="header-btn" onclick="markAllRead()">Mark all read</button>
+        </div>
+      </header>
+
+      <div class="content">
+        <div class="page-header">
+          <h1>Inbox</h1>
+          <p>Recent notifications and messages from your agents.</p>
+        </div>
+
+        <div class="inbox-list">
+          <div class="inbox-item unread">
+            <div class="inbox-icon">✨</div>
+            <div class="inbox-content">
+              <div class="inbox-title">Content generation complete <span class="inbox-badge">NEW</span></div>
+              <div class="inbox-desc">Your poster design has been generated and is ready for review.</div>
+            </div>
+            <div class="inbox-meta">
+              <div class="inbox-time">2m ago</div>
+              <div class="inbox-agent">Creator</div>
+            </div>
+          </div>
+
+          <div class="inbox-item unread">
+            <div class="inbox-icon">📡</div>
+            <div class="inbox-content">
+              <div class="inbox-title">Agent connected <span class="inbox-badge">NEW</span></div>
+              <div class="inbox-desc">Echo Agent is now online and ready to receive tasks.</div>
+            </div>
+            <div class="inbox-meta">
+              <div class="inbox-time">15m ago</div>
+              <div class="inbox-agent">Echo</div>
+            </div>
+          </div>
+
+          <div class="inbox-item">
+            <div class="inbox-icon">⚡</div>
+            <div class="inbox-content">
+              <div class="inbox-title">Workflow completed</div>
+              <div class="inbox-desc">Multi-agent workflow "Q1 Report Analysis" finished successfully.</div>
+            </div>
+            <div class="inbox-meta">
+              <div class="inbox-time">2h ago</div>
+              <div class="inbox-agent">Orchestrator</div>
+            </div>
+          </div>
+
+          <div class="inbox-item">
+            <div class="inbox-icon">📊</div>
+            <div class="inbox-content">
+              <div class="inbox-title">GraphRAG sync complete</div>
+              <div class="inbox-desc">Knowledge graph updated with 1,247 new chunks.</div>
+            </div>
+            <div class="inbox-meta">
+              <div class="inbox-time">5h ago</div>
+              <div class="inbox-agent">GraphRAG</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const currentPage = window.location.pathname.split('/').pop().replace('.html', '');
+      document.querySelectorAll('.nav-item').forEach(item => {
+        const navPage = item.getAttribute('data-nav');
+        if (navPage && currentPage.includes(navPage)) {
+          item.classList.add('active');
+        } else {
+          item.classList.remove('active');
+        }
+      });
+    });
+
+    function markAllRead() {
+      document.querySelectorAll('.inbox-item').forEach(item => {
+        item.classList.remove('unread');
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BLAIQ Integrations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0f0f11;
+      --bg-secondary: #16161a;
+      --bg-tertiary: #1c1c21;
+      --bg-hover: #232329;
+      --border: #2a2a31;
+      --border-hover: #3a3a44;
+      --text-primary: #fafafa;
+      --text-secondary: #a1a1aa;
+      --text-muted: #71717a;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --accent-soft: rgba(99, 102, 241, 0.1);
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      overflow: hidden;
+    }
+
+    .app { display: flex; height: 100vh; width: 100vw; }
+
+    .sidebar {
+      width: 260px;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-header {
+      padding: 20px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .nav-section { padding: 12px; flex: 1; overflow-y: auto; }
+
+    .nav-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0 8px;
+      margin-bottom: 8px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-decoration: none;
+      margin-bottom: 2px;
+    }
+
+    .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .nav-item.active { background: var(--accent-soft); color: var(--accent); }
+    .nav-icon { width: 18px; height: 18px; opacity: 0.7; }
+    .nav-item.active .nav-icon { opacity: 1; }
+
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .header {
+      height: 60px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      background: var(--bg-secondary);
+    }
+
+    .header-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .header-breadcrumb { color: var(--text-muted); }
+    .header-actions { display: flex; gap: 12px; }
+
+    .header-btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .header-btn:hover { border-color: var(--border-hover); color: var(--text-primary); background: var(--bg-hover); }
+
+    .header-btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    .header-btn.primary:hover { background: var(--accent-hover); }
+
+    .content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    .page-header { margin-bottom: 24px; }
+    .page-header h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+    .page-header p { color: var(--text-secondary); font-size: 14px; }
+
+    .integrations-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    .integration-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .integration-card:hover { border-color: var(--border-hover); background: var(--bg-hover); }
+    .integration-card.connected { border-color: var(--success); }
+
+    .integration-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .integration-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+
+    .integration-icon.confluence { background: linear-gradient(135deg, #0052cc, #0747a6); }
+    .integration-icon.hubspot { background: linear-gradient(135deg, #ff7a59, #f2552c); }
+    .integration-icon.slack { background: linear-gradient(135deg, #4a154b, #611f69); }
+    .integration-icon.notion { background: linear-gradient(135deg, #000000, #333333); }
+    .integration-icon.github { background: linear-gradient(135deg, #24292e, #586069); }
+
+    .integration-title { flex: 1; }
+    .integration-title h3 { font-size: 16px; font-weight: 600; margin-bottom: 2px; }
+    .integration-title span { font-size: 12px; color: var(--text-muted); }
+
+    .integration-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .integration-status.connected {
+      background: rgba(34, 197, 94, 0.1);
+      color: var(--success);
+    }
+
+    .integration-status.disconnected {
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
+    }
+
+    .integration-desc {
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+
+    .integration-meta {
+      display: flex;
+      gap: 16px;
+      padding: 12px;
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    .meta-item { display: flex; flex-direction: column; }
+    .meta-label { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
+    .meta-value { font-size: 13px; font-weight: 500; }
+
+    .integration-actions { display: flex; gap: 8px; }
+
+    .integration-btn {
+      flex: 1;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .integration-btn:hover { border-color: var(--border-hover); color: var(--text-primary); background: var(--bg-hover); }
+
+    .integration-btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    .integration-btn.primary:hover { background: var(--accent-hover); }
+
+    .integration-btn.success {
+      background: var(--success);
+      border-color: var(--success);
+      color: white;
+    }
+
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-icon">◆</div>
+          <span>BLAIQ</span>
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Navigation</div>
+        <a href="/static/search.html" class="nav-item" data-nav="search">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <path d="m21 21-4.3-4.3"></path>
+          </svg>
+          Search
+        </a>
+        <a href="/static/inbox.html" class="nav-item" data-nav="inbox">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 8a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8z"></path>
+            <path d="m22 8-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 8"></path>
+          </svg>
+          Inbox
+        </a>
+        <a href="/static/agents.html" class="nav-item" data-nav="agents">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 8V4H8"></path>
+            <rect width="16" height="12" x="4" y="8" rx="2"></rect>
+            <path d="M2 14h2"></path>
+            <path d="M20 14h2"></path>
+            <path d="M15 13v2"></path>
+            <path d="M9 13v2"></path>
+          </svg>
+          Agents
+        </a>
+        <a href="/static/workflows.html" class="nav-item" data-nav="workflows">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path>
+          </svg>
+          Workflows
+        </a>
+        <a href="/static/prompt-library.html" class="nav-item" data-nav="prompts">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+          </svg>
+          Prompt Library
+        </a>
+        <a href="/static/integrations.html" class="nav-item active" data-nav="integrations">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"></path>
+          </svg>
+          Integrations
+        </a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="header">
+        <div class="header-title">
+          <span>Integrations</span>
+          <span class="header-breadcrumb">/</span>
+          <span style="color: var(--text-secondary);">Connected Systems</span>
+        </div>
+        <div class="header-actions">
+          <button class="header-btn primary" onclick="addIntegration()">+ Add Integration</button>
+        </div>
+      </header>
+
+      <div class="content">
+        <div class="page-header">
+          <h1>Connected Apps</h1>
+          <p>Manage docs, CRM, analytics, and communication channels in one place.</p>
+        </div>
+
+        <div class="integrations-grid">
+          <div class="integration-card connected">
+            <div class="integration-header">
+              <div class="integration-icon confluence">📄</div>
+              <div class="integration-title">
+                <h3>Confluence</h3>
+                <span>Documentation</span>
+              </div>
+              <div class="integration-status connected">● Connected</div>
+            </div>
+            <div class="integration-desc">Knowledge sync active with daily embeddings refresh for intelligent search.</div>
+            <div class="integration-meta">
+              <div class="meta-item">
+                <span class="meta-label">Last sync</span>
+                <span class="meta-value">2 hours ago</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Chunks</span>
+                <span class="meta-value">12,847</span>
+              </div>
+            </div>
+            <div class="integration-actions">
+              <button class="integration-btn">Configure</button>
+              <button class="integration-btn success">Sync Now</button>
+            </div>
+          </div>
+
+          <div class="integration-card connected">
+            <div class="integration-header">
+              <div class="integration-icon hubspot">🎯</div>
+              <div class="integration-title">
+                <h3>HubSpot</h3>
+                <span>CRM</span>
+              </div>
+              <div class="integration-status connected">● Connected</div>
+            </div>
+            <div class="integration-desc">Pipeline summary and contact enrichment with AI-powered insights.</div>
+            <div class="integration-meta">
+              <div class="meta-item">
+                <span class="meta-label">Contacts</span>
+                <span class="meta-value">4,231</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Deals</span>
+                <span class="meta-value">127</span>
+              </div>
+            </div>
+            <div class="integration-actions">
+              <button class="integration-btn">Configure</button>
+              <button class="integration-btn success">Sync Now</button>
+            </div>
+          </div>
+
+          <div class="integration-card connected">
+            <div class="integration-header">
+              <div class="integration-icon slack">💬</div>
+              <div class="integration-title">
+                <h3>Slack</h3>
+                <span>Communication</span>
+              </div>
+              <div class="integration-status connected">● Connected</div>
+            </div>
+            <div class="integration-desc">Real-time alerts for failed workflows and human approval requests.</div>
+            <div class="integration-meta">
+              <div class="meta-item">
+                <span class="meta-label">Channel</span>
+                <span class="meta-value">#blaiq-alerts</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Alerts</span>
+                <span class="meta-value">Enabled</span>
+              </div>
+            </div>
+            <div class="integration-actions">
+              <button class="integration-btn">Configure</button>
+              <button class="integration-btn">Test</button>
+            </div>
+          </div>
+
+          <div class="integration-card">
+            <div class="integration-header">
+              <div class="integration-icon notion">📝</div>
+              <div class="integration-title">
+                <h3>Notion</h3>
+                <span>Workspace</span>
+              </div>
+              <div class="integration-status disconnected">Disconnected</div>
+            </div>
+            <div class="integration-desc">Sync Notion databases and pages for knowledge augmentation.</div>
+            <div class="integration-meta">
+              <div class="meta-item">
+                <span class="meta-label">Workspaces</span>
+                <span class="meta-value">-</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Pages</span>
+                <span class="meta-value">-</span>
+              </div>
+            </div>
+            <div class="integration-actions">
+              <button class="integration-btn primary">Connect</button>
+            </div>
+          </div>
+
+          <div class="integration-card">
+            <div class="integration-header">
+              <div class="integration-icon github">⚡</div>
+              <div class="integration-title">
+                <h3>GitHub</h3>
+                <span>Code Repository</span>
+              </div>
+              <div class="integration-status disconnected">Disconnected</div>
+            </div>
+            <div class="integration-desc">Index code repositories for technical documentation and Q&A.</div>
+            <div class="integration-meta">
+              <div class="meta-item">
+                <span class="meta-label">Repos</span>
+                <span class="meta-value">-</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Files</span>
+                <span class="meta-value">-</span>
+              </div>
+            </div>
+            <div class="integration-actions">
+              <button class="integration-btn primary">Connect</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const currentPage = window.location.pathname.split('/').pop().replace('.html', '');
+      document.querySelectorAll('.nav-item').forEach(item => {
+        const navPage = item.getAttribute('data-nav');
+        if (navPage && currentPage.includes(navPage)) {
+          item.classList.add('active');
+        } else {
+          item.classList.remove('active');
+        }
+      });
+    });
+
+    function addIntegration() {
+      alert('Add integration dialog would open here');
+    }
+  </script>
+</body>
+</html>

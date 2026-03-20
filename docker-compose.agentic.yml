@@ -1,0 +1,189 @@
+services:
+  blaiq-core:
+    build:
+      context: .
+      dockerfile: docker/orchestrator/Dockerfile
+    env_file:
+      - .env
+    container_name: blaiq-core
+    command: [ "python", "-m", "uvicorn", "src.orchestrator.orchestrator_api:app", "--host", "0.0.0.0", "--port", "6000" ]
+    ports:
+      - "6080:6000" # BLAIQ-CORE API + WS gateway (6000 is browser-unsafe)
+    environment:
+      BLAIQ_DEFAULT_AGENT: ${BLAIQ_DEFAULT_AGENT:-blaiq-graph-rag}
+      BLAIQ_GRAPHRAG_AGENT: ${BLAIQ_GRAPHRAG_AGENT:-blaiq-graph-rag}
+      BLAIQ_GRAPHRAG_TIMEOUT_SECONDS: ${BLAIQ_GRAPHRAG_TIMEOUT_SECONDS:-300}
+      STRATEGIST_ENABLED: ${STRATEGIST_ENABLED:-true}
+      # Model Routing - Fast models for strategy/planning
+      LITELLM_STRATEGIST_MODEL: ${LITELLM_STRATEGIST_MODEL:-gpt-4o-mini}
+      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-gpt-4o-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
+      TENANT_CONFIG_MAP_JSON: ${TENANT_CONFIG_MAP_JSON:-{}}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant-test:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-apikey12345678}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-default}
+      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j-test:7687}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password12345678}
+      BLAIQ_SUB_AGENTS: >-
+        [{"name":"blaiq-graph-rag","protocol":"rest","base_url":"http://blaiq-graph-rag:6001","execute_path":"/query/graphrag","stream_path":"/query/graphrag/stream","history_path":"/history/{session_id}","supports_stream":true,"capabilities":["graphrag","stream","history"],"method":"POST","timeout_seconds":180},{"name":"echo-agent","protocol":"ws","base_url":"http://blaiq-echo-agent:6002","execute_path":"/execute","stream_path":"/execute","history_path":"","supports_stream":false,"capabilities":["utility"],"method":"POST","timeout_seconds":30},{"name":"blaiq-content-agent","protocol":"rest","base_url":"http://blaiq-content-agent:6003","execute_path":"/execute","stream_path":"/stream","history_path":"","supports_stream":true,"capabilities":["content_creation","gap_analysis"],"method":"POST","timeout_seconds":300}]
+    depends_on:
+      blaiq-graph-rag:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:6000/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    volumes:
+      - .:/app
+    networks:
+      - blaiq-agent-os
+
+    
+
+  redis:
+    image: redis:7-alpine
+    container_name: blaiq-redis
+    ports:
+      - "6006:6379"
+    volumes:
+      - blaiq_redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - blaiq-agent-os
+
+  blaiq-graph-rag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    container_name: blaiq-graph-rag
+    command: [ "python", "-m", "uvicorn", "src.retriever.retriever_api_optimized:app", "--host", "0.0.0.0", "--port", "6001" ]
+    ports:
+      - "6001:6001" # exposed for direct debugging; BLAIQ-CORE uses internal DNS
+    environment:
+      REDIS_URL: redis://redis:6379
+      ENABLE_CACHE: "true"
+      CACHE_TTL: 3600
+
+      QDRANT_URL: ${QDRANT_URL}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_PORT: ${QDRANT_PORT:-443}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-graphrag_chunks}
+      QDRANT_VECTOR_NAME: ${QDRANT_VECTOR_NAME:-text}
+
+      NEO4J_URI: ${NEO4J_URI}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-neo4jpassword}
+
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
+      # Model Routing for GraphRAG
+      # Pre-retrieval: Fast model for entity extraction
+      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-gpt-4o-mini}
+      # Planner: Fast model for query classification and planning
+      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-gpt-4o-mini}
+      # Post-retrieval: High quality model for answer generation
+      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-gemini-2.5-pro}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gemini-2.5-pro}
+
+      OPENAI_FALLBACK_MODEL: ${OPENAI_FALLBACK_MODEL:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-25}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-4000}
+
+      BGE_M3_SERVICE_URL: ${BGE_M3_SERVICE_URL:-}
+      BGE_M3_API_KEY: ${BGE_M3_API_KEY:-}
+      BGE_M3_MODEL_ID: ${BGE_M3_MODEL_ID:-bge-m3}
+
+      API_KEY: ${API_KEY:-}
+      ENABLE_RERANKER: ${ENABLE_RERANKER:-false}
+      DEBUG_LLM: ${DEBUG_LLM:-false}
+      DEBUG_RETRIEVAL: ${DEBUG_RETRIEVAL:-false}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:6001/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - blaiq-agent-os
+
+  blaiq-echo-agent:
+    build:
+      context: .
+      dockerfile: docker/orchestrator/Dockerfile
+    container_name: blaiq-echo-agent
+    command: [ "python", "-m", "uvicorn", "src.agents.echo.agent:app", "--host", "0.0.0.0", "--port", "6002" ]
+    ports:
+      - "6002:6002"
+    environment:
+      AGENT_NAME: echo-agent
+      AGENT_ENABLE_WS: "true"
+      AGENT_CORE_WS_URL: ws://blaiq-core:6000/ws/agents/echo-agent
+    depends_on:
+      blaiq-core:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - blaiq-agent-os
+
+  blaiq-content-agent:
+    build:
+      context: .
+      dockerfile: docker/orchestrator/Dockerfile
+    env_file:
+      - .env
+    container_name: blaiq-content-agent
+    command: [ "python", "-m", "uvicorn", "src.agents.content_creator.agent:app", "--host", "0.0.0.0", "--port", "6003" ]
+    ports:
+      - "6003:6003"
+    environment:
+      AGENT_NAME: blaiq-content-agent
+      AGENT_ENABLE_WS: "true"
+      AGENT_CORE_WS_URL: ws://blaiq-core:6000/ws/agents/blaiq-content-agent
+      AGENT_CORE_HTTP_URL: http://blaiq-core:6000
+      # Model Routing Configuration
+      # Claude 4.6 for high-quality design generation (HTML/Tailwind)
+      CONTENT_DESIGN_MODEL: ${CONTENT_DESIGN_MODEL:-vertex_ai/claude-sonnet-4-6@default}
+      # Fast model for gap analysis and strategy
+      CONTENT_ANALYSIS_MODEL: ${CONTENT_ANALYSIS_MODEL:-gpt-4o-mini}
+      GAP_ANALYSIS_MODEL: ${GAP_ANALYSIS_MODEL:-gpt-4o-mini}
+      # Legacy fallback
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
+      # GraphRAG direct connection
+      GRAPHRAG_DIRECT_URL: http://blaiq-graph-rag:6001
+    depends_on:
+      blaiq-core:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - .:/app
+    networks:
+      - blaiq-agent-os
+
+networks:
+  blaiq-agent-os:
+    driver: bridge
+
+volumes:
+  blaiq_redis_data:

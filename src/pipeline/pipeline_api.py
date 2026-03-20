@@ -62,6 +62,16 @@ app = FastAPI(
     dependencies=[Depends(verify_api_key)],
 )
 
+# Add CORS middleware
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # File-based job storage (replaces in-memory dict)
 job_store = JobStore(storage_dir="_jobs", api_name="pipeline")
 

@@ -3,9 +3,16 @@ Optimized GraphRAG Retrieval API with Caching and Parallel Execution
 Drop-in replacement for retriever_api.py with performance enhancements.
 """
 
+import sys
+from pathlib import Path
+
+# Add project root to path for skill imports
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import os
 import time
 import asyncio
+import uuid
 from typing import Any, Dict, List, Optional
 
 import uvicorn
@@ -64,6 +71,10 @@ class QueryRequest(BaseModel):
     qdrant_port: Optional[int] = Field(default=None)
     qdrant_api_key: Optional[str] = Field(default=None)
     collection_name: Optional[str] = Field(default=None)
+    neo4j_uri: Optional[str] = Field(default=None)
+    neo4j_user: Optional[str] = Field(default=None)
+    neo4j_password: Optional[str] = Field(default=None)
+    tenant_id: Optional[str] = Field(default=None)
     
     # Cache control
     use_cache: bool = Field(default=True, description="Use Redis cache")
@@ -77,6 +88,8 @@ class QueryRequest(BaseModel):
     
     # Session management
     session_id: Optional[str] = Field(default=None, description="Unique session ID for conversation history")
+    room_number: Optional[str] = Field(default=None, description="Browser chat room/tab identifier")
+    chat_history: Optional[List[Dict[str, str]]] = Field(default=None, description="Client-sent chat history")
     
     # Content format control
     content_mode: Optional[str] = Field(default="DEFAULT", description="Specialized content mode (EMAIL, TABLE, INVOICE)")
@@ -258,6 +271,9 @@ TENANT_MAPPING = {
 
 def resolve_tenant(request: Request) -> str:
     """Detect tenant from Host header (e.g., bundb.rag.blaiq.ai -> bundb)"""
+    header_tenant = request.headers.get("x-tenant-id")
+    if header_tenant:
+        return header_tenant
     host = request.headers.get("host", "")
     # Remove port if present
     base_host = host.split(":")[0].lower()
@@ -286,6 +302,8 @@ def get_shared_retriever(request_config: Optional[QueryRequest] = None) -> Graph
                 cfg.qdrant_host or "",
                 str(cfg.qdrant_port or ""),
                 "apikey" if cfg.qdrant_api_key else "",
+                cfg.neo4j_uri or "",
+                cfg.neo4j_user or "",
             ]
         )
 
@@ -307,6 +325,9 @@ def get_shared_retriever(request_config: Optional[QueryRequest] = None) -> Graph
             qdrant_port=request_config.qdrant_port,
             qdrant_api_key=request_config.qdrant_api_key,
             collection_name=request_config.collection_name,
+            neo4j_uri=request_config.neo4j_uri,
+            neo4j_user=request_config.neo4j_user,
+            neo4j_password=request_config.neo4j_password,
             entity_extraction_prompt=request_config.entity_extraction_prompt,
         )
         _retriever_pool[key] = retriever
@@ -474,7 +495,37 @@ async def query_graphrag_optimized(request: QueryRequest):
         logger.info(f"🚀 TOTAL Retrieval: {retrieval_time:.3f}s")
 
         if not chunks:
-            raise HTTPException(404, "No relevant chunks found")
+            # Return a graceful response instead of 404 error
+            logger.warning(f"No chunks found for query: {request.query[:50]}...")
+            answer_text = "I don't have any specific documents in my knowledge base related to your question."
+            result = {
+                "query": request.query,
+                "answer": answer_text,
+                "chunks_retrieved": 0,
+                "chunks": [],
+                "retrieval_stats": {
+                    "total_candidates": 0,
+                    "graph_chunks": 0,
+                    "vector_chunks": 0,
+                    "keyword_chunks": 0,
+                    "docid_chunks": 0,
+                    "adjacent_chunks": 0,
+                    "entities_extracted": entities,
+                    "planner_mode": plan.get("mode"),
+                    "search_plan": search_plan,
+                    "parallel_timings": timings,
+                    "rerank_time": round(rerank_time, 3),
+                    "top_docs": [],
+                    "filter_label": retriever.filter_label,
+                    "warning": "No relevant documents found in knowledge base.",
+                },
+                "retrieval_time": round(retrieval_time, 3),
+                "answer_time": 0.0,
+                "total_time": round(time.time() - total_start, 3),
+                "cached": False,
+                "cache_stats": cache_manager.get_stats(),
+            }
+            return QueryResponse(**result)
 
         # ── Answer Generation (with integrated formatting) ──
         answer = ""
@@ -618,7 +669,7 @@ async def query_graphrag_stream(request_data: QueryRequest, http_request: Reques
     Streaming version of GraphRAG query with session persistence and multi-tenancy.
     """
     # 1. Resolve Tenant
-    tenant_collection = request_data.collection_name or resolve_tenant(http_request)
+    tenant_collection = request_data.collection_name or request_data.tenant_id or resolve_tenant(http_request)
     request_data.collection_name = tenant_collection
     
     if not request_data.query.strip():
@@ -629,12 +680,19 @@ async def query_graphrag_stream(request_data: QueryRequest, http_request: Reques
 
         # ── 1. Load History ──
         history_str = ""
-        past_messages = []
+        past_messages = list(request_data.chat_history or [])
+        if past_messages:
+            for msg in past_messages[-8:]:
+                role = (msg.get("role") or "").upper()
+                content = msg.get("content") or ""
+                history_str += f"{role}: {content}\n"
+
         if request_data.session_id:
             logger.info(f"📜 Loading history for session: {request_data.session_id} (Tenant: {tenant_collection})")
-            past_messages = await session_manager.get_history(tenant_collection, request_data.session_id, limit=8)
-            for msg in past_messages:
-                history_str += f"{msg['role'].upper()}: {msg['content']}\n"
+            if not past_messages:
+                past_messages = await session_manager.get_history(tenant_collection, request_data.session_id, limit=8)
+                for msg in past_messages:
+                    history_str += f"{msg['role'].upper()}: {msg['content']}\n"
             await session_manager.add_message(tenant_collection, request_data.session_id, "user", request_data.query)
 
         metrics = {
@@ -822,6 +880,100 @@ async def clear_cache():
     """Clear all cache entries"""
     deleted = await cache_manager.clear()
     return {"status": "success", "deleted": deleted}
+
+
+# ============================================================================
+# FILE UPLOAD ENDPOINT
+# ============================================================================
+
+class UploadRequest(BaseModel):
+    """Upload request model for document processing"""
+    request_id: Optional[str] = None
+    tenant_id: str = "default"
+    collection_name: Optional[str] = None
+    qdrant_url: Optional[str] = None
+    qdrant_api_key: Optional[str] = None
+    neo4j_uri: Optional[str] = None
+    neo4j_user: Optional[str] = None
+    neo4j_password: Optional[str] = None
+    filename: str
+    file_content: str  # Base64 or latin-1 encoded string
+    file_size: int
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@app.post("/upload")
+async def upload_document(req: UploadRequest) -> Dict[str, Any]:
+    """
+    Process uploaded document: chunk, embed, and store in Qdrant + Neo4j.
+
+    This endpoint is called by the orchestrator after a file upload.
+    It performs:
+    1. Text extraction from PDF/DOCX/TXT/MD files
+    2. Intelligent chunking with semantic boundaries
+    3. Embedding generation and storage in Qdrant
+    4. Entity extraction and graph storage in Neo4j
+    """
+    import time
+    import base64
+    from skills.document_processor import process_upload
+
+    start_time = time.time()
+    request_id = req.request_id or str(uuid.uuid4())
+
+    logger.info(f"upload_processing_start request_id={request_id} tenant={req.tenant_id} filename={req.filename}")
+
+    try:
+        # Decode file content
+        try:
+            # Try base64 first
+            file_bytes = base64.b64decode(req.file_content)
+        except Exception:
+            # Fall back to latin-1 encoding
+            file_bytes = req.file_content.encode('latin-1')
+
+        # Build config dicts
+        qdrant_config = {
+            "qdrant_url": req.qdrant_url or os.getenv("QDRANT_URL"),
+            "qdrant_api_key": req.qdrant_api_key or os.getenv("QDRANT_API_KEY"),
+            "collection_name": req.collection_name or os.getenv("QDRANT_COLLECTION", "graphrag_chunks"),
+        }
+
+        neo4j_config = {
+            "neo4j_uri": req.neo4j_uri or os.getenv("NEO4J_URI"),
+            "neo4j_user": req.neo4j_user or os.getenv("NEO4J_USER", "neo4j"),
+            "neo4j_password": req.neo4j_password or os.getenv("NEO4J_PASSWORD"),
+        }
+
+        # Process the document
+        result = process_upload(
+            file_path=req.filename,
+            file_content=file_bytes,
+            tenant_id=req.tenant_id,
+            qdrant_config=qdrant_config,
+            neo4j_config=neo4j_config
+        )
+
+        elapsed = time.time() - start_time
+        logger.info(f"upload_processing_complete request_id={request_id} elapsed={elapsed:.2f}s")
+
+        return {
+            "status": "success",
+            "request_id": request_id,
+            "filename": req.filename,
+            "tenant_id": req.tenant_id,
+            "result": result,
+            "elapsed_seconds": round(elapsed, 2),
+        }
+
+    except Exception as e:
+        logger.error(f"upload_processing_error request_id={request_id} error={e}")
+        return {
+            "status": "error",
+            "request_id": request_id,
+            "filename": req.filename,
+            "error": str(e),
+        }
 
 
 # ============================================================================
