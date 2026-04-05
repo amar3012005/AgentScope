@@ -22,3 +22,194 @@ body {
   color: var(--brand-primary);
   -webkit-font-smoothing: antialiased;
 }
+
+/* ─── Scroll-snap navigation ─── */
+.slides-container {
+  scroll-snap-type: y mandatory;
+  overflow-y: auto;
+  height: 100vh;
+  scroll-behavior: smooth;
+}
+
+.slide-wrapper {
+  scroll-snap-align: start;
+  min-height: 100vh;
+}
+
+/* ─── Entrance animations ─── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.97) translateY(16px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.05; transform: scale(1); }
+  50% { opacity: 0.10; transform: scale(1.02); }
+}
+
+@keyframes meshDrift {
+  0%, 100% { transform: translate(0, 0); }
+  33% { transform: translate(2%, -1%); }
+  66% { transform: translate(-1%, 2%); }
+}
+
+@keyframes borderGlow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes typeReveal {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-in {
+  animation: fadeInUp 0.8s ease-out forwards;
+}
+
+.animate-in-scale {
+  animation: fadeInScale 0.7s ease-out forwards;
+}
+
+/* Staggered entrance delays */
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.2s; }
+.stagger-3 { animation-delay: 0.3s; }
+.stagger-4 { animation-delay: 0.4s; }
+.stagger-5 { animation-delay: 0.5s; }
+.stagger-6 { animation-delay: 0.6s; }
+.stagger-7 { animation-delay: 0.7s; }
+.stagger-8 { animation-delay: 0.8s; }
+
+/* ─── Glassmorphism utilities ─── */
+.glass {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-strong {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* ─── Decorative mesh gradient background ─── */
+.mesh-bg {
+  background-image:
+    radial-gradient(at 40% 20%, var(--brand-accent) 0px, transparent 50%),
+    radial-gradient(at 80% 80%, var(--brand-accent2) 0px, transparent 50%);
+  opacity: 0.07;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: meshDrift 20s ease-in-out infinite;
+}
+
+.mesh-bg-pulse {
+  background-image:
+    radial-gradient(at 30% 30%, var(--brand-accent) 0px, transparent 50%),
+    radial-gradient(at 70% 70%, var(--brand-accent2) 0px, transparent 50%);
+  opacity: 0.07;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: pulseGlow 8s ease-in-out infinite, meshDrift 20s ease-in-out infinite;
+}
+
+/* ─── Gradient text utility ─── */
+.gradient-text {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Card hover lift ─── */
+.card-lift {
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.card-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(108, 99, 255, 0.15);
+}
+
+/* ─── Shimmer border effect ─── */
+.shimmer-border {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-border::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--brand-accent), var(--brand-accent2), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 3s linear infinite;
+}
+
+/* ─── CTA button shimmer ─── */
+.cta-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.cta-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent 25%, var(--brand-accent) 50%, var(--brand-accent2) 75%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 4s linear infinite;
+  z-index: -1;
+  opacity: 0.5;
+  transition: opacity 0.3s ease;
+}
+
+.cta-shimmer:hover::after {
+  opacity: 0.8;
+}
+
+/* ─── Confidence bar ─── */
+.confidence-bar {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--brand-border);
+  overflow: hidden;
+}
+
+.confidence-bar-fill {
+  height: 100%;
+  border-radius: 1px;
+  background: linear-gradient(90deg, var(--brand-accent), var(--brand-accent2));
+  transition: width 0.8s ease-out;
+}
+
+/* ─── Scrollbar styling ─── */
+.slides-container::-webkit-scrollbar {
+  width: 0;
+  display: none;
+}
+
+.slides-container {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

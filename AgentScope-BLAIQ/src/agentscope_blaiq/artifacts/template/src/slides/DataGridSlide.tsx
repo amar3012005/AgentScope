@@ -14,31 +14,42 @@ interface Props {
   total?: number;
 }
 
-export function DataGridSlide({ title, subtitle, items }: Props) {
+export function DataGridSlide({ title, subtitle, items }: Props): JSX.Element {
   return (
-    <section className="min-h-screen flex flex-col justify-center px-[clamp(2rem,10vw,8rem)] py-24">
-      <h2 className="font-heading text-[clamp(1.8rem,4vw,3rem)] font-bold tracking-[-0.02em] mb-2">
-        {title}
-      </h2>
-      {subtitle && <p className="text-brand-muted mb-10 max-w-[50ch]">{subtitle}</p>}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        {items.map((item, i) => (
-          <div
-            key={i}
-            className="relative p-7 rounded-2xl border border-brand-border bg-brand-surface overflow-hidden group hover:border-brand-accent/30 transition-colors"
-          >
-            <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-brand-accent to-brand-accent2 opacity-0 group-hover:opacity-100 transition-opacity" />
-            <div className="text-[clamp(2rem,5vw,3.5rem)] font-extrabold tracking-[-0.03em] text-brand-accent">
-              {item.value}
+    <section className="relative min-h-screen flex flex-col justify-center px-[clamp(2rem,10vw,8rem)] py-24 overflow-hidden">
+      <div className="mesh-bg" />
+      <div className="relative z-10">
+        <h2 className="font-heading text-[clamp(1.8rem,4vw,3rem)] font-bold tracking-[-0.02em] mb-2 animate-in">
+          {title}
+        </h2>
+        {subtitle && (
+          <p className="text-brand-muted mb-10 max-w-[50ch] animate-in stagger-1">{subtitle}</p>
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {items.map((item, i) => (
+            <div
+              key={i}
+              className="relative p-7 rounded-2xl border border-brand-border bg-brand-surface overflow-hidden group card-lift shimmer-border"
+              style={{
+                opacity: 0,
+                animation: `fadeInUp 0.6s ease-out ${0.15 + i * 0.1}s forwards`,
+              }}
+            >
+              {/* Top accent gradient border */}
+              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-brand-accent to-brand-accent2 opacity-60 group-hover:opacity-100 transition-opacity" style={{ animation: "borderGlow 3s ease-in-out infinite" }} />
+
+              <div className="text-[clamp(2rem,5vw,3.5rem)] font-extrabold tracking-[-0.03em] text-brand-accent">
+                {item.value}
+              </div>
+              <div className="mt-1 text-sm text-brand-muted">{item.label}</div>
+              {item.source && (
+                <span className="mt-3 inline-block text-[10px] text-brand-muted/60 border border-brand-border rounded-full px-2 py-0.5">
+                  {item.source}
+                </span>
+              )}
             </div>
-            <div className="mt-1 text-sm text-brand-muted">{item.label}</div>
-            {item.source && (
-              <span className="mt-3 inline-block text-[10px] text-brand-muted/60 border border-brand-border rounded-full px-2 py-0.5">
-                {item.source}
-              </span>
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </section>
   );
