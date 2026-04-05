@@ -526,6 +526,11 @@ VISUAL INTENT: {section.visual_intent or "Clean, bold, evidence-backed"}
             dirs_exist_ok=True,
             ignore=shutil.ignore_patterns("node_modules", ".parcel-cache", "dist"),
         )
+        # Symlink node_modules from the template (pre-installed in Docker)
+        template_nm = template_dir / "node_modules"
+        if template_nm.is_dir():
+            workspace_nm = workspace / "node_modules"
+            workspace_nm.symlink_to(template_nm)
         return workspace
 
     def _inject_brand_dna(self, workspace: Path, brand_dna: dict | None) -> None:

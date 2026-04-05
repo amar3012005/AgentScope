@@ -1060,8 +1060,7 @@ class WorkflowEngine:
             if blocked is not None:
                 return blocked
 
-        content_brief = await self._run_content_director(ctx, events, publish, evidence=evidence)
-        artifact_result = await self._generate_artifact(ctx, events, publish, evidence=evidence, content_brief=content_brief)
+        artifact_result = await self._run_react_pipeline(ctx, events, publish, evidence=evidence)
         if not artifact_result.sections_emitted:
             await self._emit_artifact_sections(ctx, events, publish, artifact_result.artifact, parallel=False)
         governance = await self._review_artifact(ctx, events, publish, artifact=artifact_result.artifact, evidence=evidence)
@@ -1149,8 +1148,7 @@ class WorkflowEngine:
             if blocked is not None:
                 return blocked
 
-        content_brief = await self._run_content_director(ctx, events, publish, evidence=merged_evidence)
-        artifact_result = await self._generate_artifact(ctx, events, publish, evidence=merged_evidence, content_brief=content_brief)
+        artifact_result = await self._run_react_pipeline(ctx, events, publish, evidence=merged_evidence)
         if not artifact_result.sections_emitted:
             await self._emit_artifact_sections(ctx, events, publish, artifact_result.artifact, parallel=True)
         governance = await self._review_artifact(ctx, events, publish, artifact=artifact_result.artifact, evidence=merged_evidence)
@@ -1199,8 +1197,7 @@ class WorkflowEngine:
             if blocked is not None:
                 return blocked
 
-        content_brief = await self._run_content_director(ctx, events, publish, evidence=merged_evidence)
-        artifact_result = await self._generate_artifact(ctx, events, publish, evidence=merged_evidence, content_brief=content_brief)
+        artifact_result = await self._run_react_pipeline(ctx, events, publish, evidence=merged_evidence)
         if not artifact_result.sections_emitted:
             await self._emit_artifact_sections(ctx, events, publish, artifact_result.artifact, parallel=True)
         governance = await self._review_artifact(ctx, events, publish, artifact=artifact_result.artifact, evidence=merged_evidence)
@@ -1267,6 +1264,126 @@ class WorkflowEngine:
                 await self._fail_branch(ctx, branch_id=branch_id, error_message=str(exc))
                 return result
 
+    async def _run_react_pipeline(
+        self,
+        ctx: WorkflowRunContext,
+        events: EventFactory,
+        publish: EventPublisher,
+        *,
+        evidence: EvidencePack,
+    ) -> "_ArtifactOutcome":
+        """New React+shadcn pipeline: plan_slides -> generate_from_slides."""
+        # 1. Load Brand DNA
+        brand_dna = await self._load_brand_dna(ctx.request.tenant_id)
+
+        # 2. Content Director: plan_slides
+        node_id = "content_director"
+        await self._set_branch(
+            ctx,
+            branch_id=node_id,
+            agent_name="content_director",
+            branch_kind="content_director",
+            status="running",
+            current_phase="content_director",
+            input_json={
+                "artifact_family": ctx.plan.artifact_family.value,
+                "pipeline": "react_slides",
+            },
+        )
+        await publish(
+            events.build(
+                "content_director_started",
+                agent_name="content_director",
+                phase="content_director",
+                data={"artifact_family": ctx.plan.artifact_family.value, "node_id": node_id, "pipeline": "react_slides"},
+            )
+        )
+        self.registry.mark_agent_busy("content_director", "content_director")
+        slides_data = await self.registry.content_director.plan_slides(
+            user_query=ctx.request.user_query,
+            artifact_family=ctx.plan.artifact_family.value,
+            evidence_pack=evidence,
+            hitl_answers=ctx.resume_answers,
+            brand_dna=brand_dna,
+            tenant_id=ctx.request.tenant_id,
+        )
+        slides_dict = slides_data.model_dump()
+        await self._update_workflow_snapshot(
+            ctx.repo,
+            ctx.request.thread_id,
+            run_id=ctx.run_id,
+            current_node="content_director",
+            current_phase="content_director",
+            current_agent="content_director",
+            latest_event="content_director_completed",
+            content_director_output_json=json.dumps(slides_dict, default=str),
+            last_completed_node="content_director",
+        )
+        workflow_state = await self.state_store.get_workflow_state(ctx.request.thread_id)
+        if workflow_state is not None:
+            workflow_state.current_node = "content_director"
+            workflow_state.current_phase = "content_director"
+            workflow_state.current_agent = "content_director"
+            workflow_state.content_director_output_json = json.dumps(slides_dict, default=str)
+            workflow_state.last_completed_node = "content_director"
+            workflow_state.updated_at = utc_now()
+            await self.state_store.set_workflow_state(workflow_state)
+        await publish(
+            events.build(
+                "content_director_completed",
+                agent_name="content_director",
+                phase="content_director",
+                data={"slides_data": slides_dict},
+            )
+        )
+        self.registry.mark_agent_ready("content_director", "idle")
+        await self._complete_branch(ctx, branch_id=node_id, output_json=slides_dict)
+
+        # 3. Vangogh: generate_from_slides (React bundle pipeline)
+        branch_id = "artifact"
+        await self._set_branch(
+            ctx,
+            branch_id=branch_id,
+            agent_name="vangogh",
+            branch_kind="artifact",
+            status="running",
+            current_phase="artifact",
+            input_json={"user_query": ctx.request.user_query, "pipeline": "react_bundle"},
+        )
+        agent_run = await ctx.agent_run_repo.create_run(
+            thread_id=ctx.request.thread_id,
+            tenant_id=ctx.request.tenant_id,
+            agent_name="vangogh",
+            agent_type=AgentType.vangogh.value,
+            branch_id=branch_id,
+            input_json={"user_query": ctx.request.user_query, "pipeline": "react_bundle"},
+        )
+        await publish(events.build("artifact_started", agent_name="vangogh", phase="artifact", data={"branch": branch_id, "pipeline": "react_bundle"}))
+        self.registry.mark_agent_busy("vangogh", "artifact")
+        self._maybe_set_log_sink(self.registry.vangogh, _make_agent_log_sink(events, publish, "vangogh", "artifact"))
+
+        artifact = await self.registry.vangogh.generate_from_slides(
+            slides_data=slides_dict,
+            user_query=ctx.request.user_query,
+            evidence=evidence,
+            brand_dna=brand_dna,
+            artifact_family=ctx.plan.artifact_family.value,
+            tenant_id=ctx.request.tenant_id,
+        )
+        self.registry.mark_agent_ready("vangogh", "idle")
+        await publish(
+            events.build(
+                "artifact_ready",
+                agent_name="vangogh",
+                phase="artifact",
+                data={"artifact_manifest": artifact.model_dump(exclude={"html", "css"}), "pipeline": "react_bundle"},
+            )
+        )
+        await ctx.agent_run_repo.mark_complete(agent_run.run_id, artifact.model_dump())
+        await self._complete_branch(ctx, branch_id=branch_id, output_json=artifact.model_dump())
+
+        return WorkflowEngine._ArtifactOutcome(artifact=artifact, sections_emitted=False)
+
     @dataclass
     class _ArtifactOutcome:
         artifact: VisualArtifact
@@ -1300,7 +1417,11 @@ class WorkflowEngine:
         self.registry.mark_agent_busy("vangogh", "artifact")
         self._maybe_set_log_sink(self.registry.vangogh, _make_agent_log_sink(events, publish, "vangogh", "artifact"))
 
+        _section_emitted_count = 0
+
         async def _on_section_ready(section: ArtifactSection) -> None:
+            nonlocal _section_emitted_count
+            _section_emitted_count += 1
             await self._section_branch(ctx, events, publish, section, emit_parallel_events=False)
 
         # Load Brand DNA for the tenant so Vangogh generates branded artifacts
@@ -1324,7 +1445,7 @@ class WorkflowEngine:
         )
         await ctx.agent_run_repo.mark_complete(agent_run.run_id, artifact.model_dump())
         await self._complete_branch(ctx, branch_id=branch_id, output_json=artifact.model_dump())
-        return WorkflowEngine._ArtifactOutcome(artifact=artifact, sections_emitted=True)
+        return WorkflowEngine._ArtifactOutcome(artifact=artifact, sections_emitted=_section_emitted_count > 0)
 
     async def _emit_artifact_sections(self, ctx: WorkflowRunContext, events: EventFactory, publish: EventPublisher, artifact: VisualArtifact, parallel: bool) -> None:
         if not artifact.sections:
