@@ -39,10 +39,13 @@ _PROMPTS_DIR = Path(__file__).parent / "prompts"
 # Limits
 _MAX_SUB_QUESTIONS = 4
 _MIN_SUB_QUESTIONS = 2
-_MAX_RECALL_RESULTS = 20
+_MAX_RECALL_RESULTS = 10
 _GRAPH_TRAVERSAL_DEPTH = 2
 _WEB_RESULTS_LIMIT = 5
 _MIN_FINDING_LENGTH = 20
+# HIVE-MIND recall already ranks, scores, dedupes, and filters.
+# Don't over-fetch — trust the ranking pipeline. Injection_text has the rich content.
+_RECALL_LIMITS = {"quick": 5, "insight": 10, "panorama": 10}
 
 # Junk patterns — same rules as ContentDirectorAgent._is_usable_finding
 _JUNK_PREFIXES = ("%PDF",)
@@ -180,6 +183,27 @@ class BlaiqDeepResearchAgent:
         """Inject the live event sink for SSE streaming."""
         self._log_sink = sink
 
+    @staticmethod
+    def _recall_mode_for_query(query: str) -> str:
+        lowered = query.lower()
+        if any(token in lowered for token in (" mode:quick", " use quick", "quick recall", "quicksearch", "fast answer")):
+            return "quick"
+        if any(token in lowered for token in (" mode:panorama", " use panorama", "panorama recall")):
+            return "panorama"
+        if any(token in lowered for token in (" mode:insight", " use insight", "insight recall")):
+            return "insight"
+        if any(token in lowered for token in ("history", "timeline", "evolution", "over time", "journey", "historical")):
+            return "panorama"
+        if any(token in lowered for token in ("analyze", "analysis", "compare", "pattern", "insight", "decision", "strategy", "relationship", "connections")):
+            return "insight"
+        # Default to insight — richer context than quick, 2x more memories
+        return "insight"
+
+    @classmethod
+    def _recall_profile_for_query(cls, query: str) -> tuple[str, int]:
+        mode = cls._recall_mode_for_query(query)
+        return mode, _RECALL_LIMITS.get(mode, _MAX_RECALL_RESULTS)
+
     async def _log(
         self,
         message: str,
@@ -292,6 +316,163 @@ class BlaiqDeepResearchAgent:
         await self._log("Deep research complete", kind="status", detail={"confidence": pack.confidence})
         return pack
 
+    async def answer_question(
+        self,
+        query: str,
+        evidence: EvidencePack,
+        response_depth: str | None = None,
+    ) -> str:
+        """Generate a final user-facing answer from an existing evidence pack.
+
+        Uses the *vangogh* model role (Claude Sonnet) for synthesis because it
+        follows structured-output and length instructions far more reliably than
+        Gemini.  The system prompt leads with the hard length requirement so the
+        model commits to it before reading evidence.
+        """
+        await self._log("Synthesizing final answer from saved evidence.", kind="thought")
+
+        if not (evidence.memory_findings or evidence.web_findings or evidence.doc_findings):
+            return "I don't have enough evidence to answer that yet."
+
+        source_count = len(evidence.memory_findings) + len(evidence.web_findings) + len(evidence.doc_findings)
+        depth_value = (response_depth or "").strip()
+        depth_lower = depth_value.lower()
+        if "brief" in depth_lower:
+            depth_style = "brief"
+            min_words = 40
+        elif "technical" in depth_lower or "breakdown" in depth_lower:
+            depth_style = "technical"
+            min_words = 350
+        elif "detailed" in depth_lower:
+            depth_style = "detailed"
+            min_words = 400
+        else:
+            depth_style = "balanced"
+            min_words = 150
+
+        findings_text = self._format_findings_for_synthesis(
+            evidence.memory_findings,
+            evidence.web_findings,
+        )
+        if evidence.doc_findings:
+            findings_text = (
+                f"{findings_text}\n\n### Document Findings\n"
+                + "\n".join(f"- {f.title}: {f.summary}" for f in evidence.doc_findings[:10])
+            )
+
+        # ---- System prompt: length requirement FIRST, then rules ----
+        if depth_style in {"detailed", "technical"}:
+            length_block = (
+                f"HARD REQUIREMENT: Your answer MUST be at least {min_words} words. "
+                "Count carefully. Answers shorter than this will be rejected.\n\n"
+                "The user chose DETAILED mode — they want a COMPREHENSIVE, multi-section answer.\n"
+                "- Cover EVERY product, specification, and technical detail present in the evidence.\n"
+                "- Use markdown headers (##, ###) to organize by category or product family.\n"
+                "- Include specific model names, numbers, specs, features, and capabilities.\n"
+                "- A short paragraph is NOT acceptable. Write at least 5 paragraphs.\n"
+            )
+        elif depth_style == "brief":
+            length_block = "Write 1-2 concise paragraphs. Hit the key points only.\n"
+        else:
+            length_block = (
+                f"Write at least {min_words} words in 3-5 paragraphs covering the main findings.\n"
+            )
+
+        system_prompt = (
+            f"{length_block}\n"
+            "You are BLAIQ, a technical knowledge assistant.\n\n"
+            "Rules:\n"
+            "- Use ONLY the provided evidence — do not add facts from training data.\n"
+            "- Extract and list EVERY product name, model number, and spec from the evidence.\n"
+            "- Group findings by product family or category.\n"
+            "- Use markdown formatting: headers, bullet points, bold for product names.\n"
+            "- Do not add a citations/sources section.\n"
+        )
+
+        # ---- User prompt: question first, then evidence, then reminder ----
+        user_prompt = (
+            f"Question: {query}\n"
+            f"Response depth: {depth_style}\n\n"
+            f"Evidence ({source_count} sources):\n{findings_text}\n\n"
+            f"Now write the {depth_style} answer. "
+            f"Remember: you MUST write at least {min_words} words."
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        # Use vangogh role (Claude Sonnet) — follows length instructions reliably
+        synthesis_role = "vangogh"
+
+        try:
+            response = await self.resolver.acompletion(
+                synthesis_role,
+                messages,
+                max_tokens=8000 if depth_style in {"detailed", "technical"} else 2000,
+                temperature=0.25,
+            )
+            text = self.resolver.extract_text(response).strip()
+            word_count = len(text.split()) if text else 0
+            logger.info("Synthesis first attempt: %d words (min=%d, depth=%s, model_role=%s)",
+                        word_count, min_words, depth_style, synthesis_role)
+            await self._log(f"First synthesis: {word_count} words (target: {min_words}+).", kind="thought")
+
+            if text:
+                if depth_style in {"detailed", "technical"} and word_count < min_words:
+                    logger.warning(
+                        "Synthesis too short (%d < %d words), retrying with stronger prompt.",
+                        word_count, min_words,
+                    )
+                    retry_messages = [
+                        {
+                            "role": "system",
+                            "content": (
+                                f"ABSOLUTE REQUIREMENT: Write at least {min_words} words. "
+                                "Your previous answer was REJECTED for being too short.\n\n"
+                                "Regenerate with FAR more detail. You must:\n"
+                                f"- Write at least {min_words} words (aim for {min_words + 100}).\n"
+                                "- Use multi-paragraph structure with markdown headers.\n"
+                                "- Cover EVERY distinct finding from the evidence.\n"
+                                "- Group by product families/components with technical specifics.\n"
+                                "- Stay strictly grounded in provided evidence.\n"
+                                "- Do not add a sources/citations section."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Question: {query}\n"
+                                f"Depth: {depth_style}\n\n"
+                                f"Evidence ({source_count} sources):\n{findings_text}\n\n"
+                                f"Generate the detailed answer now. MINIMUM {min_words} words."
+                            ),
+                        },
+                    ]
+                    retry = await self.resolver.acompletion(
+                        synthesis_role,
+                        retry_messages,
+                        max_tokens=8000,
+                        temperature=0.3,
+                    )
+                    retry_text = self.resolver.extract_text(retry).strip()
+                    retry_wc = len(retry_text.split()) if retry_text else 0
+                    logger.info("Synthesis retry: %d words (min=%d)", retry_wc, min_words)
+                    if retry_text and retry_wc > word_count:
+                        text = retry_text
+                    else:
+                        logger.warning(
+                            "Retry did not improve length (%d vs %d). Using best attempt.",
+                            retry_wc, word_count,
+                        )
+                await self._log("Final answer synthesis completed.", kind="decision")
+                return text
+        except Exception as exc:
+            logger.warning("Deep research answer synthesis failed: %s", exc)
+
+        return evidence.summary or "; ".join(f.summary for f in evidence.memory_findings[:6])
+
     # ------------------------------------------------------------------
     # Phase 1: HIVE-MIND Deep Recall
     # ------------------------------------------------------------------
@@ -308,13 +489,21 @@ class BlaiqDeepResearchAgent:
         if not self.hivemind.enabled:
             return findings, sources, citations, synthesis
 
+        recall_mode, recall_limit = self._recall_profile_for_query(query)
+        await self._log(
+            f"Phase 1 recall profile selected: mode={recall_mode}, limit={recall_limit}.",
+            kind="decision",
+        )
+
         # Pass 1: Direct recall
         try:
             recall_result = await self.hivemind.recall(
-                query=query, limit=_MAX_RECALL_RESULTS, mode="insight",
+                query=query, limit=recall_limit, mode=recall_mode,
             )
             payload = self.hivemind._extract_tool_payload(recall_result) if isinstance(recall_result, dict) else recall_result
+            logger.info("Phase 1 recall payload keys: %s", list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__)
             memories = _normalize_memories(payload)
+            logger.info("Phase 1 normalized memories: %d", len(memories))
             for mem in memories:
                 f, s, c = self._memory_to_finding(mem)
                 if f is not None:
@@ -322,10 +511,15 @@ class BlaiqDeepResearchAgent:
                     sources.append(s)
                     citations.append(c)
 
-            # Check for injection text
+            # Parse injection text — this is where the REAL detailed content lives
+            # (product specs, technical details, full paragraphs). Memory titles are often
+            # just meta-descriptions like "The user is discussing..."
             injection = _normalize_injection_text(payload)
             if injection:
                 injection_findings = _injection_to_findings(injection)
+                # Cap injection findings — HIVE-MIND already ranked them, take top 15
+                injection_findings = injection_findings[:15]
+                logger.info("Phase 1 injection findings: %d (capped)", len(injection_findings))
                 findings.extend(injection_findings)
         except HivemindMCPError as exc:
             logger.warning("Phase 1 recall failed: %s", exc)
@@ -466,8 +660,9 @@ class BlaiqDeepResearchAgent:
         # Memory recall for sub-question
         if self.hivemind.enabled:
             try:
+                sub_mode, sub_limit = self._recall_profile_for_query(sub_question)
                 recall_result = await self.hivemind.recall(
-                    query=sub_question, limit=10, mode="insight",
+                    query=sub_question, limit=sub_limit, mode=sub_mode,
                 )
                 payload = (
                     self.hivemind._extract_tool_payload(recall_result)
@@ -480,6 +675,7 @@ class BlaiqDeepResearchAgent:
                         mem_findings.append(f)
                         mem_sources.append(s)
                         mem_citations.append(c)
+                # Skip injection text for sub-questions — Phase 1 already captured it
             except HivemindMCPError as exc:
                 logger.warning("Sub-question memory recall failed for '%s': %s", sub_question[:40], exc)
 
@@ -525,18 +721,30 @@ class BlaiqDeepResearchAgent:
             {
                 "role": "system",
                 "content": (
-                    "You are a research synthesizer. Combine the evidence into a clear, "
-                    "well-structured summary that directly answers the user's question. "
-                    "Cite sources by their IDs. Be concise but comprehensive."
+                    "You are a technical research synthesizer for enterprise knowledge.\n\n"
+                    "RULES:\n"
+                    "1. Extract and highlight SPECIFIC technical details: product names, model numbers, "
+                    "architecture components, API endpoints, frameworks, methodologies, metrics, and specifications.\n"
+                    "2. Cite sources using [memory:ID] format for every factual claim.\n"
+                    "3. Structure the summary with clear sections: Overview, Key Technical Details, "
+                    "Architecture/Methodology, Metrics/Results.\n"
+                    "4. Preserve exact names, numbers, and technical terms from the evidence — do NOT paraphrase technical details.\n"
+                    "5. If the evidence mentions company/product names, technologies, or specifications, "
+                    "list them explicitly — the user wants KEY INFORMATION, not vague summaries.\n"
+                    "6. Interpret any acronyms or terms based on the evidence context, NOT your training data."
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"Original question: {query}\n\n"
-                    f"AI Synthesis from memory: {ai_synthesis or 'None available'}\n\n"
-                    f"Evidence:\n{evidence_text}\n\n"
-                    "Provide a 2-5 paragraph research summary."
+                    f"=== EVIDENCE (read first) ===\n{evidence_text}\n\n"
+                    f"=== AI SYNTHESIS FROM MEMORY ===\n{ai_synthesis or 'None available'}\n\n"
+                    f"=== QUESTION ===\n{query}\n\n"
+                    "Generate a structured research summary (3-6 paragraphs) that:\n"
+                    "- Leads with the most important technical finding\n"
+                    "- Lists specific product names, technologies, specs, and metrics\n"
+                    "- Attributes every claim to a source [memory:ID]\n"
+                    "- Ends with key takeaways or recommended next steps"
                 ),
             },
         ]
@@ -566,9 +774,23 @@ class BlaiqDeepResearchAgent:
     ) -> tuple[EvidenceFinding | None, SourceRecord, Citation]:
         """Convert a HIVE-MIND memory dict into finding/source/citation."""
         memory_id = str(mem.get("memory_id", mem.get("id", "")))
-        title = str(mem.get("title", "Untitled memory"))
+        raw_title = str(mem.get("title", "Untitled memory"))
         content = str(mem.get("content", mem.get("text", mem.get("summary", ""))))
         score = float(mem.get("score", mem.get("relevance", 0.5)))
+
+        # HIVE-MIND titles are often meta-descriptions ("The user is discussing...")
+        # Use the first meaningful sentence from content as the display title instead
+        title = raw_title
+        if content and (
+            raw_title.startswith("The user") or
+            raw_title.startswith("Fact:") or
+            "no personal facts" in raw_title.lower() or
+            len(raw_title) < 15
+        ):
+            # Extract first sentence of content as title
+            first_sentence = content.split(".")[0].strip()
+            if len(first_sentence) > 15:
+                title = first_sentence[:120] + ("..." if len(first_sentence) > 120 else "")
 
         source = SourceRecord(
             source_id=memory_id,
@@ -634,24 +856,75 @@ class BlaiqDeepResearchAgent:
         """Build a brief text summary from findings for the decomposition prompt."""
         if not findings:
             return "No findings from initial recall."
-        parts = [f"- {f.title}: {f.summary[:120]}" for f in findings[:8]]
+        parts = [f"- {f.title}: {f.summary[:200]}" for f in findings[:15]]
         return "\n".join(parts)
 
     @staticmethod
     def _format_findings_for_synthesis(
         memory_findings: list[EvidenceFinding],
         web_findings: list[EvidenceFinding],
+        *,
+        max_memory: int = 30,
+        max_web: int = 10,
+        max_summary_chars: int = 600,
     ) -> str:
-        """Format findings as text for the synthesis prompt."""
+        """Format findings as text for the synthesis prompt.
+
+        Applies smart filtering to maximise signal-to-noise:
+        1. Skips meta-description findings ("The user is discussing...")
+        2. Skips conversation log artefacts ("Assistant: I don't have")
+        3. Deduplicates title == summary (shows text only once)
+        4. Sorts by summary length descending (content-rich findings first)
+        5. Truncates long findings to *max_summary_chars*
+        """
+        import re
+
+        _NOISE_PATTERNS: list[re.Pattern[str]] = [
+            re.compile(r"(?i)^the user is discussing"),
+            re.compile(r"(?i)^the user (asked|mentioned|said|wants|is asking)"),
+            re.compile(r"(?i)^amar (is|was) (asking|discussing|talking)"),
+            re.compile(r"(?i)assistant:\s*i don'?t have"),
+            re.compile(r"(?i)i don'?t have that in my memory"),
+            re.compile(r"(?i)^chat:\s"),
+        ]
+
+        def _is_noise(text: str) -> bool:
+            return any(p.search(text) for p in _NOISE_PATTERNS)
+
+        def _clean_findings(raw: list[EvidenceFinding], limit: int) -> list[EvidenceFinding]:
+            filtered: list[EvidenceFinding] = []
+            for f in raw:
+                summary = (f.summary or "").strip()
+                if not summary or len(summary) < 15:
+                    continue
+                if _is_noise(summary):
+                    continue
+                if _is_noise(f.title or ""):
+                    continue
+                filtered.append(f)
+            # Sort by summary length descending — content-rich findings first
+            filtered.sort(key=lambda x: len(x.summary or ""), reverse=True)
+            return filtered[:limit]
+
+        def _format_one(f: EvidenceFinding) -> str:
+            title = (f.title or "").strip()
+            summary = (f.summary or "").strip()[:max_summary_chars]
+            # If title duplicates or is contained in summary, skip the title
+            if not title or title == summary or title in summary:
+                return f"[{f.finding_id}] {summary}"
+            return f"[{f.finding_id}] {title}: {summary}"
+
         sections: list[str] = []
-        if memory_findings:
+        clean_memory = _clean_findings(memory_findings or [], max_memory)
+        if clean_memory:
             sections.append("### Memory Findings")
-            for f in memory_findings[:10]:
-                sections.append(f"[{f.finding_id}] {f.title}: {f.summary[:300]}")
-        if web_findings:
+            for f in clean_memory:
+                sections.append(_format_one(f))
+        clean_web = _clean_findings(web_findings or [], max_web)
+        if clean_web:
             sections.append("### Web Findings")
-            for f in web_findings[:5]:
-                sections.append(f"[{f.finding_id}] {f.title}: {f.summary[:300]}")
+            for f in clean_web:
+                sections.append(_format_one(f))
         return "\n".join(sections) if sections else "No evidence available."
 
     @staticmethod
