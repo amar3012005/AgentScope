@@ -1,0 +1,62 @@
+{
+  "title": "BLAIQ Artifact",
+  "brand": "default",
+  "slides": [
+    {
+      "type": "hero",
+      "tag": "BLAIQ",
+      "headline": "Your Headline Here",
+      "subheadline": "Your subheadline with key insight.",
+      "body": "A paragraph of evidence-backed content."
+    },
+    {
+      "type": "data_grid",
+      "title": "Key Metrics",
+      "subtitle": "Performance indicators at a glance.",
+      "items": [
+        { "value": "98%", "label": "Accuracy Rate", "source": "Internal Audit Q1 2026" },
+        { "value": "3.2x", "label": "ROI Improvement", "source": "McKinsey 2025" },
+        { "value": "47ms", "label": "Avg Response Time", "source": "APM Dashboard" }
+      ]
+    },
+    {
+      "type": "bullets",
+      "title": "Strategic Priorities",
+      "subtitle": "Focus areas for the next quarter.",
+      "bullets": [
+        "Expand GraphRAG pipeline to support multi-modal retrieval",
+        "Reduce end-to-end latency below 100ms at P95",
+        "Launch self-serve brand onboarding for enterprise clients"
+      ]
+    },
+    {
+      "type": "evidence",
+      "title": "Research Findings",
+      "items": [
+        {
+          "finding": "Organizations using RAG-augmented workflows report 40% faster decision cycles.",
+          "source": "Gartner 2025 AI Report",
+          "confidence": 0.92
+        },
+        {
+          "finding": "Brand-consistent content generation increases engagement by 2.7x compared to generic outputs.",
+          "source": "HBR Digital Strategy Study",
+          "confidence": 0.87
+        }
+      ]
+    },
+    {
+      "type": "quote",
+      "quote": "The future of enterprise AI is not about replacing human judgment, but amplifying it with evidence.",
+      "attribution": "Dr. Sarah Chen",
+      "role": "Chief AI Officer, Meridian Labs"
+    },
+    {
+      "type": "cta",
+      "headline": "Ready to Transform Your Workflow?",
+      "body": "See how BLAIQ can accelerate your team's output with AI-powered artifact generation.",
+      "cta_text": "Get Started",
+      "cta_url": "#"
+    }
+  ]
+}
