@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-bg: #050505;
+  --brand-surface: #111111;
+  --brand-border: #2A2A2A;
+  --brand-primary: #F5F5F1;
+  --brand-accent: #6c63ff;
+  --brand-accent2: #ff6584;
+  --brand-muted: #A1A19B;
+  --brand-ink: #E8E7E2;
+  --brand-font-heading: 'Cormorant Garamond', serif;
+  --brand-font-body: 'Manrope', sans-serif;
+}
+
+body {
+  margin: 0;
+  font-family: var(--brand-font-body);
+  background: var(--brand-bg);
+  color: var(--brand-primary);
+  -webkit-font-smoothing: antialiased;
+}
