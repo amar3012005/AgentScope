@@ -54,7 +54,7 @@ class ContentBrief(BaseModel):
 
 class SlideData(BaseModel):
     """Single slide in a slides.json structure, maps to a React slide component."""
-    type: str  # "hero", "data_grid", "bullets", "evidence", "cta", "quote"
+    type: str  # "hero", "data_grid", "bullets", "evidence", "cta", "quote", "metrics_dashboard", "analysis_chart", "data_table", "insight_cards"
     # Hero fields
     tag: str | None = None
     headline: str | None = None
@@ -73,6 +73,19 @@ class SlideData(BaseModel):
     quote: str | None = None
     attribution: str | None = None
     role: str | None = None
+    # MetricsDashboard fields
+    metrics: list[dict] = Field(default_factory=list)  # [{value, label, trend, trendValue, comparison}]
+    # AnalysisChart fields
+    chart_type: str | None = None  # "line", "bar", "area"
+    chart_data: list[dict] = Field(default_factory=list)  # [{label, value, value2, label2}]
+    chart_title: str | None = None
+    y_label: str | None = None
+    # DataTable fields
+    columns: list[dict] = Field(default_factory=list)  # [{key, header, align, format, highlight}]
+    table_data: list[dict] = Field(default_factory=list)  # [{columnKey: value}]
+    highlight_column: str | None = None
+    # InsightCards fields
+    insights: list[dict] = Field(default_factory=list)  # [{title, finding, verdict, verdictLabel, metrics, recommendation}]
 
 
 class SlidesData(BaseModel):
@@ -256,6 +269,81 @@ class ContentDirectorAgent(BaseAgent):
             lines.append(f"{i}. [{f.title}]: {f.summary}")
         return "\n".join(lines)
 
+    def _build_enriched_evidence_context(self, evidence_pack: EvidencePack | None) -> str:
+        """Build enriched context from research agent's handoff.
+
+        Includes:
+        - Content brief (key message, pillars, audience angles)
+        - Structured insights (quotable claims, metrics)
+        - Content hooks (narrative angles)
+        - Risk flags (for careful framing)
+        """
+        if not evidence_pack:
+            return ""
+
+        sections = []
+
+        # Content brief from research agent
+        if evidence_pack.content_brief:
+            brief = evidence_pack.content_brief
+            sections.append("=== RESEARCH HANDOFF BRIEF ===")
+            sections.append(f"**Key Message**: {brief.key_message}")
+            if brief.supporting_pillars:
+                sections.append("**Supporting Pillars**:")
+                for pillar in brief.supporting_pillars[:4]:
+                    sections.append(f"  - {pillar}")
+            if brief.audience_angles:
+                sections.append("**Audience Angles**:")
+                for audience, angle in brief.audience_angles.items():
+                    sections.append(f"  - {audience}: {angle}")
+            if brief.recommended_structure:
+                sections.append(f"**Recommended Structure**: {' → '.join(brief.recommended_structure)}")
+            if brief.tone_guidance:
+                sections.append(f"**Tone Guidance**: {brief.tone_guidance}")
+            if brief.must_include_claims:
+                sections.append("**Must Include Claims**:")
+                for claim in brief.must_include_claims[:4]:
+                    sections.append(f"  - {claim}")
+            if brief.avoid_claims:
+                sections.append("**Claims to Qualify/Avoid**:")
+                for claim in brief.avoid_claims[:4]:
+                    sections.append(f"  - {claim}")
+            sections.append("")
+
+        # Structured insights
+        if evidence_pack.structured_insights:
+            sections.append("=== STRUCTURED INSIGHTS ===")
+            quotable = [i for i in evidence_pack.structured_insights if i.quotable]
+            metrics = [i for i in evidence_pack.structured_insights if i.insight_type == "metric"]
+
+            if quotable:
+                sections.append("**Quotable Claims**:")
+                for insight in quotable[:5]:
+                    sections.append(f"  - \"{insight.insight}\" [{', '.join(insight.source_refs)}]")
+            if metrics:
+                sections.append("**Key Metrics**:")
+                for insight in metrics[:5]:
+                    sections.append(f"  - {insight.insight} [{', '.join(insight.source_refs)}]")
+            sections.append("")
+
+        # Content hooks
+        if evidence_pack.content_hooks:
+            sections.append("=== NARRATIVE HOOKS ===")
+            for hook in evidence_pack.content_hooks[:4]:
+                sections.append(f"  - [{hook.hook_type}] {hook.description}")
+            sections.append("")
+
+        # Risk flags
+        if evidence_pack.risk_flags:
+            sections.append("=== RISK FLAGS ===")
+            for flag in evidence_pack.risk_flags:
+                sections.append(f"  - [{flag.severity.upper()}] {flag.risk_type}: {flag.description}")
+                if flag.mitigation:
+                    sections.append(f"    → Mitigation: {flag.mitigation}")
+            sections.append("")
+
+        return "\n".join(sections) if sections else ""
+
     def _fallback_brief(
         self,
         *,
@@ -352,11 +440,11 @@ class ContentDirectorAgent(BaseAgent):
         hitl_answers: dict[str, str] | None = None,
         evidence_pack: EvidencePack | None = None,
     ) -> ContentBrief:
-        await self.log(
-            f"Planning content distribution for {artifact_spec.family.value}.",
-            kind="thought",
-            detail={"family": artifact_spec.family.value, "requirement_count": len(requirements.items)},
-        )
+        # await self.log(
+        #     f"Planning content distribution for {artifact_spec.family.value}.",
+        #     kind="thought",
+        #     detail={"family": artifact_spec.family.value, "requirement_count": len(requirements.items)},
+        # )
 
         evidence_text = self._format_evidence_for_prompt(evidence_pack)
         hitl_text = (
@@ -365,18 +453,34 @@ class ContentDirectorAgent(BaseAgent):
         )
         sections_list = ", ".join(artifact_spec.required_sections or ["Hero", "Evidence"])
 
+        evidence_summary = ""
+        if evidence_pack and evidence_pack.summary and len(evidence_pack.summary) > 30:
+            evidence_summary = evidence_pack.summary
+
+        # Build enriched evidence context from research agent's handoff
+        enriched_context = self._build_enriched_evidence_context(evidence_pack)
+
         prompt = f"""You are the content director writing the complete copy for a {artifact_spec.family.value}.
 
+IMPORTANT — READ THE EVIDENCE FIRST. The evidence defines what the request is about.
+Any acronyms or terms in the request MUST be interpreted based on the evidence, NOT your training data.
+
+=== EVIDENCE (read this FIRST) ===
+{evidence_text}
+
+=== EVIDENCE SYNTHESIS ===
+{evidence_summary or "See individual findings above."}
+
+{enriched_context}
+
+=== USER ANSWERS ===
+{hitl_text}
+
+=== REQUEST ===
 USER REQUEST: {user_query}
 AUDIENCE: {artifact_spec.audience or "general"}
 TONE: {artifact_spec.tone or "professional"}
 REQUIRED SECTIONS: {sections_list}
-
-USER ANSWERS (from clarification):
-{hitl_text}
-
-TOP EVIDENCE FINDINGS (extract specific facts, numbers, names, quotes from these):
-{evidence_text}
 
 ---
 TASK: Generate a ContentBrief JSON with FULL COPY for every section.
@@ -472,11 +576,11 @@ Return ONLY valid JSON:
         if not brief.cta and hitl_answers:
             brief.cta = hitl_answers.get("cta", "")
 
-        await self.log(
-            f"Content brief ready: {len(brief.section_plan)} sections planned.",
-            kind="decision",
-            detail={"template_name": brief.template_name, "section_count": len(brief.section_plan)},
-        )
+        # await self.log(
+        #     f"Content brief ready: {len(brief.section_plan)} sections planned.",
+        #     kind="decision",
+        #     detail={"template_name": brief.template_name, "section_count": len(brief.section_plan)},
+        # )
         return brief
 
     # ------------------------------------------------------------------
@@ -499,11 +603,11 @@ Return ONLY valid JSON:
         The skill system provides per-artifact-type instructions that guide
         the LLM to produce slides.json structures mapping to React components.
         """
-        await self.log(
-            f"Planning slides for artifact family '{artifact_family}'.",
-            kind="thought",
-            detail={"artifact_family": artifact_family, "tenant_id": tenant_id},
-        )
+        # await self.log(
+        #     f"Planning slides for artifact family '{artifact_family}'.",
+        #     kind="thought",
+        #     detail={"artifact_family": artifact_family, "tenant_id": tenant_id},
+        # )
 
         # 1. Load skill and brand context
         skill_text = load_skill(artifact_family, "content")
@@ -521,15 +625,67 @@ Return ONLY valid JSON:
         # 4. Build messages with skill in SYSTEM, evidence+query in USER
         system_message = f"{skill_text}\n\n{brand_context}"
 
-        user_message = f"""Generate slides.json for this request:
+        # Build a context summary from evidence to anchor the LLM BEFORE the query
+        evidence_summary = ""
+        if evidence_pack and evidence_pack.summary and len(evidence_pack.summary) > 30:
+            evidence_summary = evidence_pack.summary
+
+        user_message = f"""IMPORTANT — READ THE EVIDENCE FIRST BEFORE INTERPRETING THE REQUEST.
+
+=== EVIDENCE FROM ENTERPRISE MEMORY (this defines what the request is about) ===
+{evidence_text}
+
+=== EVIDENCE SYNTHESIS ===
+{evidence_summary or "See individual findings above."}
+
+=== USER ANSWERS ===
+{hitl_text}
+
+=== NOW GENERATE slides.json FOR THIS REQUEST ===
 REQUEST: {user_query}
 ARTIFACT TYPE: {artifact_family}
 
-USER ANSWERS:
-{hitl_text}
+CRITICAL: The meaning of any acronyms, names, or terms in the request MUST be
+interpreted based on the evidence above, NOT from your training data.
+For example, if the evidence says "CSI" means "Cognitive Swarm Intelligence",
+then the artifact MUST be about Cognitive Swarm Intelligence — not any other
+meaning of the acronym.
 
-EVIDENCE FINDINGS (use ONLY these for content):
-{evidence_text}
+=== AVAILABLE SLIDE TYPES ===
+You have access to these premium slide types for creating high-quality data visualizations:
+
+1. **metrics_dashboard** — For KPI cards with values, labels, trends, and comparisons
+   - Use when: Displaying key metrics, performance indicators, or statistics
+   - Fields: metrics=[{{value, label, trend, trendValue, comparison}}]
+   - Example: Revenue dashboard with 4-6 metric cards showing values and trends
+
+2. **analysis_chart** — For line, bar, or area charts with data points
+   - Use when: Showing trends over time, comparisons, or distributions
+   - Fields: chart_type="line"|"bar"|"area", chart_data=[{{label, value, value2, label2}}]
+   - Example: Monthly performance trend with primary and secondary metrics
+
+3. **data_table** — For structured tabular data with formatted columns
+   - Use when: Presenting detailed comparisons, breakdowns, or multi-metric analysis
+   - Fields: columns=[{{key, header, align, format}}], table_data=[{{columnKey: value}}]
+   - Example: Funnel stage breakdown with spend, conversions, CPA, ROAS columns
+
+4. **insight_cards** — For insight cards with verdicts and recommendations
+   - Use when: Presenting analysis findings with clear verdicts (positive/negative/warning)
+   - Fields: insights=[{{title, finding, verdict, verdictLabel, metrics, recommendation}}]
+   - Example: CPA analysis with "Expected", "Over-invested", "Efficient" verdicts
+
+5. **hero** — Opening slide with headline and subheadline
+6. **data_grid** — Grid of stat cards (simpler than metrics_dashboard)
+7. **bullets** — Bullet point lists
+8. **evidence** — Evidence blocks with citations
+9. **cta** — Call-to-action slide
+10. **quote** — Testimonial or quote slide
+
+=== SLIDE TYPE SELECTION GUIDANCE ===
+- For **reports and analysis**: Use metrics_dashboard, analysis_chart, data_table, insight_cards
+- For **pitch decks**: Use hero, data_grid, bullets, evidence, cta
+- For **finance analysis**: Use data_table, insight_cards, analysis_chart, metrics_dashboard
+- Always match the slide type to the content: numbers → metrics_dashboard, trends → analysis_chart, comparisons → data_table, findings → insight_cards
 
 Return ONLY valid JSON matching the SlidesData schema:
 {{
@@ -577,11 +733,11 @@ Return ONLY valid JSON matching the SlidesData schema:
                 tenant_id=tenant_id,
             )
 
-        await self.log(
-            f"Slides plan ready: {len(slides.slides)} slides generated.",
-            kind="decision",
-            detail={"slide_count": len(slides.slides), "artifact_family": artifact_family},
-        )
+        # await self.log(
+        #     f"Slides plan ready: {len(slides.slides)} slides generated.",
+        #     kind="decision",
+        #     detail={"slide_count": len(slides.slides), "artifact_family": artifact_family},
+        # )
         return slides
 
     def _fallback_slides(
