@@ -7,11 +7,12 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agentscope_blaiq.contracts.artifact import ArtifactSection, VisualArtifact
+from agentscope_blaiq.contracts.artifact import ArtifactSection, TextArtifact, VisualArtifact
 from agentscope_blaiq.contracts.events import StreamEvent
 from agentscope_blaiq.contracts.evidence import EvidencePack, EvidenceFinding, SourceRecord, Citation
 from agentscope_blaiq.agents.clarification import ClarificationPrompt
@@ -24,11 +25,30 @@ from agentscope_blaiq.persistence.repositories import (
     EvidenceRepository,
     WorkflowRepository,
 )
+from agentscope_blaiq.agents.skills import load_brand_voice
+from agentscope_blaiq.contracts.workflow import TEXT_ARTIFACT_FAMILIES as TEXT_FAMILIES
+from agentscope_blaiq.runtime.config import settings
 from agentscope_blaiq.runtime.registry import AgentRegistry
 from agentscope_blaiq.tools.artifacts import persist_artifact_files
+from agentscope_blaiq.workflows.context_chain import format_prior_context
 
 EventPublisher = Callable[[StreamEvent], Awaitable[StreamEvent]]
 logger = logging.getLogger("agentscope_blaiq.workflow")
+
+
+def _parse_hivemind_user_id(rpc_url: str | None) -> str | None:
+    if not rpc_url:
+        return None
+    try:
+        path = urlparse(rpc_url).path.strip("/")
+        parts = path.split("/")
+        if "servers" in parts:
+            idx = parts.index("servers")
+            if idx + 1 < len(parts):
+                return parts[idx + 1]
+    except Exception:
+        return None
+    return None
 
 
 def _make_agent_log_sink(events: "EventFactory", publish: EventPublisher, agent_name: str, phase: str):
@@ -72,6 +92,8 @@ def _collect_missing_requirement_prompts(plan: WorkflowPlan, *, stage: Requireme
     return prompts
 
 
+
+
 @dataclass
 class BranchResult:
     branch_id: str
@@ -86,6 +108,7 @@ class WorkflowExecutionResult:
     artifact: VisualArtifact | None = None
     governance_report: dict[str, Any] | None = None
     final_answer: str | None = None
+    final_answer_display: str | None = None
 
 
 @dataclass
@@ -107,10 +130,15 @@ class WorkflowRunContext:
     is_resume: bool = False
     resume_cursor: str | None = None
     last_completed_node: str | None = None
+    prior_turns: dict[str, Any] | None = None
 
     @property
     def resume_from_post_research_hitl(self) -> bool:
-        return self.is_resume and self.resume_cursor == "hitl_evidence" and self.last_completed_node == "research"
+        return (
+            self.is_resume
+            and self.resume_cursor in {"hitl_evidence", "hitl_depth"}
+            and self.last_completed_node == "research"
+        )
 
 
 class EventFactory:
@@ -152,6 +180,100 @@ class WorkflowEngine:
         self.registry = registry
         self.state_store = state_store or RedisStateStore()
         self.session_factory = session_factory or get_session_local()
+        self._cancellation_requests: set[str] = set()  # Track cancelled thread_ids
+
+    async def cancel(self, thread_id: str) -> None:
+        """Request cancellation of a running workflow."""
+        self._cancellation_requests.add(thread_id)
+        logger.info("Cancellation requested for thread %s", thread_id)
+
+    def _is_cancelled(self, thread_id: str) -> bool:
+        """Check if workflow cancellation was requested."""
+        return thread_id in self._cancellation_requests
+
+    def _clear_cancellation(self, thread_id: str) -> None:
+        """Clear cancellation flag after workflow completes."""
+        self._cancellation_requests.discard(thread_id)
+
+    def _resolve_enterprise_user_id(self) -> str | None:
+        if settings.hivemind_enterprise_user_id:
+            return settings.hivemind_enterprise_user_id
+        rpc_url = getattr(getattr(self.registry, "hivemind", None), "rpc_url", None)
+        return _parse_hivemind_user_id(rpc_url)
+
+    async def _write_enterprise_user_turn(self, request: SubmitWorkflowRequest) -> tuple[int | None, str | None]:
+        hivemind = getattr(self.registry, "hivemind", None)
+        if not hivemind or not getattr(hivemind, "enterprise_chat_enabled", False):
+            return None, request.memory_chain_id
+        if not request.session_id or not request.user_query:
+            return None, request.memory_chain_id
+
+        user_id = self._resolve_enterprise_user_id()
+        if not user_id:
+            logger.warning("Skipping enterprise user turn write: no user_id available")
+            return None, request.memory_chain_id
+
+        enterprise_state = (request.metadata or {}).get("enterprise_chat", {}) if isinstance(request.metadata, dict) else {}
+        is_new_chat = not bool(request.memory_chain_id)
+        turn_number = None if is_new_chat else enterprise_state.get("next_turn_number") or 2
+
+        result = await hivemind.save_enterprise_chat_turn(
+            sid=request.session_id,
+            turn="user",
+            content=request.user_query,
+            is_new_chat=is_new_chat,
+            turn_number=turn_number,
+            idempotency_key=f"{request.session_id}-user-{turn_number or 1}",
+            user_id=user_id,
+            metadata={"thread_id": request.thread_id, "tenant_id": request.tenant_id},
+        )
+        current_turn_number = result.turn_number or turn_number or 1
+        request.memory_chain_id = result.turn_memory_id or request.memory_chain_id
+        request.metadata = {
+            **(request.metadata or {}),
+            "enterprise_chat": {
+                "turn_number": current_turn_number,
+                "next_turn_number": current_turn_number + 1,
+                "last_turn_memory_id": result.turn_memory_id,
+                "user_write_status": result.status,
+            },
+        }
+        return current_turn_number, request.memory_chain_id
+
+    async def _write_enterprise_agent_turn(self, request: SubmitWorkflowRequest, final_answer: str) -> str | None:
+        hivemind = getattr(self.registry, "hivemind", None)
+        if not hivemind or not getattr(hivemind, "enterprise_chat_enabled", False):
+            return request.memory_chain_id
+        if not request.session_id or not final_answer:
+            return request.memory_chain_id
+
+        user_id = self._resolve_enterprise_user_id()
+        if not user_id:
+            logger.warning("Skipping enterprise agent turn write: no user_id available")
+            return request.memory_chain_id
+
+        enterprise_state = (request.metadata or {}).get("enterprise_chat", {}) if isinstance(request.metadata, dict) else {}
+        turn_number = enterprise_state.get("turn_number") or 1
+        result = await hivemind.save_enterprise_chat_turn(
+            sid=request.session_id,
+            turn="agent",
+            content=final_answer,
+            is_new_chat=False,
+            turn_number=turn_number,
+            idempotency_key=f"{request.session_id}-agent-{turn_number}",
+            user_id=user_id,
+            metadata={"thread_id": request.thread_id, "tenant_id": request.tenant_id},
+        )
+        request.memory_chain_id = result.turn_memory_id or request.memory_chain_id
+        request.metadata = {
+            **(request.metadata or {}),
+            "enterprise_chat": {
+                **enterprise_state,
+                "last_turn_memory_id": result.turn_memory_id,
+                "agent_write_status": result.status,
+            },
+        }
+        return request.memory_chain_id
 
     @staticmethod
     async def _load_brand_dna(tenant_id: str) -> dict[str, Any] | None:
@@ -164,6 +286,11 @@ class WorkflowEngine:
             return json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             return None
+
+    @staticmethod
+    def _load_brand_voice_text(tenant_id: str) -> str:
+        """Load brand voice markdown for a tenant."""
+        return load_brand_voice(tenant_id)
 
     async def run(self, session: AsyncSession, request: SubmitWorkflowRequest):
         if isinstance(session, AsyncSession):
@@ -258,6 +385,14 @@ class WorkflowEngine:
 
         if not is_resume:
             await repo.create_workflow(request, run_id=run_id, workflow_plan_json=None)
+            try:
+                user_turn_number, updated_memory_chain_id = await self._write_enterprise_user_turn(request)
+                if updated_memory_chain_id:
+                    request.memory_chain_id = updated_memory_chain_id
+                if user_turn_number is not None:
+                    logger.info("Saved enterprise user turn sid=%s turn_number=%s", request.session_id, user_turn_number)
+            except Exception as exc:
+                logger.warning("Failed to save enterprise user turn: %s", exc)
             await self.state_store.set_workflow_state(
                 WorkflowRedisState(
                     thread_id=request.thread_id,
@@ -273,6 +408,7 @@ class WorkflowEngine:
                     analysis_objective=request.analysis_objective,
                     analysis_horizon=request.analysis_horizon,
                     analysis_benchmark=request.analysis_benchmark,
+                    memory_chain_id=request.memory_chain_id,
                     workflow_plan_json=None,
                     status=WorkflowStatus.queued,
                     current_node="planning",
@@ -280,6 +416,35 @@ class WorkflowEngine:
                     current_agent="strategist",
                 )
             )
+
+            # Load prior conversation chain from HIVE-MIND
+            if request.memory_chain_id:
+                try:
+                    chain = await asyncio.wait_for(
+                        self.registry.hivemind.traverse_graph(
+                            memory_id=request.memory_chain_id, depth=3,
+                        ),
+                        timeout=5.0,
+                    )
+                    if chain:
+                        logger.info("Loaded conversation chain from HIVE-MIND for memory_chain_id %s", request.memory_chain_id)
+                        request.metadata = request.metadata or {}
+                        request.metadata["prior_turns"] = chain
+                except asyncio.TimeoutError:
+                    logger.warning("HIVE-MIND traverse_graph timeout for memory_chain_id %s", request.memory_chain_id)
+                except Exception as exc:
+                    logger.warning("Failed to load conversation chain: %s", exc)
+            elif request.session_id:
+                try:
+                    prior_context = await self.registry.hivemind.recall(
+                        query=request.user_query, limit=5, mode="quick",
+                    )
+                    if prior_context:
+                        logger.info("Loaded prior context from HIVE-MIND for session %s", request.session_id)
+                        request.metadata = request.metadata or {}
+                        request.metadata["prior_turns"] = prior_context
+                except Exception as exc:
+                    logger.warning("Failed to load prior context: %s", exc)
         else:
             current_state = await self.state_store.get_workflow_state(request.thread_id)
             if current_state is not None:
@@ -301,6 +466,7 @@ class WorkflowEngine:
                         analysis_objective=request.analysis_objective,
                         analysis_horizon=request.analysis_horizon,
                         analysis_benchmark=request.analysis_benchmark,
+                        memory_chain_id=request.memory_chain_id,
                         workflow_plan_json=None,
                         status=WorkflowStatus.queued,
                         current_node="planning",
@@ -424,6 +590,7 @@ class WorkflowEngine:
                     is_resume=is_resume,
                     resume_cursor=resume_cursor,
                     last_completed_node=last_completed_node,
+                    prior_turns=(request.metadata or {}).get("prior_turns"),
                 )
                 result = await self._execute_workflow(
                     ctx,
@@ -481,6 +648,7 @@ class WorkflowEngine:
                         analysis_objective=request.analysis_objective,
                         analysis_horizon=request.analysis_horizon,
                         analysis_benchmark=request.analysis_benchmark,
+                        memory_chain_id=request.memory_chain_id,
                         workflow_plan_json=plan.model_dump_json(),
                         status=WorkflowStatus.complete,
                         current_node="workflow_complete",
@@ -499,11 +667,25 @@ class WorkflowEngine:
                             "workflow_mode": workflow_mode.value,
                             "final_artifact": persisted_artifact.model_dump() if persisted_artifact is not None else None,
                             "final_answer": result.final_answer,
+                            "final_answer_display": result.final_answer_display or result.final_answer,
                             "evidence_pack": result.evidence.model_dump() if result.evidence is not None else None,
                             "governance_report": result.governance_report,
+                            "memory_chain_id": request.memory_chain_id,
                         },
                     )
                 )
+
+                if request.session_id and result.final_answer:
+                    try:
+                        updated_memory_chain_id = await self._write_enterprise_agent_turn(
+                            request,
+                            result.final_answer_display or result.final_answer,
+                        )
+                        if updated_memory_chain_id:
+                            request.memory_chain_id = updated_memory_chain_id
+                        logger.info("Saved enterprise agent turn sid=%s memory_chain_id=%s", request.session_id, request.memory_chain_id or "n/a")
+                    except Exception as hivemind_exc:
+                        logger.warning("Failed to save enterprise agent turn: %s", hivemind_exc)
             except Exception as exc:
                 await self._update_workflow_snapshot(
                     repo,
@@ -562,12 +744,17 @@ class WorkflowEngine:
         """Return the appropriate research agent based on analysis_mode.
 
         - finance mode -> finance_research (hypothesis-driven)
+        - data_science mode -> data_science (data analysis with code execution)
         - all other modes -> deep_research (tree-search)
         - falls back to legacy research if the new agent is unavailable
         """
         mode = ctx.request.analysis_mode
         if mode == AnalysisMode.finance:
             agent = getattr(self.registry, "finance_research", None)
+            if agent is not None:
+                return agent
+        elif mode == AnalysisMode.data_science:
+            agent = getattr(self.registry, "data_science", None)
             if agent is not None:
                 return agent
         else:
@@ -691,19 +878,6 @@ class WorkflowEngine:
                     },
                 )
             )
-        if evidence.provenance.save_back_eligible:
-            await publish(
-                events.build(
-                    "save_back_available",
-                    agent_name="research",
-                    phase="research",
-                    data={
-                        "eligible": True,
-                        "primary_ground_truth": evidence.provenance.primary_ground_truth,
-                        "memory_sources": evidence.provenance.memory_sources,
-                    },
-                )
-            )
 
     async def _run_content_director(
         self,
@@ -776,6 +950,146 @@ class WorkflowEngine:
         self.registry.mark_agent_ready("content_director", "idle")
         await self._complete_branch(ctx, branch_id=node_id, output_json=content_brief)
         return content_brief
+
+    async def _run_text_buddy_pipeline(
+        self,
+        ctx: WorkflowRunContext,
+        events: EventFactory,
+        publish: EventPublisher,
+        *,
+        evidence: EvidencePack,
+    ) -> WorkflowExecutionResult:
+        """Run the text artifact pipeline: text_buddy → governance."""
+        # Check for cancellation at pipeline entry
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (text_buddy_pipeline start)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="text_buddy", data={"reason": "User requested cancellation"}))
+            return WorkflowExecutionResult()
+
+        brand_voice = self._load_brand_voice_text(ctx.request.tenant_id)
+
+        # ── Text Buddy composition ──
+        node_id = "text_buddy"
+        await self._set_branch(
+            ctx,
+            branch_id=node_id,
+            agent_name="text_buddy",
+            branch_kind="text_buddy",
+            status="running",
+            current_phase="text_buddy",
+            input_json={
+                "artifact_family": ctx.plan.artifact_family.value,
+                "pipeline": "text_buddy",
+            },
+        )
+        text_buddy_run = await ctx.agent_run_repo.create_run(
+            thread_id=ctx.request.thread_id,
+            tenant_id=ctx.request.tenant_id,
+            agent_name="text_buddy",
+            agent_type=AgentType.text_buddy.value,
+            branch_id=node_id,
+            input_json={"query": ctx.request.user_query, "artifact_family": ctx.plan.artifact_family.value},
+        )
+        await publish(
+            events.build(
+                "agent_started",
+                agent_name="text_buddy",
+                phase="text_buddy",
+                data={"artifact_family": ctx.plan.artifact_family.value, "node_id": node_id, "pipeline": "text_buddy"},
+            )
+        )
+
+        text_buddy = self.registry.text_buddy
+        self._maybe_set_log_sink(text_buddy, _make_agent_log_sink(events, publish, "text_buddy", "text_buddy"))
+        self.registry.mark_agent_busy("text_buddy", "text_buddy")
+        prior_context = format_prior_context(ctx.prior_turns)
+        try:
+            text_artifact = await text_buddy.compose(
+                user_query=ctx.request.user_query,
+                artifact_family=ctx.plan.artifact_family.value,
+                evidence_pack=evidence,
+                hitl_answers=ctx.resume_answers,
+                brand_voice=brand_voice,
+                tenant_id=ctx.request.tenant_id,
+                prior_context=prior_context,
+            )
+        finally:
+            self.registry.mark_agent_ready("text_buddy", "idle")
+
+        text_artifact_dict = text_artifact.model_dump()
+        await ctx.agent_run_repo.mark_complete(text_buddy_run.run_id, text_artifact_dict)
+
+        await self._update_workflow_snapshot(
+            ctx.repo,
+            ctx.request.thread_id,
+            run_id=ctx.run_id,
+            current_node="text_buddy",
+            current_phase="text_buddy",
+            current_agent="text_buddy",
+            latest_event="agent_completed",
+            last_completed_node="text_buddy",
+        )
+        workflow_state = await self.state_store.get_workflow_state(ctx.request.thread_id)
+        if workflow_state is not None:
+            workflow_state.current_node = "text_buddy"
+            workflow_state.current_phase = "text_buddy"
+            workflow_state.current_agent = "text_buddy"
+            workflow_state.last_completed_node = "text_buddy"
+            workflow_state.updated_at = utc_now()
+            await self.state_store.set_workflow_state(workflow_state)
+
+        await publish(
+            events.build(
+                "agent_completed",
+                agent_name="text_buddy",
+                phase="text_buddy",
+                data={"text_artifact": text_artifact_dict},
+            )
+        )
+        await self._complete_branch(ctx, branch_id=node_id, output_json=text_artifact_dict)
+
+        # ── Governance review of the text artifact ──
+        governance_branch_id = "governance"
+        await self._set_branch(
+            ctx,
+            branch_id=governance_branch_id,
+            agent_name="governance",
+            branch_kind="governance",
+            status="running",
+            current_phase="governance",
+            input_json={"artifact_id": text_artifact.artifact_id, "evidence_refs": text_artifact.evidence_refs},
+        )
+        governance_run = await ctx.agent_run_repo.create_run(
+            thread_id=ctx.request.thread_id,
+            tenant_id=ctx.request.tenant_id,
+            agent_name="governance",
+            agent_type=AgentType.governance.value,
+            branch_id=governance_branch_id,
+            input_json={"artifact_id": text_artifact.artifact_id, "evidence_refs": text_artifact.evidence_refs},
+        )
+        await publish(events.build("governance_started", agent_name="governance", phase="governance"))
+        self._maybe_set_log_sink(self.registry.governance, _make_agent_log_sink(events, publish, "governance", "governance"))
+
+        self.registry.mark_agent_busy("governance", "governance")
+        try:
+            governance_report = (await self.registry.governance.review_text(text_artifact, evidence)).model_dump()
+        except Exception as exc:
+            logger.warning("Governance review failed for text artifact: %s", exc)
+            governance_report = {"approved": True, "issues": [], "readiness_score": 0.5, "notes": [f"Governance review error: {exc}"]}
+        finally:
+            self.registry.mark_agent_ready("governance", "idle")
+
+        await publish(events.build("governance_complete", agent_name="governance", phase="governance", data={"governance_report": governance_report}))
+        await ctx.agent_run_repo.mark_complete(governance_run.run_id, governance_report)
+        await self._complete_branch(ctx, branch_id=governance_branch_id, output_json=governance_report)
+
+        return WorkflowExecutionResult(
+            evidence=evidence,
+            final_answer=text_artifact.content,
+            final_answer_display=text_artifact.content,
+            governance_report=governance_report,
+        )
 
     async def _maybe_block_for_requirements(
         self,
@@ -1000,6 +1314,13 @@ class WorkflowEngine:
             resume_cursor="research",
         )
 
+        # Check for cancellation after planning
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (after planning)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="workflow", data={"reason": "User requested cancellation"}))
+            return WorkflowExecutionResult()
+
         if ctx.workflow_mode == WorkflowMode.sequential:
             return await self._run_sequential(ctx, events, publish)
         if ctx.workflow_mode == WorkflowMode.parallel:
@@ -1007,6 +1328,13 @@ class WorkflowEngine:
         return await self._run_hybrid(ctx, events, publish)
 
     async def _run_sequential(self, ctx: WorkflowRunContext, events: EventFactory, publish: EventPublisher) -> WorkflowExecutionResult:
+        # Check for cancellation
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (in sequential phase)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="research", data={"reason": "User requested cancellation"}))
+            return WorkflowExecutionResult()
+
         if ctx.plan.direct_answer:
             return await self._run_direct_answer(ctx, events, publish)
         branch_id = "sequential-research"
@@ -1034,7 +1362,9 @@ class WorkflowEngine:
             self.registry.mark_agent_busy("research", "research")
             research_agent = self._get_research_agent(ctx)
             self._maybe_set_log_sink(research_agent, _make_agent_log_sink(events, publish, "research", "research"))
-            evidence = await research_agent.gather(ctx.session, ctx.request.tenant_id, ctx.request.user_query, ctx.request.source_scope)
+            # Quick recall for standard mode; full tree for deep_research/finance
+            quick_recall = ctx.request.analysis_mode == AnalysisMode.standard
+            evidence = await research_agent.gather(ctx.session, ctx.request.tenant_id, ctx.request.user_query, ctx.request.source_scope, quick_recall=quick_recall)
             self.registry.mark_agent_ready("research", "idle")
             await publish(
                 events.build(
@@ -1060,52 +1390,318 @@ class WorkflowEngine:
             if blocked is not None:
                 return blocked
 
+        # Route to text pipeline or visual pipeline based on artifact family
+        if ctx.plan.artifact_family.value in TEXT_FAMILIES:
+            # Check for cancellation before text pipeline
+            if self._is_cancelled(ctx.request.thread_id):
+                logger.info("Workflow cancelled by user (before text_buddy phase)")
+                self._clear_cancellation(ctx.request.thread_id)
+                await publish(events.build("workflow_cancelled", phase="text_buddy", data={"reason": "User requested cancellation"}))
+                return WorkflowExecutionResult()
+            return await self._run_text_buddy_pipeline(ctx, events, publish, evidence=evidence)
+
+        # Check for cancellation before artifact pipeline
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (before artifact pipeline)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="artifact", data={"reason": "User requested cancellation"}))
+            return WorkflowExecutionResult()
+
         artifact_result = await self._run_react_pipeline(ctx, events, publish, evidence=evidence)
         if not artifact_result.sections_emitted:
             await self._emit_artifact_sections(ctx, events, publish, artifact_result.artifact, parallel=False)
+
+        # Check for cancellation before governance
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (before governance phase)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="governance", data={"reason": "User requested cancellation"}))
+            return WorkflowExecutionResult()
+
         governance = await self._review_artifact(ctx, events, publish, artifact=artifact_result.artifact, evidence=evidence)
         return WorkflowExecutionResult(evidence=evidence, artifact=artifact_result.artifact, governance_report=governance.report)
 
+    @staticmethod
+    def _format_streamable_direct_answer(answer: str, evidence: EvidencePack, question: str) -> str:
+        memory_count = len(evidence.memory_findings)
+        web_count = len(evidence.web_findings)
+        doc_count = len(evidence.doc_findings)
+        source_count = len(evidence.sources)
+
+        analysis_lines = []
+        if evidence.summary:
+            analysis_lines.append(f"- Evidence summary: {evidence.summary}")
+        analysis_lines.append(f"- Sources reviewed: {memory_count + web_count + doc_count} total ({memory_count} memory, {web_count} web, {doc_count} documents)")
+        if evidence.provenance.primary_ground_truth:
+            analysis_lines.append(f"- Primary ground truth: {evidence.provenance.primary_ground_truth}")
+        if evidence.contradictions:
+            analysis_lines.append(f"- Contradictions detected: {len(evidence.contradictions)}")
+        if evidence.open_questions:
+            analysis_lines.append(f"- Open questions: {' | '.join(evidence.open_questions[:3])}")
+        if evidence.recommended_followups:
+            analysis_lines.append(f"- Recommended follow-up: {evidence.recommended_followups[0]}")
+        if question:
+            analysis_lines.append(f"- User request: {question}")
+
+        source_lines = []
+        for source in evidence.sources[:12]:
+            source_label = source.title or source.location or source.source_id
+            extra_parts = [source.source_type, source.location]
+            detail = ", ".join(part for part in extra_parts if part)
+            if detail:
+                source_lines.append(f"- [Source: {source_label}, {detail}]")
+            else:
+                source_lines.append(f"- [Source: {source_label}]")
+        if not source_lines:
+            source_lines.append("- [Source: No source list available]")
+
+        return (
+            "## Analysis\n"
+            f"{chr(10).join(analysis_lines) if analysis_lines else '- Evidence assembled.'}\n\n"
+            "**ANSWER**:\n"
+            f"{answer.strip()}\n\n"
+            "## Confidence\n"
+            f"Score: {evidence.confidence:.2f}\n"
+            f"Evidence Chunks: {memory_count + web_count + doc_count}\n"
+            f"Source Documents: {source_count}\n\n"
+            "## Sources (GraphRAG)\n"
+            f"{chr(10).join(source_lines)}\n"
+        )
+
     async def _run_direct_answer(self, ctx: WorkflowRunContext, events: EventFactory, publish: EventPublisher) -> WorkflowExecutionResult:
         branch_id = "research-answer"
-        await self._set_branch(
+        direct_research_agent = self._get_research_agent(ctx)
+
+        # On resume (user answered depth question), load saved evidence — don't re-research
+        evidence = None
+        if ctx.resume_answers:
+            evidence = await self._load_latest_evidence(ctx.evidence_repo, ctx.request.thread_id)
+
+        if evidence is None:
+            await self._set_branch(
+                ctx,
+                branch_id=branch_id,
+                agent_name="research",
+                branch_kind="research",
+                status="running",
+                current_phase="research",
+                input_json={"query": ctx.request.user_query, "scope": ctx.request.source_scope, "response_mode": "direct_answer"},
+            )
+            research_run = await ctx.agent_run_repo.create_run(
+                thread_id=ctx.request.thread_id,
+                tenant_id=ctx.request.tenant_id,
+                agent_name="research",
+                agent_type=AgentType.research.value,
+                branch_id=branch_id,
+                input_json={"query": ctx.request.user_query, "scope": ctx.request.source_scope, "response_mode": "direct_answer"},
+            )
+            await publish(events.build("agent_started", agent_name="research", phase="research", data={"branch_id": branch_id}))
+            self.registry.mark_agent_busy("research", "research")
+            self._maybe_set_log_sink(direct_research_agent, _make_agent_log_sink(events, publish, "research", "research"))
+            # Quick recall for standard mode; full tree for deep_research/finance
+            quick_recall = ctx.request.analysis_mode == AnalysisMode.standard
+            evidence = await direct_research_agent.gather(ctx.session, ctx.request.tenant_id, ctx.request.user_query, ctx.request.source_scope, quick_recall=quick_recall)
+            await publish(
+                events.build(
+                    "agent_completed",
+                    agent_name="research",
+                    phase="research",
+                    data={"branch_id": branch_id, "evidence_pack": evidence.model_dump()},
+                )
+            )
+            await self._emit_evidence_signals(publish, events, evidence)
+            self.registry.mark_agent_ready("research", "idle")
+            await ctx.agent_run_repo.mark_complete(research_run.run_id, evidence.model_dump())
+
+        source_count = len(evidence.memory_findings) + len(evidence.web_findings) + len(evidence.doc_findings)
+        if not ctx.resume_answers and source_count > 0:
+            from agentscope_blaiq.agents.clarification import ClarificationPrompt, ClarificationQuestion
+
+            depth_question = ClarificationQuestion(
+                requirement_id="field:response_depth",
+                question=f"I found {source_count} sources. How detailed should the response be?",
+                why_it_matters="This controls how long and how detailed the final answer should be.",
+                answer_hint="Choose a response depth",
+                answer_options=[
+                    f"Detailed product summary — cover all {source_count} sources with product families, counts, and specifics",
+                    "Full technical breakdown — 3-5 paragraphs with deeper product and system detail",
+                    "Brief executive answer — 1-2 paragraphs with the shortest useful response",
+                ],
+            )
+            hitl_prompt = ClarificationPrompt(
+                headline=f"Found {source_count} sources — how detailed?",
+                intro="The research is complete. Choose how thorough the final answer should be before I synthesize it.",
+                questions=[depth_question],
+                blocked_question=depth_question.question,
+                expected_answer_schema={"field:response_depth": depth_question.question},
+            )
+            blocked_question = hitl_prompt.blocked_question
+            expected_schema = {"answers": hitl_prompt.expected_answer_schema}
+
+            await ctx.evidence_repo.save(ctx.request.thread_id, ctx.request.tenant_id, str(uuid4()), evidence)
+            await self._update_workflow_snapshot(
+                ctx.repo,
+                ctx.request.thread_id,
+                run_id=ctx.run_id,
+                status=WorkflowStatus.blocked,
+                current_node="hitl_depth",
+                current_phase="clarification",
+                current_agent="hitl",
+                latest_event="workflow_blocked",
+                error_message=blocked_question,
+                blocked_question=blocked_question,
+                expected_answer_schema=expected_schema,
+                resume_cursor="hitl_depth",
+                last_completed_node="research",
+            )
+            await self.state_store.mark_blocked(
+                ctx.request.thread_id,
+                blocked_question,
+                blocked_question=blocked_question,
+                expected_answer_schema=expected_schema,
+                pending_node="hitl_depth",
+                resume_cursor="hitl_depth",
+                last_completed_node="research",
+                artifact_family="custom",
+            )
+            workflow_state = await self.state_store.get_workflow_state(ctx.request.thread_id)
+            if workflow_state is not None:
+                workflow_state.current_node = "hitl_depth"
+                workflow_state.current_phase = "clarification"
+                workflow_state.current_agent = "hitl"
+                workflow_state.status = WorkflowStatus.blocked
+                workflow_state.updated_at = utc_now()
+                await self.state_store.set_workflow_state(workflow_state)
+
+            await publish(
+                events.build(
+                    "workflow_blocked",
+                    agent_name="hitl",
+                    phase="clarification",
+                    status="blocked",
+                    data={
+                        "artifact_family": "custom",
+                        "clarification_stage": "response_depth",
+                        "prompt_headline": hitl_prompt.headline,
+                        "prompt_intro": hitl_prompt.intro,
+                        "blocked_question": blocked_question,
+                        "questions": [q.model_dump() for q in hitl_prompt.questions],
+                        "expected_answer_schema": expected_schema,
+                        "pending_node": "hitl_depth",
+                        "missing_requirements": ["field:response_depth"],
+                    },
+                )
+            )
+            return WorkflowExecutionResult(evidence=evidence)
+
+        depth_answer = (ctx.resume_answers or {}).get("field:response_depth", "")
+        depth_lower = depth_answer.lower() if depth_answer else ""
+        if "brief" in depth_lower:
+            max_tokens = 800
+            depth_instruction = "Write a brief executive summary (1-2 paragraphs). Focus on the single most important finding."
+        elif "medium" in depth_lower:
+            max_tokens = 2048
+            depth_instruction = "Write a medium-depth response (3-5 paragraphs). Cover key findings with important details."
+        else:
+            max_tokens = 6000
+            depth_instruction = (
+                f"Write a comprehensive, detailed response covering all {source_count} sources. "
+                "Include the most relevant product names, metrics, categories, and any exact counts that can be supported. "
+                "If the exact count cannot be determined, say so clearly and then summarize the evidence-backed product families."
+            )
+
+        # ── Generate final answer using the deep research agent ──
+        format_findings = getattr(direct_research_agent, "_format_findings_for_synthesis", None)
+        if callable(format_findings):
+            findings_text = format_findings(
+                evidence.memory_findings,
+                evidence.web_findings,
+            )
+        else:
+            findings_text = "\n".join(
+                [
+                    *[f"- {finding.title}: {finding.summary}" for finding in evidence.memory_findings[:10]],
+                    *[f"- {finding.title}: {finding.summary}" for finding in evidence.web_findings[:10]],
+                    *[f"- {finding.title}: {finding.summary}" for finding in evidence.doc_findings[:10]],
+                ]
+        ) or evidence.summary or "No findings available."
+        ai_synthesis = evidence.summary if evidence.summary and len(evidence.summary) > 50 else None
+
+        prior_context_text = format_prior_context(ctx.prior_turns, max_total_chars=1500)
+        answer_question = getattr(direct_research_agent, "answer_question", None)
+        if callable(answer_question):
+            query_for_answer = ctx.request.user_query
+            if prior_context_text:
+                query_for_answer = (
+                    f"=== PRIOR CONVERSATION CONTEXT (Reference Only) ===\n{prior_context_text}\n"
+                    f"=== END PRIOR CONTEXT ===\n\n"
+                    f"Current request: {ctx.request.user_query}"
+                )
+            final_answer = await answer_question(
+                query_for_answer,
+                evidence,
+                response_depth=depth_answer or None,
+            )
+        else:
+            prior_prefix = f"=== PRIOR CONTEXT ===\n{prior_context_text}\n\n" if prior_context_text else ""
+            try:
+                response = await self.registry.resolver.acompletion(
+                    "research",
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a technical research synthesizer for enterprise knowledge.\n\n"
+                                "RULES:\n"
+                                "1. Extract and highlight SPECIFIC technical details: product names, model numbers, "
+                                "specifications, metrics, pricing, architecture components.\n"
+                                "2. Cite sources using [memory:ID] format.\n"
+                                "3. Preserve exact names, numbers, and technical terms — do NOT paraphrase.\n"
+                                "4. Interpret acronyms based on the evidence, NOT your training data.\n"
+                                "5. Structure with clear headings and sections.\n"
+                                f"6. {depth_instruction}"
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"{prior_prefix}"
+                                f"=== EVIDENCE ({source_count} sources) ===\n{findings_text}\n\n"
+                                f"=== AI SYNTHESIS ===\n{ai_synthesis or 'See findings above.'}\n\n"
+                                f"=== QUESTION ===\n{ctx.request.user_query}\n\n"
+                                f"Generate the response. {depth_instruction}"
+                            ),
+                        },
+                    ],
+                    max_tokens=max_tokens,
+                    temperature=0.3,
+                )
+                final_answer = self.registry.resolver.extract_text(response)
+            except Exception as exc:
+                logger.exception("Direct-answer fallback synthesis failed: %s", exc)
+                # Fallback to basic synthesis
+                final_answer = evidence.summary or "; ".join(f.summary for f in evidence.memory_findings[:5])
+
+        final_answer_display = self._format_streamable_direct_answer(final_answer, evidence, ctx.request.user_query)
+
+        await self._complete_branch(
             ctx,
             branch_id=branch_id,
-            agent_name="research",
-            branch_kind="research",
-            status="running",
-            current_phase="research",
-            input_json={"query": ctx.request.user_query, "scope": ctx.request.source_scope, "response_mode": "direct_answer"},
+            output_json={
+                "final_answer": final_answer,
+                "final_answer_display": final_answer_display,
+            },
         )
-        research_run = await ctx.agent_run_repo.create_run(
-            thread_id=ctx.request.thread_id,
-            tenant_id=ctx.request.tenant_id,
-            agent_name="research",
-            agent_type=AgentType.research.value,
-            branch_id=branch_id,
-            input_json={"query": ctx.request.user_query, "scope": ctx.request.source_scope, "response_mode": "direct_answer"},
-        )
-        await publish(events.build("agent_started", agent_name="research", phase="research", data={"branch_id": branch_id}))
-        self.registry.mark_agent_busy("research", "research")
-        direct_research_agent = self._get_research_agent(ctx)
-        self._maybe_set_log_sink(direct_research_agent, _make_agent_log_sink(events, publish, "research", "research"))
-        evidence = await direct_research_agent.gather(ctx.session, ctx.request.tenant_id, ctx.request.user_query, ctx.request.source_scope)
-        await publish(
-            events.build(
-                "agent_completed",
-                agent_name="research",
-                phase="research",
-                data={"branch_id": branch_id, "evidence_pack": evidence.model_dump()},
-            )
-        )
-        await self._emit_evidence_signals(publish, events, evidence)
-        final_answer = await self.registry.research.answer_question(ctx.request.user_query, evidence)
-        self.registry.mark_agent_ready("research", "idle")
-        await ctx.agent_run_repo.mark_complete(research_run.run_id, {"evidence": evidence.model_dump(), "final_answer": final_answer})
-        await self._complete_branch(ctx, branch_id=branch_id, output_json={"evidence": evidence.model_dump(), "final_answer": final_answer})
-        return WorkflowExecutionResult(evidence=evidence, final_answer=final_answer)
+        return WorkflowExecutionResult(evidence=evidence, final_answer=final_answer, final_answer_display=final_answer_display)
 
     async def _run_parallel(self, ctx: WorkflowRunContext, events: EventFactory, publish: EventPublisher) -> WorkflowExecutionResult:
+        # Check for cancellation
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (in parallel phase)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="research", data={"reason": "User requested cancellation"}))
+            return WorkflowExecutionResult()
+
         merged_evidence = await self._load_latest_evidence(ctx.evidence_repo, ctx.request.thread_id) if ctx.resume_answers else None
         branch_ids = ["research-web", "research-docs"]
         replay_research_merge = not (ctx.resume_from_post_research_hitl and merged_evidence is not None)
@@ -1148,13 +1744,45 @@ class WorkflowEngine:
             if blocked is not None:
                 return blocked
 
+        # Route to text pipeline or visual pipeline based on artifact family
+        if ctx.plan.artifact_family.value in TEXT_FAMILIES:
+            # Check for cancellation before text pipeline
+            if self._is_cancelled(ctx.request.thread_id):
+                logger.info("Workflow cancelled by user (before text_buddy phase in parallel)")
+                self._clear_cancellation(ctx.request.thread_id)
+                await publish(events.build("workflow_cancelled", phase="text_buddy", data={"reason": "User requested cancellation"}))
+                return WorkflowExecutionResult()
+            return await self._run_text_buddy_pipeline(ctx, events, publish, evidence=merged_evidence)
+
+        # Check for cancellation before artifact pipeline
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (before artifact pipeline in parallel)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="artifact", data={"reason": "User requested cancellation"}))
+            return WorkflowExecutionResult()
+
         artifact_result = await self._run_react_pipeline(ctx, events, publish, evidence=merged_evidence)
         if not artifact_result.sections_emitted:
             await self._emit_artifact_sections(ctx, events, publish, artifact_result.artifact, parallel=True)
+
+        # Check for cancellation before governance
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (before governance phase in parallel)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="governance", data={"reason": "User requested cancellation"}))
+            return WorkflowExecutionResult()
+
         governance = await self._review_artifact(ctx, events, publish, artifact=artifact_result.artifact, evidence=merged_evidence)
         return WorkflowExecutionResult(evidence=merged_evidence, artifact=artifact_result.artifact, governance_report=governance.report)
 
     async def _run_hybrid(self, ctx: WorkflowRunContext, events: EventFactory, publish: EventPublisher) -> WorkflowExecutionResult:
+        # Check for cancellation
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (in hybrid phase)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="research", data={"reason": "User requested cancellation"}))
+            return WorkflowExecutionResult()
+
         merged_evidence = await self._load_latest_evidence(ctx.evidence_repo, ctx.request.thread_id) if ctx.resume_answers else None
         branch_ids = ["research-web", "research-docs"]
         replay_research_merge = not (ctx.resume_from_post_research_hitl and merged_evidence is not None)
@@ -1197,9 +1825,34 @@ class WorkflowEngine:
             if blocked is not None:
                 return blocked
 
+        # Route to text pipeline or visual pipeline based on artifact family
+        if ctx.plan.artifact_family.value in TEXT_FAMILIES:
+            # Check for cancellation before text pipeline
+            if self._is_cancelled(ctx.request.thread_id):
+                logger.info("Workflow cancelled by user (before text_buddy phase in hybrid)")
+                self._clear_cancellation(ctx.request.thread_id)
+                await publish(events.build("workflow_cancelled", phase="text_buddy", data={"reason": "User requested cancellation"}))
+                return WorkflowExecutionResult()
+            return await self._run_text_buddy_pipeline(ctx, events, publish, evidence=merged_evidence)
+
+        # Check for cancellation before artifact pipeline
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (before artifact pipeline in hybrid)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="artifact", data={"reason": "User requested cancellation"}))
+            return WorkflowExecutionResult()
+
         artifact_result = await self._run_react_pipeline(ctx, events, publish, evidence=merged_evidence)
         if not artifact_result.sections_emitted:
             await self._emit_artifact_sections(ctx, events, publish, artifact_result.artifact, parallel=True)
+
+        # Check for cancellation before governance
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (before governance phase in hybrid)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="governance", data={"reason": "User requested cancellation"}))
+            return WorkflowExecutionResult()
+
         governance = await self._review_artifact(ctx, events, publish, artifact=artifact_result.artifact, evidence=merged_evidence)
         return WorkflowExecutionResult(evidence=merged_evidence, artifact=artifact_result.artifact, governance_report=governance.report)
 
@@ -1243,7 +1896,9 @@ class WorkflowEngine:
                 scope = "web" if branch_kind == "web" else "docs"
                 branch_research_agent = self._get_research_agent(ctx)
                 self._maybe_set_log_sink(branch_research_agent, _make_agent_log_sink(events, publish, "research", "research"))
-                evidence = await branch_research_agent.gather(branch_session, ctx.request.tenant_id, ctx.request.user_query, scope)
+                # Quick recall for standard mode; full tree for deep_research/finance
+                quick_recall = ctx.request.analysis_mode == AnalysisMode.standard
+                evidence = await branch_research_agent.gather(branch_session, ctx.request.tenant_id, ctx.request.user_query, scope, quick_recall=quick_recall)
                 result.evidence = evidence
                 await publish(
                     events.build(
@@ -1273,10 +1928,17 @@ class WorkflowEngine:
         evidence: EvidencePack,
     ) -> "_ArtifactOutcome":
         """New React+shadcn pipeline: plan_slides -> generate_from_slides."""
+        # Check for cancellation at pipeline entry
+        if self._is_cancelled(ctx.request.thread_id):
+            logger.info("Workflow cancelled by user (react_pipeline start)")
+            self._clear_cancellation(ctx.request.thread_id)
+            await publish(events.build("workflow_cancelled", phase="artifact", data={"reason": "User requested cancellation"}))
+            return _ArtifactOutcome()
+
         # 1. Load Brand DNA
         brand_dna = await self._load_brand_dna(ctx.request.tenant_id)
 
-        # 2. Content Director: plan_slides
+        # 2. Content Director: plan_slides (fallback to plan_content for older interfaces/tests)
         node_id = "content_director"
         await self._set_branch(
             ctx,
@@ -1299,15 +1961,36 @@ class WorkflowEngine:
             )
         )
         self.registry.mark_agent_busy("content_director", "content_director")
-        slides_data = await self.registry.content_director.plan_slides(
-            user_query=ctx.request.user_query,
-            artifact_family=ctx.plan.artifact_family.value,
-            evidence_pack=evidence,
-            hitl_answers=ctx.resume_answers,
-            brand_dna=brand_dna,
-            tenant_id=ctx.request.tenant_id,
-        )
-        slides_dict = slides_data.model_dump()
+        content_director = self.registry.content_director
+        user_query_with_context = ctx.request.user_query
+        if ctx.prior_turns:
+            prior_summary = format_prior_context(ctx.prior_turns, max_total_chars=1000)
+            if prior_summary:
+                user_query_with_context = (
+                    f"=== PRIOR CONVERSATION CONTEXT (Reference Only) ===\n{prior_summary}\n"
+                    f"=== END PRIOR CONTEXT ===\n\n"
+                    f"Current request: {ctx.request.user_query}"
+                )
+        if hasattr(content_director, "plan_slides"):
+            slides_data = await content_director.plan_slides(
+                user_query=user_query_with_context,
+                artifact_family=ctx.plan.artifact_family.value,
+                evidence_pack=evidence,
+                hitl_answers=ctx.resume_answers,
+                brand_dna=brand_dna,
+                tenant_id=ctx.request.tenant_id,
+            )
+            slides_dict = slides_data.model_dump()
+        else:
+            slides_data = await content_director.plan_content(
+                user_query=ctx.request.user_query,
+                evidence_summary=evidence.summary,
+                artifact_spec=ctx.plan.artifact_spec,
+                requirements=ctx.plan.requirements_checklist,
+                hitl_answers=ctx.resume_answers,
+                evidence_pack=evidence,
+            )
+            slides_dict = slides_data.model_dump()
         await self._update_workflow_snapshot(
             ctx.repo,
             ctx.request.thread_id,
@@ -1362,14 +2045,22 @@ class WorkflowEngine:
         self.registry.mark_agent_busy("vangogh", "artifact")
         self._maybe_set_log_sink(self.registry.vangogh, _make_agent_log_sink(events, publish, "vangogh", "artifact"))
 
-        artifact = await self.registry.vangogh.generate_from_slides(
-            slides_data=slides_dict,
-            user_query=ctx.request.user_query,
-            evidence=evidence,
-            brand_dna=brand_dna,
-            artifact_family=ctx.plan.artifact_family.value,
-            tenant_id=ctx.request.tenant_id,
-        )
+        if hasattr(self.registry.vangogh, "generate_from_slides"):
+            artifact = await self.registry.vangogh.generate_from_slides(
+                slides_data=slides_dict,
+                user_query=ctx.request.user_query,
+                evidence=evidence,
+                brand_dna=brand_dna,
+                artifact_family=ctx.plan.artifact_family.value,
+                tenant_id=ctx.request.tenant_id,
+            )
+        else:
+            artifact = await self.registry.vangogh.generate(
+                user_query=ctx.request.user_query,
+                evidence=evidence,
+                content_brief=slides_dict,
+                brand_dna=brand_dna,
+            )
         self.registry.mark_agent_ready("vangogh", "idle")
         await publish(
             events.build(
