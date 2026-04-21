@@ -1,7 +1,7 @@
 services:
   app:
     build:
-      context: ..
+      context: .
       dockerfile: deployment/Dockerfile
     environment:
       APP_ENV: ${APP_ENV:-production}
