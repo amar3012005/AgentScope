@@ -1,0 +1,15 @@
+<div class="p-6 rounded-[28px] border border-white/10 bg-white/[0.03] backdrop-blur-md">
+  <div class="flex items-center gap-4 mb-4">
+    <div class="w-14 h-14 rounded-full bg-gradient-to-br from-stone-200 to-stone-500 flex items-center justify-center text-lg font-semibold text-stone-900">{{ avatar_initials | default(name[:2] | upper) }}</div>
+    <div>
+      <h4 class="text-lg font-semibold text-stone-100">{{ name }}</h4>
+      {% if role %}<span class="text-sm text-stone-400/70">{{ role }}</span>{% endif %}
+    </div>
+  </div>
+  {% if pain_points %}
+  <ul class="list-disc ml-4 text-sm text-stone-300/72 leading-7 space-y-1">
+    {% for point in pain_points %}<li>{{ point }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if quote %}<blockquote class="mt-4 italic text-stone-300/66 border-l-2 border-white/15 pl-4 text-sm">{{ quote }}</blockquote>{% endif %}
+</div>

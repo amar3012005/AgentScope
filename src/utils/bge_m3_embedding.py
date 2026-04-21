@@ -9,6 +9,7 @@ Migration to OpenAI-compatible:
 """
 
 import os
+import logging
 from typing import List
 
 from dotenv import load_dotenv
@@ -21,6 +22,7 @@ except ImportError:
 
 # Load environment variables
 load_dotenv()
+logger = logging.getLogger("bge_m3_embedding")
 
 
 class BGEM3Embeddings:
@@ -90,10 +92,12 @@ class BGEM3Embeddings:
         except Exception:
             service_host = None
 
-        print(
-            "[BGEM3Embeddings:init] "
-            f"service_url={self.service_url}, host={service_host}, "
-            f"model_id={self.model_id}, dim={self.embedding_dim}"
+        logger.info(
+            "event=embedding_client_init service_url=%s host=%s model_id=%s dim=%s",
+            self.service_url,
+            service_host,
+            self.model_id,
+            self.embedding_dim,
         )
 
         # Initialize OpenAI Client (with SSL bypass for proxy)

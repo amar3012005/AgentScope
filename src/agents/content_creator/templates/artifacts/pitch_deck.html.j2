@@ -1,0 +1,63 @@
+<style>
+  :root {
+    --deck-max-width: {{ blueprint.layout.max_width | default('1120px') }};
+    --deck-slide-padding: {{ blueprint.layout.slide_padding | default('48px 32px') }};
+    --deck-nav-radius: {{ blueprint.layout.nav_corner_radius | default('999px') }};
+  }
+  html {
+    scroll-snap-type: y proximity;
+    background: {{ tokens.background | default('#050505') }};
+  }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(circle at top center, rgba(255,255,255,0.06), transparent 26%),
+      linear-gradient(180deg, {{ tokens.surface | default('#111111') }} 0%, {{ tokens.background | default('#050505') }} 100%);
+    color: {{ tokens.ink | default('#E8E7E2') }};
+  }
+  .slide {
+    scroll-snap-align: start;
+    min-height: 100vh;
+    display: flex;
+    align-items: stretch;
+    padding: var(--deck-slide-padding);
+    border-bottom: 1px solid color-mix(in srgb, {{ tokens.border | default('#2A2A2A') }} 85%, transparent);
+  }
+  .vangogh-section {
+    width: min(var(--deck-max-width), 100%);
+    margin: 0 auto;
+  }
+</style>
+{% for section in sections %}
+<section class="slide" data-slide="{{ loop.index }}">
+  <div class="vangogh-section" style="animation-delay: {{ loop.index0 * 0.08 }}s">
+    {{ section.html_fragment }}
+  </div>
+</section>
+{% endfor %}
+<nav class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-5 py-3 border shadow-[0_16px_36px_rgba(0,0,0,0.22)]"
+     style="border-radius: var(--deck-nav-radius); background: color-mix(in srgb, {{ tokens.surface | default('#111111') }} 88%, transparent); border-color: {{ tokens.border | default('#2A2A2A') }};">
+  <button onclick="navigateSlide(-1)" class="transition-colors"
+          style="color: {{ tokens.muted | default('#A1A19B') }};">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 15L7 10L12 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <span class="text-xs font-mono tracking-wider" id="slide-counter" style="color: {{ tokens.muted | default('#A1A19B') }};">1 / {{ sections | length }}</span>
+  <button onclick="navigateSlide(1)" class="transition-colors"
+          style="color: {{ tokens.muted | default('#A1A19B') }};">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M8 5L13 10L8 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+</nav>
+<script>
+  var currentSlide = 0;
+  var totalSlides = {{ sections | length }};
+  function navigateSlide(delta) {
+    currentSlide = Math.max(0, Math.min(totalSlides - 1, currentSlide + delta));
+    var target = document.querySelector('[data-slide="' + (currentSlide + 1) + '"]');
+    if (target) target.scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('slide-counter').textContent = (currentSlide + 1) + ' / ' + totalSlides;
+  }
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); navigateSlide(1); }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); navigateSlide(-1); }
+  });
+</script>

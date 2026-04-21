@@ -1,0 +1,17 @@
+<div class="max-w-5xl mx-auto">
+  {% if sections | length > 2 %}
+  <nav class="sticky top-0 z-40 bg-[#050505]/90 backdrop-blur-md border-b border-white/5 px-8 py-4 mb-8">
+    <div class="flex gap-6 overflow-x-auto">
+      {% for section in sections %}
+      <a href="#section-{{ section.section_id }}" class="text-xs uppercase tracking-[0.2em] text-stone-400/60 hover:text-stone-200 transition-colors whitespace-nowrap">{{ section.section_id | replace("_", " ") }}</a>
+      {% endfor %}
+    </div>
+  </nav>
+  {% endif %}
+  {% for section in sections %}
+  <div id="section-{{ section.section_id }}" class="vangogh-section" style="animation-delay: {{ loop.index0 * 0.1 }}s">
+    {{ section.html_fragment }}
+  </div>
+  {% if not loop.last %}<hr class="border-white/5 mx-16 my-4">{% endif %}
+  {% endfor %}
+</div>

@@ -39,9 +39,9 @@ The following models are configured for routing in the BLAIQ system:
 
 | Stage | Purpose | Default Model | Environment Variable | Why This Model |
 |-------|---------|---------------|---------------------|----------------|
-| **Pre-Retrieval** | Entity extraction, search term expansion | `groq/llama-3.1-8b-instant` | `LITELLM_PRE_MODEL` | Fast, cheap for simple extraction tasks |
-| **Planner** | Query classification, search strategy | `groq/llama-3.1-8b-instant` | `LITELLM_PLANNER_MODEL` | Determines which search methods to use (vector/graph/keyword) |
-| **Post-Retrieval** | Answer synthesis, citation generation | `openai/gpt-4o` | `LITELLM_POST_MODEL` | High-quality answers with proper citations |
+| **Pre-Retrieval** | Entity extraction, search term expansion | `gemini-2.5-pro` | `LITELLM_PRE_MODEL` | Fast, high-quality extraction without heavyweight reasoning |
+| **Planner** | Query classification, search strategy | `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` | `LITELLM_PLANNER_MODEL` | Stable JSON routing and search-plan decisions |
+| **Post-Retrieval** | Answer synthesis, citation generation | `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` | `LITELLM_POST_MODEL` | High-quality answers with proper citations |
 
 ### 2. Optimized Retriever API
 
@@ -96,9 +96,9 @@ The following models are configured for routing in the BLAIQ system:
 
 | Variable | Default | Used By | Description |
 |----------|---------|---------|-------------|
-| `LITELLM_PLANNER_MODEL` | `groq/llama-3.1-8b-instant` | GraphRAG Retriever | Query classification and planning |
-| `LITELLM_PRE_MODEL` | `groq/llama-3.1-8b-instant` | GraphRAG Retriever | Pre-retrieval entity extraction |
-| `LITELLM_POST_MODEL` | `openai/gpt-4o` | GraphRAG Retriever | Answer synthesis |
+| `LITELLM_PLANNER_MODEL` | `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` | GraphRAG Retriever | Query classification and planning |
+| `LITELLM_PRE_MODEL` | `gemini-2.5-pro` | GraphRAG Retriever | Pre-retrieval entity extraction |
+| `LITELLM_POST_MODEL` | `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` | GraphRAG Retriever | Answer synthesis |
 | `LITELLM_REFORMAT_MODEL` | `groq/llama-3.3-70b-versatile` | GraphRAG Retriever | Response reformatting (if enabled) |
 | `LITELLM_STRATEGIST_MODEL` | `openai/gpt-4o-mini` | Orchestrator | Strategic planning |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Various Agents | General purpose default |
@@ -129,14 +129,13 @@ The following models are configured for routing in the BLAIQ system:
 Create or edit `.env` in the project root:
 
 ```bash
-# Use Claude 4.6 for post-retrieval (high quality answers)
-LITELLM_POST_MODEL=vertex_ai/claude-sonnet-4-6@default
-
-# Use GPT-4o-mini for fast planning
-LITELLM_PLANNER_MODEL=openai/gpt-4o-mini
+# Use Gemini for fast pre-retrieval and Claude for planning/final answers
+LITELLM_PRE_MODEL=gemini-2.5-pro
+LITELLM_PLANNER_MODEL=eu.anthropic.claude-sonnet-4-5-20250929-v1:0
+LITELLM_POST_MODEL=eu.anthropic.claude-sonnet-4-5-20250929-v1:0
 
 # Set fallback for resilience
-OPENAI_FALLBACK_MODEL=gemini-2.5-pro
+OPENAI_FALLBACK_MODEL=gemini-2.5-flash-lite
 ```
 
 ### Method 2: Docker Compose Override
@@ -180,10 +179,10 @@ OPENAI_FALLBACK_MODEL=gemini-2.5-pro
 ### Balanced Setup (Recommended)
 
 ```bash
-LITELLM_PRE_MODEL=groq/llama-3.1-8b-instant      # Fast, cheap
-LITELLM_PLANNER_MODEL=gpt-4o-mini                # Fast, good enough
-LITELLM_POST_MODEL=openai/gpt-4o                 # High quality
-OPENAI_FALLBACK_MODEL=gemini-2.5-pro             # Reliable fallback
+LITELLM_PRE_MODEL=gemini-2.5-pro                 # Fast enough, higher quality extraction
+LITELLM_PLANNER_MODEL=eu.anthropic.claude-sonnet-4-5-20250929-v1:0  # Stable routing
+LITELLM_POST_MODEL=eu.anthropic.claude-sonnet-4-5-20250929-v1:0      # High quality
+OPENAI_FALLBACK_MODEL=gemini-2.5-flash-lite      # Reliable fallback
 ```
 
 ---

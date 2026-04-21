@@ -7,10 +7,15 @@ Single JSON file per API for efficient storage
 """
 
 import json
+import logging
 import time
 from pathlib import Path
 from threading import Lock
 from typing import Dict, List, Optional
+
+from utils.logging_utils import log_flow
+
+logger = logging.getLogger("job_store")
 
 
 class JobStore:
@@ -34,12 +39,17 @@ class JobStore:
         # Initialize or load existing log file
         self._ensure_log_file_exists()
 
-        print(f"✅ JobStore initialized: {self.log_file.absolute()}")
+        log_flow(logger, "job_store_init", api_name=self.api_name, log_file=str(self.log_file.absolute()))
 
         # Load existing jobs on startup
         existing_jobs = self.list_all_jobs()
         if existing_jobs:
-            print(f"📂 Loaded {len(existing_jobs)} existing jobs from {self.api_name} API log")
+            log_flow(
+                logger,
+                "job_store_load_existing",
+                api_name=self.api_name,
+                existing_job_count=len(existing_jobs),
+            )
 
     def _ensure_log_file_exists(self):
         """Ensure the log file exists with proper structure"""

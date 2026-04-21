@@ -12,17 +12,22 @@ Use the same paths for either host:
 
 ## 2) Auth
 
-### Retriever routes (currently open)
-No auth required right now.
+### Protected routes
+`/api/v4/orchestrator/*` requires API key auth.
 
-### Pipeline routes (when mounted)
-Use Bearer auth:
+### Accepted auth formats
+Use one of:
 
 ```http
 Authorization: Bearer <YOUR_API_KEY>
 ```
 
-Also supported: `?api_key=<YOUR_API_KEY>`.
+Also supported:
+- `X-API-Key: <YOUR_API_KEY>`
+- `?api_key=<YOUR_API_KEY>`
+
+### Legacy routes
+`/agents` and `/upload` are currently unprotected in `src/orchestrator/orchestrator_api.py`.
 
 ## 3) Common Frontend Defaults
 

@@ -1,0 +1,61 @@
+{
+  "id": "pitch_deck_enterprise_v1",
+  "artifact_kind": "pitch_deck",
+  "default": true,
+  "description": "Enterprise investor narrative with restrained cinematic slides and strong information hierarchy.",
+  "layout": {
+    "max_width": "1120px",
+    "slide_padding": "48px 32px",
+    "nav_corner_radius": "999px",
+    "section_spacing": "28px"
+  },
+  "styles": {
+    "surface_mode": "cinematic",
+    "border_weight": "hairline",
+    "headline_scale": "editorial-xl",
+    "body_density": "balanced"
+  },
+  "page_blueprints": [
+    {
+      "section_id": "title_slide",
+      "objective": "Anchor narrative with one dominant thesis and immediate credibility signal.",
+      "layout": "hero"
+    },
+    {
+      "section_id": "problem",
+      "objective": "Establish urgency and business impact with evidence-led framing.",
+      "layout": "insight-grid"
+    },
+    {
+      "section_id": "solution",
+      "objective": "Explain mechanism and differentiation without visual noise.",
+      "layout": "narrative-block"
+    },
+    {
+      "section_id": "market",
+      "objective": "Quantify opportunity and strategic timing in one clean view.",
+      "layout": "kpi-showcase"
+    },
+    {
+      "section_id": "product",
+      "objective": "Show progression and implementation confidence.",
+      "layout": "timeline"
+    },
+    {
+      "section_id": "traction",
+      "objective": "Prove execution with trend-backed metrics.",
+      "layout": "chart-plus-proof"
+    },
+    {
+      "section_id": "team",
+      "objective": "Establish operator trust and role clarity.",
+      "layout": "profile-grid"
+    },
+    {
+      "section_id": "ask",
+      "objective": "Close with explicit ask, terms, and expected outcomes.",
+      "layout": "hero-cta"
+    }
+  ]
+}
+

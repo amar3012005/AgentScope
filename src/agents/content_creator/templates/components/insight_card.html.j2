@@ -1,0 +1,5 @@
+<div class="p-6 rounded-[28px] border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.01] backdrop-blur-md transition-all duration-300 hover:border-white/25">
+  {% if tag %}<span class="inline-block px-3 py-1 text-[10px] uppercase tracking-[0.24em] border border-white/15 rounded-full text-stone-400/70 mb-4">{{ tag }}</span>{% endif %}
+  <h3 class="text-base font-semibold text-stone-100 tracking-tight">{{ title }}</h3>
+  {% if body %}<p class="text-sm text-stone-300/72 mt-3 leading-7">{{ body }}</p>{% endif %}
+</div>

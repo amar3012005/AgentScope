@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useRef, useState, useMemo, useCallback } from 'react';
-import { submitWorkflow, resumeWorkflow } from './blaiq-client';
+import { submitWorkflow, resumeWorkflow, reRunFromPlanning } from './blaiq-client';
 
 const BlaiqWorkspaceContext = createContext(null);
 
@@ -287,12 +287,51 @@ export function normalizePreviewHtml(rawHtml, options = {}) {
   const extraCss = String(options.css || '').trim();
   let html = String(rawHtml || '').trim();
 
+  const normalizeDocumentShell = (documentHtml) => {
+    if (typeof DOMParser === 'undefined') {
+      return null;
+    }
+
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(documentHtml, 'text/html');
+      const headChildren = Array.from(doc.head?.childNodes || []);
+      const bodyChildren = Array.from(doc.body?.childNodes || []);
+
+      const headHtml = headChildren
+        .map((node) => node.outerHTML || node.textContent || '')
+        .join('')
+        .trim();
+      const bodyHtml = bodyChildren
+        .map((node) => node.outerHTML || node.textContent || '')
+        .join('')
+        .trim();
+
+      const hasTitle = /<title[\s>]/i.test(headHtml);
+      const headParts = [
+        /<meta\s+charset=/i.test(headHtml) ? '' : '<meta charset="utf-8">',
+        hasTitle ? '' : `<title>${escapeHtml(title)}</title>`,
+        headHtml,
+        extraCss ? `<style>${extraCss}</style>` : '',
+      ].filter(Boolean);
+
+      return `<!doctype html><html><head>${headParts.join('')}</head><body>${bodyHtml}</body></html>`;
+    } catch {
+      return null;
+    }
+  };
+
   if (!html) {
     return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>html,body{margin:0;min-height:100%;}body{display:grid;place-items:center;background:#faf9f4;color:#0f172a;font-family:Inter,system-ui,sans-serif;padding:32px}.card{max-width:720px;width:100%;border:1px solid rgba(15,23,42,.08);border-radius:24px;background:#fff;box-shadow:0 20px 60px rgba(15,23,42,.08);padding:28px}h1{margin:0 0 10px;font-size:22px;line-height:1.2}p{margin:0;color:#475569;line-height:1.7}</style></head><body><div class="card"><h1>No artifact yet</h1><p>The preview will appear as soon as the workflow returns rendered content.</p></div></body></html>`;
   }
 
   const hasDocumentShell = /<!doctype html>|<html[\s>]/i.test(html) && /<body[\s>]/i.test(html);
   if (hasDocumentShell) {
+    const normalizedHtml = normalizeDocumentShell(html);
+    if (normalizedHtml) {
+      return normalizedHtml;
+    }
+
     if (extraCss) {
       if (/<\/head>/i.test(html)) {
         return html.replace(/<\/head>/i, `<style>${extraCss}</style></head>`);
@@ -806,6 +845,7 @@ export function BlaiqWorkspaceProvider({ children }) {
       requirementsChecklist: null,
       contentDirector: null,
       agentRoster: [],
+      finalAnswerStreamed: false,
     };
     setTasks((prev) => [task, ...prev]);
     setActiveTaskId(id);
@@ -888,6 +928,7 @@ export function BlaiqWorkspaceProvider({ children }) {
       }
       if (event.type === 'workflow_complete' && event.data?.final_answer) {
         updated.finalAnswer = event.data.final_answer_display || event.data.final_answer;
+        updated.finalAnswerStreamed = false;
         updated.status = 'complete';
         updated.currentAgent = null;
         updated.steps = updated.steps.map((s) => ({ ...s, status: 'done' }));
@@ -1036,6 +1077,51 @@ export function BlaiqWorkspaceProvider({ children }) {
     }
   }, [isSubmitting, sessions, sessionId]);
 
+  // ─── Re-run from Planning ──────────────────────────────────
+
+  const reRunWorkflow = useCallback(async (taskId) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
+
+    const mode = task.workflowMode || 'hybrid';
+    const effectiveSessionId = task.sessionId;
+    const existingChainId = task.memoryChainId;
+
+    // We keep the old messages but reset status/steps to re-run from scratch
+    patchTask(taskId, {
+      status: 'running',
+      steps: makeSteps(mode),
+      events: [],
+      artifact: null,
+      artifactSections: [],
+      governanceReport: null,
+      evidencePack: null,
+      currentAgent: null,
+      hitl: { open: false, headline: '', intro: '', reason: '' },
+    });
+
+    try {
+      await reRunFromPlanning(
+        {
+          user_query: task.query,
+          workflow_mode: mode,
+          session_id: effectiveSessionId,
+          memory_chain_id: existingChainId,
+          artifact_type: 'visual_html',
+          source_scope: 'web',
+        },
+        (event) => handleEvent(taskId, event)
+      );
+    } catch (err) {
+      patchTask(taskId, { status: 'error', error: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [isSubmitting, tasks]);
+
   // ─── Resume (HITL) ──────────────────────────────────────────
 
   const resume = useCallback(async (taskId, reason) => {
@@ -1111,6 +1197,17 @@ export function BlaiqWorkspaceProvider({ children }) {
     }));
   }, []);
 
+  const markFinalAnswerStreamed = useCallback((taskId) => {
+    if (!taskId) return;
+    setTasks((prev) => prev.map((task) => {
+      if (task.id !== taskId || task.finalAnswerStreamed) return task;
+      return {
+        ...task,
+        finalAnswerStreamed: true,
+      };
+    }));
+  }, []);
+
   // ─── Reset ───────────────────────────────────────────────────
 
   function resetWorkspace() {
@@ -1125,7 +1222,7 @@ export function BlaiqWorkspaceProvider({ children }) {
       isDayMode, toggleDayMode,
       tasks, activeTask, activeTaskId, setActiveTaskId,
       query, setQuery, isSubmitting,
-      submit, resume, resetWorkspace,
+      submit, resume, reRunWorkflow, resetWorkspace,
       previewOpen, setPreviewOpen,
       messages,
       activeAgents,
@@ -1143,6 +1240,7 @@ export function BlaiqWorkspaceProvider({ children }) {
       updateHitlAnswer,
       updateHitlAnswerMode,
       updateHitlIndex,
+      markFinalAnswerStreamed,
       artifactFamily: activeTask?.artifactFamily || null,
       requirementsChecklist: activeTask?.requirementsChecklist || null,
       contentDirector: activeTask?.contentDirector || null,
@@ -1165,6 +1263,7 @@ export function BlaiqWorkspaceProvider({ children }) {
       previewOpen,
       submit,
       resume,
+      reRunWorkflow,
       messages,
       activeAgents,
       preview,
@@ -1179,6 +1278,7 @@ export function BlaiqWorkspaceProvider({ children }) {
       updateHitlAnswer,
       updateHitlAnswerMode,
       updateHitlIndex,
+      markFinalAnswerStreamed,
       activeTask?.artifactFamily,
       activeTask?.requirementsChecklist,
       activeTask?.contentDirector,

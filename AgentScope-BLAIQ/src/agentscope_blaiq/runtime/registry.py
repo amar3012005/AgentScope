@@ -9,8 +9,10 @@ from agentscope_blaiq.agents.graph_stub import GraphKnowledgeAgent
 from agentscope_blaiq.agents.content_director import ContentDirectorAgent
 from agentscope_blaiq.agents.governance import GovernanceAgent
 from agentscope_blaiq.agents.deep_research import BlaiqDeepResearchAgent, FinanceDeepResearchAgent
+from agentscope_blaiq.agents.data_science import DataScienceAgent
 from agentscope_blaiq.agents.research import ResearchAgent
 from agentscope_blaiq.agents.strategic import StrategicAgent
+from agentscope_blaiq.agents.text_buddy import TextBuddyAgent
 from agentscope_blaiq.agents.vangogh import VangoghAgent
 from agentscope_blaiq.runtime.config import settings
 from agentscope_blaiq.runtime.hivemind_mcp import HivemindMCPClient
@@ -22,6 +24,13 @@ class AgentRegistry:
         self.hivemind = HivemindMCPClient(
             rpc_url=settings.hivemind_mcp_rpc_url,
             api_key=settings.hivemind_api_key,
+            enterprise_base_url=settings.hivemind_enterprise_base_url,
+            enterprise_api_key=settings.hivemind_enterprise_api_key,
+            enterprise_org_id=settings.hivemind_enterprise_org_id,
+            enterprise_user_id=settings.hivemind_enterprise_user_id,
+            enterprise_platform=settings.hivemind_enterprise_platform,
+            enterprise_project=settings.hivemind_enterprise_project,
+            enterprise_agent_name=settings.hivemind_enterprise_agent_name,
             timeout_seconds=settings.hivemind_timeout_seconds,
             poll_interval_seconds=settings.hivemind_web_poll_interval_seconds,
             poll_attempts=settings.hivemind_web_poll_attempts,
@@ -37,8 +46,13 @@ class AgentRegistry:
             hivemind=self.hivemind,
             resolver=self.resolver,
         )
+        self.data_science = DataScienceAgent(
+            hivemind=self.hivemind,
+            resolver=self.resolver,
+        )
         self.content_director = ContentDirectorAgent(resolver=self.resolver)
         self.vangogh = VangoghAgent(resolver=self.resolver)
+        self.text_buddy = TextBuddyAgent(resolver=self.resolver)
         self.governance = GovernanceAgent(resolver=self.resolver)
         self.graph_knowledge = GraphKnowledgeAgent() if settings.enable_graph_agent else None
         self._runtime_state: dict[str, dict[str, object]] = {}
@@ -196,6 +210,28 @@ class AgentRegistry:
                 notes=["Finance-specific deep research with hypothesis verification; used when analysis_mode is finance."],
             ),
             LiveAgentProfile(
+                name="data_science",
+                role="autonomous data analysis",
+                status=AgentStatus.ready,
+                model=self.resolver.resolve("data_scientist").model_name,
+                capabilities=[
+                    AgentCapability(name="data_upload_processing", description="Process uploaded CSV, Excel, and JSON files with schema inference.", supported_task_types=["data_analysis", "upload_processing"], supported_task_roles=["data_science"], supported_artifact_families=["report", "finance_analysis", "dashboard"]),
+                    AgentCapability(name="sandboxed_code_execution", description="Execute Python data analysis code in secure Docker sandbox.", supported_task_types=["data_analysis", "code_execution"], supported_task_roles=["data_science"], supported_artifact_families=["report", "finance_analysis", "dashboard"]),
+                    AgentCapability(name="statistical_analysis", description="Perform descriptive statistics, correlation analysis, and hypothesis testing.", supported_task_types=["data_analysis", "statistics"], supported_task_roles=["data_science"], supported_artifact_families=["report", "finance_analysis", "dashboard"]),
+                    AgentCapability(name="visualization_generation", description="Generate charts and plots using plotly, matplotlib, and seaborn.", supported_task_types=["data_analysis", "visualization"], supported_task_roles=["data_science"], supported_artifact_families=["report", "finance_analysis", "dashboard"]),
+                    AgentCapability(name="automated_report_generation", description="Generate HTML reports with insights, visualizations, and executable code.", supported_task_types=["data_analysis", "reporting"], supported_task_roles=["data_science"], supported_artifact_families=["report", "finance_analysis", "dashboard"]),
+                ],
+                skills=[
+                    AgentSkill(name="data_loading", level="core"),
+                    AgentSkill(name="statistical_modeling", level="core"),
+                    AgentSkill(name="data_visualization", level="core"),
+                    AgentSkill(name="insight_generation", level="core"),
+                ],
+                tools=["data_upload", "sandbox_execute", "statistical_test", "generate_visualization"],
+                planner_roles=["data_science"],
+                notes=["Autonomous data analysis agent with sandboxed code execution; used when analysis_mode is data_science."],
+            ),
+            LiveAgentProfile(
                 name="content_director",
                 role="content planning",
                 status=AgentStatus.ready,
@@ -225,6 +261,25 @@ class AgentRegistry:
                     AgentSkill(name="editorial_layout", level="core"),
                 ],
                 tools=["artifact_contract"],
+            ),
+            LiveAgentProfile(
+                name="text_buddy",
+                role="brand-voice text composition",
+                status=AgentStatus.ready,
+                model=self.resolver.resolve("text_buddy").model_name,
+                capabilities=[
+                    AgentCapability(name="text_composition", description="Compose final text outputs (emails, invoices, letters, memos, proposals, social posts, summaries) in brand voice.", supported_task_types=["writing", "composition"], supported_task_roles=["text_buddy"], supported_artifact_families=["email", "invoice", "letter", "memo", "proposal", "social_post", "summary"]),
+                    AgentCapability(name="brand_voice_writing", description="Apply enterprise-specific brand voice guidelines to all text output.", supported_task_types=["writing", "brand"], supported_task_roles=["text_buddy"], supported_artifact_families=["email", "invoice", "letter", "memo", "proposal", "social_post", "summary"]),
+                    AgentCapability(name="template_formatting", description="Format text according to artifact-specific templates (email structure, invoice layout, etc.).", supported_task_types=["writing", "formatting"], supported_task_roles=["text_buddy"], supported_artifact_families=["email", "invoice", "letter", "memo", "proposal", "social_post", "summary"]),
+                ],
+                skills=[
+                    AgentSkill(name="brand_voice_application", level="core"),
+                    AgentSkill(name="text_template_adherence", level="core"),
+                    AgentSkill(name="evidence_citation", level="core"),
+                ],
+                tools=["apply_brand_voice", "select_template", "format_output"],
+                planner_roles=["text_buddy"],
+                notes=["Text counterpart to VanGogh — handles all non-visual artifact output in brand voice."],
             ),
             LiveAgentProfile(
                 name="governance",

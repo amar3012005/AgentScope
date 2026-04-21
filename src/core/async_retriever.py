@@ -1,12 +1,19 @@
 """
 Async Parallel Retrieval for GraphRAG
-Runs Vector, Graph, and Keyword searches concurrently.
+Runs Vector and Keyword searches concurrently.
+Graph search is disabled by default for the fast path.
 """
 
 import asyncio
+import os
 import time
 from typing import Dict, List, Optional, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor
+import logging
+
+from utils.logging_utils import log_flow
+
+logger = logging.getLogger("async_retriever")
 
 
 class AsyncRetriever:
@@ -53,18 +60,26 @@ class AsyncRetriever:
         k: int
     ) -> Tuple[Dict[int, float], float]:
         """Run graph search in thread pool."""
-        if not entities or not self.retriever.neo4j_driver:
+        if not entities or not self.retriever.neo4j_driver or os.getenv("GRAPH_SEARCH_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
             return {}, 0.0
         
         start = time.time()
         loop = asyncio.get_event_loop()
-        
-        results = await loop.run_in_executor(
-            self.executor,
-            self.retriever.entity_based_retrieval,
-            entities,
-            k
-        )
+        timeout_s = float(os.getenv("GRAPH_SEARCH_TIMEOUT_S", "2.5"))
+
+        try:
+            results = await asyncio.wait_for(
+                loop.run_in_executor(
+                    self.executor,
+                    self.retriever.entity_based_retrieval,
+                    entities,
+                    k
+                ),
+                timeout=timeout_s,
+            )
+        except asyncio.TimeoutError:
+            log_flow(logger, "graph_search_timeout", level="warning", timeout_s=round(timeout_s, 2))
+            return {}, timeout_s
         
         elapsed = time.time() - start
         return results, elapsed
@@ -147,8 +162,9 @@ class AsyncRetriever:
             (rankings dict, timing dict)
         """
         if plan is None:
-            # Default to all enabled
-            plan = {"use_vector": True, "use_graph": True, "use_keyword": True}
+            # Default to the fast path: vector + keyword only
+            plan = {"use_vector": True, "use_graph": False, "use_keyword": True}
+        plan["use_graph"] = bool(plan.get("use_graph", False) and os.getenv("GRAPH_SEARCH_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"})
         # Launch all searches concurrently
         # Launch searches concurrently based on plan
         tasks = []
@@ -199,7 +215,13 @@ class AsyncRetriever:
             
             # Check if task raised an exception
             if isinstance(task_result, Exception):
-                print(f"  ❌ Parallel task '{type_key}' failed: {task_result}")
+                log_flow(
+                    logger,
+                    "parallel_task_failed",
+                    level="error",
+                    task=type_key,
+                    error=str(task_result),
+                )
                 timings[f"{type_key}_search"] = 0.0
                 continue
                 

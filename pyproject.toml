@@ -45,10 +45,19 @@ dependencies = [
     "qdrant-client>=1.15.1",
     "rapidfuzz>=3.14.1",
     "requests>=2.32.5",
+    "openai>=1.0",
     "sentence-transformers>=5.1.0",
     "tiktoken>=0.11.0",
     "uvicorn>=0.37.0",
     "websockets>=15.0.1",
+    "langgraph>=0.4",
+    "langgraph-checkpoint-redis>=0.1",
+    "temporalio>=1.8",
+    "opentelemetry-sdk>=1.25",
+    "opentelemetry-instrumentation-fastapi>=0.46b0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.25",
+    "redis>=5.0",
+    "jinja2>=3.1",
 ]
 [build-system]
 requires = ["hatchling"]

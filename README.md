@@ -1,6 +1,8 @@
-# GraphRAG Pipeline - Hybrid Document Processing & Retrieval System
+# BLAIQ Pipeline - Hybrid Orchestration, Retrieval, and Rendering System
 
-A sophisticated document processing and retrieval system combining vector search, knowledge graphs, and LLM-powered question answering with flexible metadata support, comprehensive file management, and database cleanup capabilities.
+A production pipeline that combines browser-held conversation state, CORE orchestration, GraphRAG retrieval, template-driven artifact rendering, HITL clarification, and governance into one progressive workflow.
+
+If you only read one architecture doc, read [docs/PIPELINE_ARCHITECTURE.md](docs/PIPELINE_ARCHITECTURE.md).
 
 ---
 

@@ -1,0 +1,21 @@
+<section class="px-8 py-6 md:px-12">
+  <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    {% for item in details %}
+    <div class="rounded-[1.8rem] p-4" style="background: color-mix(in srgb, {{ tokens.surface | default('#171718') }} 88%, transparent); border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 10%, transparent);">
+      <div class="flex items-center gap-2">
+        {% if item.icon %}
+        <span class="text-xs" style="color: color-mix(in srgb, {{ tokens.accent | default(tokens.primary | default('#F5F5F1')) }} 88%, transparent);">{{ item.icon }}</span>
+        {% endif %}
+        <span class="text-[10px] font-mono uppercase tracking-[0.16em]" style="color: color-mix(in srgb, {{ tokens.muted | default('#A1A19B') }} 92%, transparent);">{{ item.label }}</span>
+      </div>
+      <div class="mt-3 text-lg font-semibold leading-7 tracking-[-0.02em]" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ item.value }}</div>
+      {% if item.note %}
+      <p class="mt-2 text-sm leading-6" style="color: color-mix(in srgb, {{ tokens.ink | default('#E8E7E2') }} 76%, transparent);">{{ item.note }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% if footnote %}
+  <p class="mt-4 text-[11px] leading-6" style="color: color-mix(in srgb, {{ tokens.muted | default('#A1A19B') }} 88%, transparent);">{{ footnote }}</p>
+  {% endif %}
+</section>

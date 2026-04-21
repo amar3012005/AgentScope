@@ -1,0 +1,13 @@
+<div class="px-8 md:px-16 py-16">
+  {% if title %}<h2 class="text-3xl md:text-5xl font-semibold tracking-[-0.03em] mb-12 font-['Cormorant_Garamond']" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ title }}</h2>{% endif %}
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-{{ [stats | length, 4] | min }} gap-6">
+    {% for stat in stats %}
+    <div class="flex flex-col items-center justify-center p-8 rounded-[32px] backdrop-blur-md" style="border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 10%, transparent); background: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 4%, transparent);">
+      <span class="text-4xl md:text-6xl font-semibold tracking-[-0.04em] font-['Cormorant_Garamond']" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ stat.value }}</span>
+      <span class="text-[11px] uppercase tracking-[0.24em] mt-3" style="color: color-mix(in srgb, {{ tokens.muted | default('#A1A19B') }} 86%, transparent);">{{ stat.label }}</span>
+      {% if stat.unit %}<span class="text-sm mt-1" style="color: color-mix(in srgb, {{ tokens.muted | default('#A1A19B') }} 74%, transparent);">{{ stat.unit }}</span>{% endif %}
+      {% if stat.trend %}<span class="text-xs mt-2" style="color: {% if stat.trend.startswith('+') or stat.trend == 'up' %}{{ tokens.accent_emerald | default('#8F8F8A') }}{% elif stat.trend.startswith('-') or stat.trend == 'down' %}{{ tokens.accent_purple | default('#6E6E6A') }}{% else %}{{ tokens.muted | default('#A1A19B') }}{% endif %};">{{ stat.trend }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>

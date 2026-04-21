@@ -47,6 +47,16 @@ body {
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(40px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideRight {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 @keyframes shimmer {
   0% { background-position: -200% center; }
   100% { background-position: 200% center; }
@@ -212,4 +222,68 @@ body {
 .slides-container {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* ── Portrait Poster Layout ──────────────────────────────────────────────── */
+/* Enterprise portrait: vertically scrollable, A2-proportioned, dark canvas  */
+
+.poster-layout {
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100vh;
+  width: 100vw;
+  background: #050505;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.poster-layout::-webkit-scrollbar {
+  display: none;
+}
+
+/* Poster panel: centered narrow column for portrait feel */
+.poster-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0;
+}
+
+/* Each section is its own visual block — no min-height constraints */
+.poster-layout .poster-section {
+  width: 100%;
+  position: relative;
+}
+
+/* Remove any leftover height overrides from old single-viewport mode */
+.poster-layout .poster-section > div {
+  min-height: unset !important;
+  height: auto !important;
+}
+
+.poster-layout .poster-section section {
+  min-height: unset !important;
+  height: auto !important;
+}
+
+/* Section divider line */
+.poster-layout .poster-section + .poster-section::before {
+  content: '';
+  display: block;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  margin: 0 clamp(2rem, 8vw, 6rem);
+}
+
+/* ── Print / export optimisation ──────────────────────────────────────────── */
+@media print {
+  .poster-layout {
+    overflow: visible;
+    height: auto;
+  }
+  .poster-panel {
+    max-width: 100%;
+  }
 }

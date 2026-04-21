@@ -1,0 +1,9 @@
+<div class="px-8 md:px-16 py-16">
+  {% if title %}<h2 class="text-3xl md:text-5xl font-semibold tracking-[-0.03em] mb-12 font-['Cormorant_Garamond']" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ title }}</h2>{% endif %}
+  <div class="p-6 rounded-[28px] backdrop-blur-md" style="border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 10%, transparent); background: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 4%, transparent);">
+    <div class="relative" style="max-height: 400px;">
+      <canvas data-chart-config='{{ chart_config | tojson }}'></canvas>
+    </div>
+    {% if caption %}<p class="text-xs mt-3" style="color: color-mix(in srgb, {{ tokens.muted | default('#A1A19B') }} 74%, transparent);">{{ caption }}</p>{% endif %}
+  </div>
+</div>

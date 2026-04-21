@@ -1,0 +1,201 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Sidebar / chrome */
+  --sidebar-bg: #0a0a0a;
+  --sidebar-hover: #1a1a1a;
+  --sidebar-active: #1f1f1f;
+  --sidebar-border: #1e1e1e;
+  --sidebar-text: #a1a1a1;
+  --sidebar-text-active: #F6F4F1;
+  --sidebar-section: #6b6b6b;
+
+  /* Main content */
+  --surface: #ffffff;
+  --surface-secondary: #f7f7f5;
+  --surface-muted: #f0f0ee;
+  --border: #e5e5e3;
+  --border-strong: #d4d4d2;
+
+  /* Text */
+  --text-primary: #F6F4F1;
+  --text-secondary: #6b6b6b;
+  --text-muted: #9a9a9a;
+
+  /* Accent — Coral palette */
+  --accent: #F95C4B;
+  --accent-hover: #e04d3d;
+  --coral: #F95C4B;
+  --paper: #F6F4F1;
+  --stone: #E4DED2;
+
+  background: var(--sidebar-bg);
+  color: var(--text-primary);
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--sidebar-bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::selection {
+  background: rgba(249, 92, 75, 0.25);
+  color: #F6F4F1;
+}
+
+/* ── Night gradient (dark mode) ──────────────────────────────────────────── */
+.hero-gradient {
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(249, 92, 75, 0.55) 0%, transparent 45%),
+    radial-gradient(ellipse at 75% 20%, rgba(228, 222, 210, 0.12) 0%, transparent 40%),
+    radial-gradient(ellipse at 50% 60%, rgba(220, 80, 55, 0.30) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 85%, rgba(140, 50, 35, 0.28) 0%, transparent 45%),
+    linear-gradient(180deg, #1c0a0a 0%, #110606 100%);
+}
+
+/* ── Day gradient (light mode) ───────────────────────────────────────────── */
+.day .hero-gradient {
+  background:
+    radial-gradient(ellipse at 18% 12%, rgba(249, 92, 75, 0.22) 0%, transparent 44%),
+    radial-gradient(ellipse at 78% 18%, rgba(228, 222, 210, 0.55) 0%, transparent 42%),
+    radial-gradient(ellipse at 50% 70%, rgba(249, 92, 75, 0.10) 0%, transparent 48%),
+    radial-gradient(ellipse at 88% 85%, rgba(228, 210, 200, 0.30) 0%, transparent 44%),
+    linear-gradient(180deg, #F6F4F1 0%, #EDE9E4 100%);
+}
+
+/* Light scrollbar for main content area */
+.light-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+/* Day-mode scrollbar */
+.day *::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* Prose styling for BLAIQ markdown content */
+.prose-blaiq {
+  font-size: 14px;
+  line-height: 1.75;
+  color: #a1a1a1;
+}
+
+/* Streaming cursor animation */
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.streaming-cursor::after {
+  content: '▎';
+  color: #F95C4B;
+  animation: blink-cursor 0.8s step-end infinite;
+  margin-left: 1px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(80px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* GPS pipeline animations */
+@keyframes gps-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(249, 92, 75, 0.5); }
+  50% { box-shadow: 0 0 0 8px rgba(249, 92, 75, 0); }
+}
+
+@keyframes gps-beacon {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+
+@keyframes gps-flow {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 24px; }
+}
+
+@keyframes gps-glow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes gps-scan {
+  0% { top: 0; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+.gps-pulse {
+  animation: gps-pulse 2s ease-in-out infinite;
+}
+
+.gps-beacon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid #F95C4B;
+  animation: gps-beacon 1.5s ease-out infinite;
+}
+
+.gps-flow-line {
+  background-image: repeating-linear-gradient(
+    180deg,
+    #F95C4B 0px,
+    #F95C4B 4px,
+    transparent 4px,
+    transparent 12px
+  );
+  background-size: 2px 24px;
+  animation: gps-flow 0.8s linear infinite;
+}
+
+.gps-glow {
+  animation: gps-glow 1.5s ease-in-out infinite;
+}
+
+.gps-scan-line::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #F95C4B, transparent);
+  animation: gps-scan 3s ease-in-out infinite;
+  border-radius: 1px;
+}

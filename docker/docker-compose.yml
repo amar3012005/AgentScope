@@ -19,6 +19,7 @@ services:
         environment:
             - CONFIG_FILE=/app/config.yaml
             - API_KEY=${API_KEY}
+            - API_KEYS=${API_KEYS}
             - OPENAI_API_KEY=${OPENAI_API_KEY}
             - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
             - QDRANT_URL=${QDRANT_URL}
@@ -54,6 +55,7 @@ services:
         environment:
             - CONFIG_FILE=/app/config.yaml
             - API_KEY=${API_KEY}
+            - API_KEYS=${API_KEYS}
             - OPENAI_API_KEY=${OPENAI_API_KEY}
             - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
             - QDRANT_URL=${QDRANT_URL}

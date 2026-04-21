@@ -1,0 +1,41 @@
+{
+  "id": "poster_studio_v1",
+  "artifact_kind": "poster",
+  "default": true,
+  "description": "Studio-grade campaign poster system with print-lean hierarchy and tension-focused copy flow.",
+  "layout": {
+    "max_width": "1200px",
+    "section_spacing": "22px",
+    "grid_step": "42px",
+    "hero_focus": "upper-left"
+  },
+  "styles": {
+    "surface_mode": "editorial",
+    "border_weight": "soft",
+    "headline_scale": "display",
+    "body_density": "tight"
+  },
+  "page_blueprints": [
+    {
+      "section_id": "hero",
+      "objective": "Deliver the core campaign statement in one glance.",
+      "layout": "poster-hero"
+    },
+    {
+      "section_id": "proof",
+      "objective": "Support the claim with compact, high-trust evidence blocks.",
+      "layout": "proof-strip"
+    },
+    {
+      "section_id": "details",
+      "objective": "Provide operational specifics for action or attendance.",
+      "layout": "details-grid"
+    },
+    {
+      "section_id": "cta",
+      "objective": "Convert attention into a decisive next step.",
+      "layout": "closing-cta"
+    }
+  ]
+}
+

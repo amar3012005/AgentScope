@@ -1,0 +1,10 @@
+<div class="flex flex-col items-center justify-center min-h-[60vh] text-center px-8 relative overflow-hidden">
+  {% if background_effect == 'spotlight' %}
+  <div class="absolute inset-0 pointer-events-none" style="background: radial-gradient(circle at center, color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 12%, transparent), transparent 62%);"></div>
+  {% elif background_effect == 'gradient' %}
+  <div class="absolute inset-0 pointer-events-none" style="background: linear-gradient(135deg, color-mix(in srgb, {{ tokens.accent_blue | default('#CFCFCB') }} 18%, transparent), transparent 44%, color-mix(in srgb, {{ tokens.accent_emerald | default('#8F8F8A') }} 14%, transparent));"></div>
+  {% endif %}
+  <h1 class="text-5xl md:text-7xl lg:text-8xl font-semibold tracking-[-0.04em] uppercase relative z-10 font-['Cormorant_Garamond'] max-w-5xl" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ headline }}</h1>
+  {% if subheadline %}<p class="text-lg md:text-xl mt-6 max-w-2xl leading-8 relative z-10" style="color: color-mix(in srgb, {{ tokens.ink | default('#E8E7E2') }} 82%, transparent);">{{ subheadline }}</p>{% endif %}
+  {% if cta_text %}<a class="mt-10 inline-block px-8 py-3 text-sm font-medium tracking-wider uppercase rounded-full transition-all duration-300 relative z-10" style="border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 22%, transparent); color: {{ tokens.primary | default('#F5F5F1') }}; background: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 6%, transparent);">{{ cta_text }}</a>{% endif %}
+</div>

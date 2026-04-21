@@ -999,6 +999,143 @@
       background: var(--border-hover);
     }
 
+    /* Execution Timeline */
+    .execution-timeline {
+        position: fixed; right: 20px; top: 80px; width: 280px;
+        background: rgba(15, 15, 17, 0.95); border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px; padding: 16px; z-index: 100;
+        backdrop-filter: blur(12px); max-height: 400px; overflow-y: auto;
+    }
+    .timeline-header {
+        color: #FF4500; font-size: 11px; text-transform: uppercase; letter-spacing: 2px;
+        font-weight: 700; margin-bottom: 12px; font-family: 'Space Grotesk', monospace;
+    }
+    .timeline-step {
+        display: flex; align-items: flex-start; gap: 10px; padding: 6px 0;
+        font-size: 13px; color: #999; transition: color 0.3s;
+    }
+    .timeline-step.active { color: #FF4500; font-weight: 500; }
+    .timeline-step.done { color: #22c55e; }
+    .timeline-step.failed { color: #ef4444; }
+    .timeline-step.blocked { color: #f59e0b; }
+    .timeline-step.warning { color: #f59e0b; }
+    .step-dot {
+        font-size: 8px; margin-top: 4px; flex-shrink: 0;
+    }
+    .timeline-step.active .step-dot { animation: pulse 1.5s infinite; }
+
+    /* Schema Editor Panel */
+    .schema-panel {
+        position: fixed; right: 20px; top: 500px; width: 280px;
+        background: rgba(15, 15, 17, 0.95); border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px; padding: 16px; z-index: 100;
+        backdrop-filter: blur(12px);
+    }
+    .schema-header {
+        display: flex; justify-content: space-between; align-items: center;
+        color: #fff; font-size: 14px; font-weight: 600; margin-bottom: 12px;
+    }
+    .schema-label {
+        color: #FF4500; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+        font-weight: 600; margin-top: 10px; display: block;
+        font-family: 'Space Grotesk', monospace;
+    }
+    .schema-input {
+        width: 100%; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px; padding: 8px; color: #fff; font-size: 12px;
+        font-family: 'Space Grotesk', monospace; resize: vertical; margin-top: 4px;
+    }
+    .schema-input:focus { outline: none; border-color: #FF4500; }
+    .schema-tags {
+        display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;
+    }
+    .schema-tag {
+        background: rgba(255, 69, 0, 0.15); border: 1px solid rgba(255, 69, 0, 0.3);
+        color: #FF6B35; padding: 4px 10px; border-radius: 16px; font-size: 11px;
+        display: flex; align-items: center; gap: 4px;
+    }
+    .schema-tag-remove {
+        cursor: pointer; font-size: 14px; opacity: 0.6;
+    }
+    .schema-tag-remove:hover { opacity: 1; }
+
+    /* HITL Bento-Grid Overlay */
+    .hitl-overlay {
+        position: fixed; inset: 0; z-index: 10000;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .hitl-backdrop {
+        position: absolute; inset: 0;
+        background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px);
+    }
+    .hitl-panel {
+        position: relative; z-index: 1;
+        background: #0a0a0a; border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px; padding: 32px; max-width: 720px; width: 90%;
+        box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+    }
+    .hitl-header {
+        display: flex; align-items: center; gap: 12px; margin-bottom: 24px;
+    }
+    .hitl-header h3 {
+        color: #fff; font-size: 20px; font-weight: 600; margin: 0;
+        font-family: 'Space Grotesk', monospace;
+    }
+    .hitl-icon {
+        font-size: 24px; background: linear-gradient(135deg, #FF4500, #FF6B35);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hitl-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;
+    }
+    .hitl-card {
+        background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px; padding: 16px;
+        transition: border-color 0.2s;
+    }
+    .hitl-card:focus-within {
+        border-color: #FF4500;
+    }
+    .hitl-card-label {
+        color: #FF4500; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+        font-weight: 600; margin-bottom: 8px; font-family: 'Space Grotesk', monospace;
+    }
+    .hitl-card-question {
+        color: #e0e0e0; font-size: 14px; margin-bottom: 12px; line-height: 1.4;
+    }
+    .hitl-card textarea {
+        width: 100%; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px; padding: 10px; color: #fff; font-size: 13px;
+        font-family: 'Space Grotesk', monospace; resize: vertical; min-height: 60px;
+    }
+    .hitl-card textarea:focus {
+        outline: none; border-color: #FF4500;
+    }
+    .hitl-chips {
+        display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+    }
+    .hitl-chip {
+        background: rgba(255, 69, 0, 0.15); border: 1px solid rgba(255, 69, 0, 0.3);
+        color: #FF6B35; padding: 4px 10px; border-radius: 20px; font-size: 11px;
+        cursor: pointer; transition: all 0.15s;
+    }
+    .hitl-chip:hover {
+        background: rgba(255, 69, 0, 0.3); color: #fff;
+    }
+    .hitl-submit-btn {
+        width: 100%; padding: 14px; background: linear-gradient(135deg, #FF4500, #FF6B35);
+        color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+        cursor: pointer; font-family: 'Space Grotesk', monospace;
+        transition: opacity 0.2s;
+    }
+    .hitl-submit-btn:hover { opacity: 0.9; }
+    .hitl-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .hitl-footer { margin-top: 8px; }
+
+    @media (max-width: 600px) {
+        .hitl-grid { grid-template-columns: 1fr; }
+    }
+
     /* Responsive */
     @media (max-width: 768px) {
       .sidebar {
@@ -1163,6 +1300,33 @@
           <span id="agentStatusText">Echo agent is working...</span>
         </div>
 
+        <!-- Execution Timeline -->
+        <div id="execution-timeline" class="execution-timeline" style="display:none;">
+            <div class="timeline-header">EXECUTION PLAN</div>
+            <div id="timeline-steps"></div>
+        </div>
+
+        <!-- Schema Editor Panel -->
+        <div id="schema-panel" class="schema-panel" style="display:none;">
+            <div class="schema-header">
+                <span>Content Schema</span>
+                <button onclick="document.getElementById('schema-panel').style.display='none'" style="background:none;border:none;color:#999;cursor:pointer;font-size:18px;">x</button>
+            </div>
+            <div class="schema-body">
+                <label class="schema-label">Vision Statement</label>
+                <textarea id="sp-vision" class="schema-input" rows="2"></textarea>
+                <label class="schema-label">Target Audience</label>
+                <textarea id="sp-audience" class="schema-input" rows="2"></textarea>
+                <label class="schema-label">KPIs</label>
+                <div id="sp-kpis" class="schema-tags"></div>
+                <label class="schema-label">Strategic Pillars</label>
+                <div id="sp-pillars" class="schema-tags"></div>
+            </div>
+            <button id="sp-regenerate" class="hitl-submit-btn" style="margin-top:12px;" onclick="regenerateWithSchema()">
+                Regenerate with edits
+            </button>
+        </div>
+
         <!-- Input Area -->
         <div class="input-container">
           <div class="input-wrapper">
@@ -1246,6 +1410,25 @@
         </div>
       </div>
     </main>
+  </div>
+
+  <!-- HITL Bento-Grid Overlay -->
+  <div id="hitl-overlay" class="hitl-overlay" style="display:none;">
+      <div class="hitl-backdrop"></div>
+      <div class="hitl-panel">
+          <div class="hitl-header">
+              <span class="hitl-icon">*</span>
+              <h3>Vangogh needs a few details</h3>
+          </div>
+          <div class="hitl-grid" id="hitl-grid">
+              <!-- 4 question cards injected dynamically -->
+          </div>
+          <div class="hitl-footer">
+              <button id="hitl-submit-btn" class="hitl-submit-btn" onclick="submitHITLAnswers()">
+                  Generate Content
+              </button>
+          </div>
+      </div>
   </div>
 
   <script>
@@ -1383,6 +1566,15 @@
 
       // Log
       addLog(`Sending message to ${currentAgent || 'orchestrator'}`, 'info');
+
+      // Route orchestrator/content-creator calls through SSE
+      if (currentAgent === 'content-creator' || isOrchestratorQuery(message)) {
+        isProcessing = false;
+        hideThinking();
+        updateSendButton();
+        sendToOrchestrator(message);
+        return;
+      }
 
       try {
         // Determine endpoint
@@ -2019,6 +2211,398 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // --- T3-A: SSE-based Orchestrator Communication ---
+
+    function isOrchestratorQuery(msg) {
+      const lower = msg.toLowerCase();
+      const keywords = ["pitch deck", "poster", "generate", "create", "design", "presentation", "slide", "landing page", "dashboard", "report"];
+      return keywords.some(k => lower.includes(k));
+    }
+
+    async function sendToOrchestrator(userQuery) {
+      const threadId = window._currentThreadId || null;
+      const payload = {
+        tenant_id: "default",
+        user_query: userQuery,
+        workflow_mode: "standard",
+        session_id: window._currentSessionId || crypto.randomUUID(),
+      };
+
+      // Show execution timeline
+      showTimeline();
+      addTimelineStep("Submitting...", "active");
+
+      try {
+        const response = await fetch("http://localhost:6080/api/v4/orchestrator/submit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop(); // keep incomplete line
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const raw = line.slice(6).trim();
+            if (raw === "[DONE]") {
+              finalizeTimeline();
+              return;
+            }
+            try {
+              handleOrchestratorEvent(JSON.parse(raw));
+            } catch (e) {
+              console.warn("SSE parse error:", e, raw);
+            }
+          }
+        }
+      } catch (err) {
+        addTimelineStep("Error: " + err.message, "failed");
+        addAssistantMessage("An error occurred: " + err.message);
+      }
+    }
+
+    // --- T3-B: Orchestrator Event Handler ---
+
+    function handleOrchestratorEvent(event) {
+      const type = event.type;
+      switch (type) {
+        case "submitted":
+          window._currentThreadId = event.thread_id;
+          window._currentSessionId = event.session_id;
+          updateTimelineStep("Submitting...", "done");
+          addTimelineStep("Workflow started", "active");
+          break;
+
+        case "workflow_started":
+          updateTimelineStep("Workflow started", "done");
+          break;
+
+        case "planning":
+          addTimelineStep("Planning workflow...", "active");
+          setTimeout(() => updateTimelineStep("Planning workflow...", "done"), 800);
+          break;
+
+        case "evidence_ready":
+          addTimelineStep("GraphRAG: Evidence retrieved", "done");
+          break;
+
+        case "content_ready":
+          addTimelineStep("Vangogh: Content generated", "done");
+          if (event.content_draft) {
+            const draft = event.content_draft;
+            if (draft.html_artifact) {
+              addHtmlContent(draft.html_artifact);
+            }
+            if (draft.schema_data) {
+              showSchemaPanel(draft.schema_data);
+            }
+          }
+          break;
+
+        case "hitl_required":
+          addTimelineStep("Workflow paused -- waiting for your input", "blocked");
+          showHITLOverlay(
+            event.questions || event.hitl_questions || [],
+            event.thread_id || window._currentThreadId,
+            event.node || "content_node"
+          );
+          break;
+
+        case "signal_sent":
+          updateTimelineStep("Resuming with your answers...", "done");
+          addTimelineStep("Signal sent to workflow", "done");
+          break;
+
+        case "resuming":
+          addTimelineStep("Resuming workflow...", "active");
+          break;
+
+        case "governance":
+          const report = event.governance_report || {};
+          if (report.validation_passed) {
+            addTimelineStep("Governance: All checks passed", "done");
+          } else {
+            addTimelineStep("Governance: " + (report.violations || []).slice(0, 2).join("; "), "warning");
+          }
+          break;
+
+        case "complete":
+          addTimelineStep("Complete", "done");
+          const artifact = event.final_artifact || event.result;
+          if (artifact) {
+            if (artifact.html_artifact) {
+              addHtmlContent(artifact.html_artifact);
+            } else if (artifact.approved_output) {
+              addHtmlContent(artifact.approved_output);
+            } else if (artifact.answer) {
+              addAssistantMessage(artifact.answer);
+            } else {
+              addAssistantMessage("Workflow completed successfully.");
+            }
+            if (artifact.schema_data) {
+              showSchemaPanel(artifact.schema_data);
+            }
+            // Show governance badge
+            if (artifact.validation_passed !== undefined) {
+              const badge = artifact.validation_passed ? "Governance Passed" : "Governance: Review needed";
+              addTimelineStep(badge, artifact.validation_passed ? "done" : "warning");
+            }
+          }
+          // Query thread status to confirm persistence
+          if (window._currentThreadId) {
+            queryThreadStatus(window._currentThreadId);
+          }
+          break;
+
+        case "error":
+          addTimelineStep("Error: " + (event.message || "Unknown error"), "failed");
+          addAssistantMessage("Error: " + (event.message || "An error occurred during the workflow."));
+          // Re-enable input
+          const errInput = document.getElementById("message-input") || document.getElementById("user-input") || document.getElementById("messageInput");
+          if (errInput) errInput.disabled = false;
+          break;
+
+        case "progress":
+          // Just a heartbeat, no UI update needed
+          break;
+
+        default:
+          console.log("Unknown SSE event:", type, event);
+      }
+    }
+
+    // Helper to add assistant message (used by orchestrator event handler)
+    function addAssistantMessage(text) {
+      addMessage(text, 'assistant', 'Orchestrator');
+    }
+
+    // --- T3-C: HITL Bento-Grid Overlay ---
+
+    let _hitlThreadId = null;
+    let _hitlAgentNode = null;
+
+    function showHITLOverlay(questions, threadId, agentNode) {
+      _hitlThreadId = threadId;
+      _hitlAgentNode = agentNode;
+      const grid = document.getElementById("hitl-grid");
+      grid.innerHTML = "";
+
+      questions.forEach((q, i) => {
+        const card = document.createElement("div");
+        card.className = "hitl-card";
+        card.innerHTML = `
+          <div class="hitl-card-label">Question ${i + 1}</div>
+          <div class="hitl-card-question">${q}</div>
+          <textarea id="hitl-answer-${i}" placeholder="Your answer..."></textarea>
+          <div class="hitl-chips">
+            ${getQuickChips(q).map(c => `<span class="hitl-chip" onclick="document.getElementById('hitl-answer-${i}').value='${c}'">${c}</span>`).join("")}
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+
+      document.getElementById("hitl-overlay").style.display = "flex";
+    }
+
+    function getQuickChips(question) {
+      const q = question.toLowerCase();
+      if (q.includes("audience") || q.includes("target")) return ["C-suite and board", "Enterprise buyers", "Sales leadership", "Investors"];
+      if (q.includes("kpi") || q.includes("metric") || q.includes("revenue") || q.includes("growth") || q.includes("margin")) return ["Revenue growth", "Gross margin", "CAC payback", "Pipeline conversion"];
+      if (q.includes("narrative") || q.includes("goal") || q.includes("board") || q.includes("investor") || q.includes("sales strategy")) return ["Board review", "Investor update", "Sales strategy", "Executive briefing"];
+      if (q.includes("style") || q.includes("design") || q.includes("tone") || q.includes("visual")) return ["Monochrome editorial", "Modern minimal", "Corporate clean", "Dense analytical"];
+      if (q.includes("format") || q.includes("output")) return ["Pitch deck", "Dashboard", "Landing page", "Report"];
+      if (q.includes("evidence") || q.includes("data")) return ["Use all available", "Latest only", "Key metrics", "Custom"];
+      if (q.includes("timeline") || q.includes("period") || q.includes("timeframe")) return ["Last 12 months", "Quarterly view", "Year over year", "Current quarter"];
+      return [];
+    }
+
+    async function submitHITLAnswers() {
+      const answers = {};
+      const textareas = document.querySelectorAll("[id^='hitl-answer-']");
+      textareas.forEach((ta, i) => {
+        if (ta.value.trim()) answers[`q${i + 1}`] = ta.value.trim();
+      });
+
+      if (Object.keys(answers).length === 0) {
+        alert("Please answer at least one question.");
+        return;
+      }
+
+      document.getElementById("hitl-overlay").style.display = "none";
+      addTimelineStep("Resuming with your answers...", "active");
+
+      // Stream the resume response (SSE)
+      try {
+        const response = await fetch("http://localhost:6080/api/v4/orchestrator/resume", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            thread_id: _hitlThreadId,
+            agent_node: _hitlAgentNode,
+            answers: answers,
+          }),
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const raw = line.slice(6).trim();
+            if (raw === "[DONE]") { finalizeTimeline(); return; }
+            try { handleOrchestratorEvent(JSON.parse(raw)); } catch (e) { console.warn(e); }
+          }
+        }
+      } catch (err) {
+        addTimelineStep("Resume error: " + err.message, "failed");
+      }
+    }
+
+    // --- T3-D: Timeline + Schema Panel Functions ---
+
+    function showTimeline() {
+      const el = document.getElementById("execution-timeline");
+      el.style.display = "block";
+      document.getElementById("timeline-steps").innerHTML = "";
+    }
+
+    function addTimelineStep(label, status) {
+      const container = document.getElementById("timeline-steps");
+      const step = document.createElement("div");
+      step.className = `timeline-step ${status}`;
+      step.setAttribute("data-label", label);
+      const time = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      step.innerHTML = `<span class="step-dot">*</span><span>[${time}] ${label}</span>`;
+      container.appendChild(step);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function updateTimelineStep(label, newStatus) {
+      const steps = document.querySelectorAll(".timeline-step");
+      for (const step of steps) {
+        if (step.getAttribute("data-label") === label) {
+          step.className = `timeline-step ${newStatus}`;
+          break;
+        }
+      }
+    }
+
+    function finalizeTimeline() {
+      // Mark all active steps as done
+      document.querySelectorAll(".timeline-step.active").forEach(s => s.className = "timeline-step done");
+    }
+
+    async function queryThreadStatus(threadId) {
+      try {
+        const resp = await fetch(`http://localhost:6080/api/v4/orchestrator/status/${threadId}`);
+        const data = await resp.json();
+        console.log("Thread status:", data);
+      } catch (e) {
+        console.warn("Status query failed:", e);
+      }
+    }
+
+    function showSchemaPanel(schema) {
+      document.getElementById("sp-vision").value = schema.vision_statement || "";
+      document.getElementById("sp-audience").value = typeof schema.target_audience === "string"
+        ? schema.target_audience
+        : (schema.target_audience?.persona || "");
+
+      // Render KPIs as tags
+      const kpisContainer = document.getElementById("sp-kpis");
+      kpisContainer.innerHTML = "";
+      (schema.kpis || []).forEach(kpi => {
+        const label = typeof kpi === "string" ? kpi : `${kpi.label}: ${kpi.value}${kpi.unit || ""}`;
+        const tag = document.createElement("span");
+        tag.className = "schema-tag";
+        tag.innerHTML = `${label} <span class="schema-tag-remove" onclick="this.parentElement.remove()">x</span>`;
+        kpisContainer.appendChild(tag);
+      });
+
+      // Render pillars as tags
+      const pillarsContainer = document.getElementById("sp-pillars");
+      pillarsContainer.innerHTML = "";
+      (schema.strategic_pillars || []).forEach(p => {
+        const label = typeof p === "string" ? p : p.title || p;
+        const tag = document.createElement("span");
+        tag.className = "schema-tag";
+        tag.innerHTML = `${label} <span class="schema-tag-remove" onclick="this.parentElement.remove()">x</span>`;
+        pillarsContainer.appendChild(tag);
+      });
+
+      document.getElementById("schema-panel").style.display = "block";
+      window._lastSchema = schema;
+    }
+
+    async function regenerateWithSchema() {
+      // Collect edited schema from the panel
+      const patched = {
+        vision_statement: document.getElementById("sp-vision").value,
+        target_audience: document.getElementById("sp-audience").value,
+        kpis: Array.from(document.getElementById("sp-kpis").children).map(t => t.textContent.replace("x", "").trim()),
+        strategic_pillars: Array.from(document.getElementById("sp-pillars").children).map(t => t.textContent.replace("x", "").trim()),
+      };
+
+      addTimelineStep("Regenerating with edits...", "active");
+
+      try {
+        const response = await fetch("http://localhost:6080/api/v4/orchestrator/regenerate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            thread_id: window._currentThreadId,
+            patched_schema: patched,
+            workflow_mode: "standard",
+          }),
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const raw = line.slice(6).trim();
+            if (raw === "[DONE]") { updateTimelineStep("Regenerating with edits...", "done"); return; }
+            try {
+              const evt = JSON.parse(raw);
+              if (evt.type === "regen_complete" && evt.html_artifact) {
+                addHtmlContent(evt.html_artifact);
+                updateTimelineStep("Regenerating with edits...", "done");
+              } else if (evt.type === "error") {
+                addTimelineStep("Regen error: " + evt.message, "failed");
+              }
+            } catch (e) { console.warn(e); }
+          }
+        }
+      } catch (err) {
+        addTimelineStep("Regen error: " + err.message, "failed");
+      }
     }
 
     // Listen for input changes

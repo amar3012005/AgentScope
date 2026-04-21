@@ -3,22 +3,32 @@ services:
     build:
       context: .
       dockerfile: docker/orchestrator/Dockerfile
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:6080}
+        VITE_TENANT_ID: ${VITE_TENANT_ID:-default}
+        VITE_API_KEY: ${API_KEY:-}
     env_file:
       - .env
     container_name: blaiq-core
-    command: [ "python", "-m", "uvicorn", "src.orchestrator.orchestrator_api:app", "--host", "0.0.0.0", "--port", "6000" ]
+    command: [ "python", "-m", "uvicorn", "src.orchestrator.orchestrator_api:app", "--host", "0.0.0.0", "--port", "6000", "--no-access-log", "--log-level", "warning" ]
     ports:
-      - "6080:6000" # BLAIQ-CORE API + WS gateway (6000 is browser-unsafe)
+      - "127.0.0.1:6080:6000" # BLAIQ-CORE API + WS gateway (6000 is browser-unsafe)
     environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BLAIQ_FLOW_LOGS_ONLY: ${BLAIQ_FLOW_LOGS_ONLY:-true}
+      BLAIQ_QUIET_LIB_LOGS: ${BLAIQ_QUIET_LIB_LOGS:-true}
       BLAIQ_DEFAULT_AGENT: ${BLAIQ_DEFAULT_AGENT:-blaiq-graph-rag}
       BLAIQ_GRAPHRAG_AGENT: ${BLAIQ_GRAPHRAG_AGENT:-blaiq-graph-rag}
       BLAIQ_GRAPHRAG_TIMEOUT_SECONDS: ${BLAIQ_GRAPHRAG_TIMEOUT_SECONDS:-300}
+      BLAIQ_UI_MODE: ${BLAIQ_UI_MODE:-auto}
       STRATEGIST_ENABLED: ${STRATEGIST_ENABLED:-true}
       # Model Routing - Fast models for strategy/planning
       LITELLM_STRATEGIST_MODEL: ${LITELLM_STRATEGIST_MODEL:-gpt-4o-mini}
       LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-gpt-4o-mini}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
+      TEMPORAL_HOST: temporal:7233
+      TEMPORAL_NAMESPACE: default
       TENANT_CONFIG_MAP_JSON: ${TENANT_CONFIG_MAP_JSON:-{}}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant-test:6333}
       QDRANT_API_KEY: ${QDRANT_API_KEY:-apikey12345678}
@@ -26,10 +36,17 @@ services:
       NEO4J_URI: ${NEO4J_URI:-bolt://neo4j-test:7687}
       NEO4J_USER: ${NEO4J_USER:-neo4j}
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password12345678}
+      REDIS_URL: redis://redis:6379
+      API_KEY: ${API_KEY:-}
+      API_KEYS: ${API_KEYS:-}
       BLAIQ_SUB_AGENTS: >-
         [{"name":"blaiq-graph-rag","protocol":"rest","base_url":"http://blaiq-graph-rag:6001","execute_path":"/query/graphrag","stream_path":"/query/graphrag/stream","history_path":"/history/{session_id}","supports_stream":true,"capabilities":["graphrag","stream","history"],"method":"POST","timeout_seconds":180},{"name":"echo-agent","protocol":"ws","base_url":"http://blaiq-echo-agent:6002","execute_path":"/execute","stream_path":"/execute","history_path":"","supports_stream":false,"capabilities":["utility"],"method":"POST","timeout_seconds":30},{"name":"blaiq-content-agent","protocol":"rest","base_url":"http://blaiq-content-agent:6003","execute_path":"/execute","stream_path":"/stream","history_path":"","supports_stream":true,"capabilities":["content_creation","gap_analysis"],"method":"POST","timeout_seconds":300}]
     depends_on:
       blaiq-graph-rag:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:6000/" ]
@@ -41,18 +58,19 @@ services:
     volumes:
       - .:/app
     networks:
-      - blaiq-agent-os
+      blaiq-agent-os:
+        aliases:
+          - temporal
 
     
 
   redis:
-    image: redis:7-alpine
+    image: redis/redis-stack-server:latest
     container_name: blaiq-redis
     ports:
-      - "6006:6379"
+      - "127.0.0.1:6006:6379"
     volumes:
       - blaiq_redis_data:/data
-    command: redis-server --appendonly yes
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
@@ -60,7 +78,9 @@ services:
       retries: 3
     restart: unless-stopped
     networks:
-      - blaiq-agent-os
+      blaiq-agent-os:
+        aliases:
+          - redis
 
   blaiq-graph-rag:
     build:
@@ -69,10 +89,14 @@ services:
     env_file:
       - .env
     container_name: blaiq-graph-rag
-    command: [ "python", "-m", "uvicorn", "src.retriever.retriever_api_optimized:app", "--host", "0.0.0.0", "--port", "6001" ]
+    command: [ "python", "-m", "uvicorn", "src.retriever.retriever_api_optimized:app", "--host", "0.0.0.0", "--port", "6001", "--no-access-log", "--log-level", "warning" ]
     ports:
-      - "6001:6001" # exposed for direct debugging; BLAIQ-CORE uses internal DNS
+      - "127.0.0.1:6001:6001" # exposed for direct debugging; BLAIQ-CORE uses internal DNS
     environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BLAIQ_FLOW_LOGS_ONLY: ${BLAIQ_FLOW_LOGS_ONLY:-true}
+      BLAIQ_QUIET_LIB_LOGS: ${BLAIQ_QUIET_LIB_LOGS:-true}
+      BLAIQ_UI_MODE: ${BLAIQ_UI_MODE:-auto}
       REDIS_URL: redis://redis:6379
       ENABLE_CACHE: "true"
       CACHE_TTL: 3600
@@ -90,23 +114,34 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
       # Model Routing for GraphRAG
-      # Pre-retrieval: Fast model for entity extraction
-      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-gpt-4o-mini}
-      # Planner: Fast model for query classification and planning
-      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-gpt-4o-mini}
-      # Post-retrieval: High quality model for answer generation
-      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-gemini-2.5-pro}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gemini-2.5-pro}
+      # Pre-retrieval: Graph/text search reasoning
+      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-gemini-2.5-pro}
+      # Planner: query classification and planning
+      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-eu.anthropic.claude-sonnet-4-5-20250929-v1:0}
+      # Post-retrieval: final answer generation
+      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-eu.anthropic.claude-sonnet-4-5-20250929-v1:0}
+      OPENAI_MODEL: ${OPENAI_MODEL:-eu.anthropic.claude-sonnet-4-5-20250929-v1:0}
 
       OPENAI_FALLBACK_MODEL: ${OPENAI_FALLBACK_MODEL:-}
       LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-25}
-      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-4000}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-1200}
+      GRAPHRAG_DEFAULT_USE_CACHE: ${GRAPHRAG_DEFAULT_USE_CACHE:-true}
+      GRAPHRAG_FAST_ANSWER_MODEL: ${GRAPHRAG_FAST_ANSWER_MODEL:-gemini-2.5-pro}
+      GRAPHRAG_FAST_ANSWER_MAX_CHUNKS: ${GRAPHRAG_FAST_ANSWER_MAX_CHUNKS:-5}
+      GRAPHRAG_FAST_ANSWER_MAX_TOKENS: ${GRAPHRAG_FAST_ANSWER_MAX_TOKENS:-800}
+      GRAPHRAG_RETRIEVAL_BROAD_K_MULTIPLIER: ${GRAPHRAG_RETRIEVAL_BROAD_K_MULTIPLIER:-2}
+      GRAPHRAG_RETRIEVAL_BROAD_K_MIN: ${GRAPHRAG_RETRIEVAL_BROAD_K_MIN:-16}
+      GRAPHRAG_RETRIEVAL_BROAD_K_MAX: ${GRAPHRAG_RETRIEVAL_BROAD_K_MAX:-40}
+      GRAPHRAG_RETRIEVAL_POOL_K_MULTIPLIER: ${GRAPHRAG_RETRIEVAL_POOL_K_MULTIPLIER:-2}
+      GRAPHRAG_RETRIEVAL_POOL_K_MIN: ${GRAPHRAG_RETRIEVAL_POOL_K_MIN:-16}
+      GRAPHRAG_RETRIEVAL_POOL_K_MAX: ${GRAPHRAG_RETRIEVAL_POOL_K_MAX:-40}
 
       BGE_M3_SERVICE_URL: ${BGE_M3_SERVICE_URL:-}
       BGE_M3_API_KEY: ${BGE_M3_API_KEY:-}
       BGE_M3_MODEL_ID: ${BGE_M3_MODEL_ID:-bge-m3}
 
       API_KEY: ${API_KEY:-}
+      API_KEYS: ${API_KEYS:-}
       ENABLE_RERANKER: ${ENABLE_RERANKER:-false}
       DEBUG_LLM: ${DEBUG_LLM:-false}
       DEBUG_RETRIEVAL: ${DEBUG_RETRIEVAL:-false}
@@ -131,9 +166,9 @@ services:
       context: .
       dockerfile: docker/orchestrator/Dockerfile
     container_name: blaiq-echo-agent
-    command: [ "python", "-m", "uvicorn", "src.agents.echo.agent:app", "--host", "0.0.0.0", "--port", "6002" ]
+    command: [ "python", "-m", "uvicorn", "src.agents.echo.agent:app", "--host", "0.0.0.0", "--port", "6002", "--no-access-log", "--log-level", "warning" ]
     ports:
-      - "6002:6002"
+      - "127.0.0.1:6002:6002"
     environment:
       AGENT_NAME: echo-agent
       AGENT_ENABLE_WS: "true"
@@ -141,6 +176,12 @@ services:
     depends_on:
       blaiq-core:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:6002/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
     networks:
       - blaiq-agent-os
@@ -152,10 +193,13 @@ services:
     env_file:
       - .env
     container_name: blaiq-content-agent
-    command: [ "python", "-m", "uvicorn", "src.agents.content_creator.agent:app", "--host", "0.0.0.0", "--port", "6003" ]
+    command: [ "python", "-m", "uvicorn", "src.agents.content_creator.agent:app", "--host", "0.0.0.0", "--port", "6003", "--no-access-log", "--log-level", "warning" ]
     ports:
-      - "6003:6003"
+      - "127.0.0.1:6003:6003"
     environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BLAIQ_FLOW_LOGS_ONLY: ${BLAIQ_FLOW_LOGS_ONLY:-true}
+      BLAIQ_QUIET_LIB_LOGS: ${BLAIQ_QUIET_LIB_LOGS:-true}
       AGENT_NAME: blaiq-content-agent
       AGENT_ENABLE_WS: "true"
       AGENT_CORE_WS_URL: ws://blaiq-core:6000/ws/agents/blaiq-content-agent
@@ -163,11 +207,12 @@ services:
       # Model Routing Configuration
       # Claude 4.6 for high-quality design generation (HTML/Tailwind)
       CONTENT_DESIGN_MODEL: ${CONTENT_DESIGN_MODEL:-vertex_ai/claude-sonnet-4-6@default}
-      # Fast model for gap analysis and strategy
-      CONTENT_ANALYSIS_MODEL: ${CONTENT_ANALYSIS_MODEL:-gpt-4o-mini}
-      GAP_ANALYSIS_MODEL: ${GAP_ANALYSIS_MODEL:-gpt-4o-mini}
+      # Fast model for planning/gap/schema extraction
+      CONTENT_ANALYSIS_MODEL: ${CONTENT_ANALYSIS_MODEL:-nebius/Qwen/Qwen3-32B-fast}
+      GAP_ANALYSIS_MODEL: ${GAP_ANALYSIS_MODEL:-nebius/Qwen/Qwen3-32B-fast}
+      VANGOGH_EXTRACTION_MODEL: ${VANGOGH_EXTRACTION_MODEL:-nebius/Qwen/Qwen3-32B-fast}
       # Legacy fallback
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_MODEL: ${OPENAI_MODEL:-nebius/Qwen/Qwen3-32B-fast}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
       # GraphRAG direct connection
@@ -175,11 +220,99 @@ services:
     depends_on:
       blaiq-core:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:6003/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
     volumes:
       - .:/app
     networks:
       - blaiq-agent-os
+
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    container_name: blaiq-temporal
+    ports:
+      - "127.0.0.1:7233:7233"
+      - "127.0.0.1:8088:8088"
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=temporal-db
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+    depends_on:
+      temporal-db:
+        condition: service_healthy
+    networks:
+      - blaiq-agent-os
+    healthcheck:
+      test: ["CMD-SHELL", "tctl --address temporal:7233 cluster health | grep -q SERVING"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  temporal-db:
+    image: postgres:15-alpine
+    container_name: blaiq-temporal-db
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - blaiq_temporal_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - blaiq-agent-os
+
+  temporal-worker:
+    build:
+      context: .
+      dockerfile: docker/temporal-worker/Dockerfile
+    container_name: blaiq-temporal-worker
+    env_file: .env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - BLAIQ_FLOW_LOGS_ONLY=${BLAIQ_FLOW_LOGS_ONLY:-true}
+      - BLAIQ_QUIET_LIB_LOGS=${BLAIQ_QUIET_LIB_LOGS:-true}
+      - TEMPORAL_HOST=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - BLAIQ_GRAPHRAG_URL=http://blaiq-graph-rag:6001
+      - BLAIQ_CONTENT_URL=http://blaiq-content-agent:6003
+      - REDIS_URL=redis://redis:6379
+      - TEMPORAL_READY_PATH=/tmp/temporal_ready
+      - TEMPORAL_CONNECT_RETRIES=60
+      - TEMPORAL_CONNECT_RETRY_DELAY_SECONDS=2
+      - PYTHONPATH=/app/src
+    depends_on:
+      temporal:
+        condition: service_healthy
+      blaiq-graph-rag:
+        condition: service_healthy
+      blaiq-content-agent:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - blaiq-agent-os
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "test -f /tmp/temporal_ready" ]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
 
 networks:
   blaiq-agent-os:
@@ -187,3 +320,5 @@ networks:
 
 volumes:
   blaiq_redis_data:
+  blaiq_temporal_db:
+  # blaiq_core_static_dist removed — bind mount .:/app covers static/dist/

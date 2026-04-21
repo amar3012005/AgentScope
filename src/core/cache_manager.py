@@ -76,17 +76,30 @@ class CacheManager:
             await self.client.close()
             logger.info("Redis cache connection closed")
     
-    def _generate_key(self, query: str, collection_name: Optional[str] = None) -> str:
-        """Generate cache key from query and collection."""
-        # Include collection name for multi-tenant isolation
-        cache_input = f"{collection_name or 'default'}:{query}"
+    def _generate_key(
+        self,
+        query: str,
+        collection_name: Optional[str] = None,
+        scope: Optional[Any] = None,
+    ) -> str:
+        """Generate cache key from query, collection, and a request scope."""
+        # Include collection name for multi-tenant isolation and a scoped
+        # fingerprint so k/mode/model changes do not collide.
+        scope_blob = ""
+        if scope is not None:
+            try:
+                scope_blob = json.dumps(scope, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            except Exception:
+                scope_blob = str(scope)
+        cache_input = f"{collection_name or 'default'}:{query}:{scope_blob}"
         hash_key = hashlib.md5(cache_input.encode()).hexdigest()
         return f"{self.prefix}{hash_key}"
     
     async def get(
         self,
         query: str,
-        collection_name: Optional[str] = None
+        collection_name: Optional[str] = None,
+        scope: Optional[Any] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Get cached result for query.
@@ -102,7 +115,7 @@ class CacheManager:
             return None
         
         try:
-            key = self._generate_key(query, collection_name)
+            key = self._generate_key(query, collection_name, scope)
             cached = await self.client.get(key)
             
             if cached:
@@ -122,7 +135,8 @@ class CacheManager:
         query: str,
         result: Dict[str, Any],
         collection_name: Optional[str] = None,
-        ttl: Optional[int] = None
+        ttl: Optional[int] = None,
+        scope: Optional[Any] = None,
     ) -> bool:
         """
         Cache query result.
@@ -140,7 +154,7 @@ class CacheManager:
             return False
         
         try:
-            key = self._generate_key(query, collection_name)
+            key = self._generate_key(query, collection_name, scope)
             ttl_seconds = ttl or self.ttl
             
             await self.client.setex(

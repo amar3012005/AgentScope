@@ -1,0 +1,34 @@
+<style>
+  html { scroll-snap-type: y mandatory; }
+  .slide { scroll-snap-align: start; }
+</style>
+{% for section in sections %}
+<section class="slide min-h-screen flex flex-col justify-center relative" data-slide="{{ loop.index }}">
+  <div class="vangogh-section" style="animation-delay: {{ loop.index0 * 0.1 }}s">
+    {{ section.html_fragment }}
+  </div>
+</section>
+{% endfor %}
+<nav class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-6 py-3 rounded-full bg-white/[0.06] backdrop-blur-lg border border-white/10">
+  <button onclick="navigateSlide(-1)" class="text-stone-400 hover:text-stone-100 transition-colors">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 15L7 10L12 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <span class="text-xs font-mono text-stone-400/70 tracking-wider" id="slide-counter">1 / {{ sections | length }}</span>
+  <button onclick="navigateSlide(1)" class="text-stone-400 hover:text-stone-100 transition-colors">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M8 5L13 10L8 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+</nav>
+<script>
+  var currentSlide = 0;
+  var totalSlides = {{ sections | length }};
+  function navigateSlide(delta) {
+    currentSlide = Math.max(0, Math.min(totalSlides - 1, currentSlide + delta));
+    var target = document.querySelector('[data-slide="' + (currentSlide + 1) + '"]');
+    if (target) target.scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('slide-counter').textContent = (currentSlide + 1) + ' / ' + totalSlides;
+  }
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); navigateSlide(1); }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); navigateSlide(-1); }
+  });
+</script>

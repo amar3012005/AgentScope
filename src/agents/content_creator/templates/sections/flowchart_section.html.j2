@@ -1,0 +1,7 @@
+<div class="px-8 md:px-16 py-16">
+  {% if title %}<h2 class="text-3xl md:text-5xl font-semibold tracking-[-0.03em] text-stone-100 mb-12 font-['Cormorant_Garamond']">{{ title }}</h2>{% endif %}
+  <div class="p-6 rounded-[28px] border border-white/10 bg-white/[0.03] backdrop-blur-md">
+    <pre class="mermaid">{{ mermaid_definition }}</pre>
+  </div>
+  {% if caption %}<p class="text-stone-400/60 text-xs mt-3 px-6">{{ caption }}</p>{% endif %}
+</div>

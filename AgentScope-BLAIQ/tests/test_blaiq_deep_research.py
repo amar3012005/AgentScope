@@ -29,6 +29,7 @@ class FakeHivemindClient(HivemindMCPClient):
         super().__init__(rpc_url="https://example.com/mcp", api_key="test-key")
         self.recall_queries: list[str] = []
         self.recall_modes: list[str] = []
+        self.recall_limits: list[int] = []
         self.web_queries: list[str] = []
         self.ai_questions: list[str] = []
         self.traversed_ids: list[str] = []
@@ -36,6 +37,7 @@ class FakeHivemindClient(HivemindMCPClient):
     async def recall(self, *, query: str, limit: int = 20, mode: str = "insight") -> dict[str, Any]:
         self.recall_queries.append(query)
         self.recall_modes.append(mode)
+        self.recall_limits.append(limit)
         lower = query.lower()
         if "background" in lower or "history" in lower:
             return {
@@ -112,6 +114,7 @@ class FakeHivemindNoMemory(FakeHivemindClient):
     async def recall(self, *, query: str, limit: int = 20, mode: str = "insight") -> dict[str, Any]:
         self.recall_queries.append(query)
         self.recall_modes.append(mode)
+        self.recall_limits.append(limit)
         return {"memories": []}
 
     async def query_with_ai(self, *, question: str, context_limit: int = 8) -> dict[str, Any]:
@@ -275,6 +278,24 @@ async def test_gather_populates_memory_findings() -> None:
     assert len(pack.memory_findings) > 0
     # Phase 1 direct recall should have produced findings
     assert any("mem-main" in f.finding_id for f in pack.memory_findings)
+
+
+@pytest.mark.asyncio
+async def test_gather_uses_quick_mode_with_five_memories_per_recall_call() -> None:
+    hivemind = FakeHivemindClient()
+    agent = _build_agent(hivemind=hivemind)
+
+    await agent.gather(
+        session=None,
+        tenant_id="tenant-1",
+        user_query="What is BLAIQ's enterprise research capability?",
+        source_scope="all",
+    )
+
+    assert hivemind.recall_modes
+    assert all(mode == "quick" for mode in hivemind.recall_modes)
+    assert hivemind.recall_limits
+    assert all(limit == 5 for limit in hivemind.recall_limits)
 
 
 @pytest.mark.asyncio

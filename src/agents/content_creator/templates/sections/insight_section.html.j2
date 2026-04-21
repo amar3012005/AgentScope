@@ -1,0 +1,12 @@
+<div class="px-8 md:px-16 py-16">
+  {% if title %}<h2 class="text-3xl md:text-5xl font-semibold tracking-[-0.03em] mb-12 font-['Cormorant_Garamond']" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ title }}</h2>{% endif %}
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    {% for item in insights %}
+    <div class="p-6 rounded-[28px] backdrop-blur-md transition-all duration-300" style="border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 10%, transparent); background: linear-gradient(135deg, color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 7%, transparent), color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 2%, transparent));">
+      {% if item.tag %}<span class="inline-block px-3 py-1 text-[10px] uppercase tracking-[0.24em] rounded-full mb-4" style="border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 15%, transparent); color: color-mix(in srgb, {{ tokens.muted | default('#A1A19B') }} 82%, transparent);">{{ item.tag }}</span>{% endif %}
+      <h3 class="text-base font-semibold tracking-tight" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ item.title }}</h3>
+      {% if item.body %}<p class="text-sm mt-3 leading-7" style="color: color-mix(in srgb, {{ tokens.ink | default('#E8E7E2') }} 76%, transparent);">{{ item.body }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>

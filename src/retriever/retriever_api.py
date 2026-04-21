@@ -233,6 +233,15 @@ async def root():
     }
 
 
+@app.get("/healthz")
+async def healthz():
+    return {
+        "status": "ok",
+        "service": "blaiq-graph-rag",
+        "version": "3.0.0",
+    }
+
+
 @app.get("/status")
 async def get_status():
     """Check system status and connections"""

@@ -1,0 +1,19 @@
+<div class="px-8 md:px-16 py-16">
+  {% if title %}<h2 class="text-3xl md:text-5xl font-semibold tracking-[-0.03em] mb-12 font-['Cormorant_Garamond']" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ title }}</h2>{% endif %}
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-{{ [phases | length, 4] | min }} gap-6">
+    {% for phase in phases %}
+    <div class="p-6 rounded-[28px] backdrop-blur-md" style="border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 10%, transparent); background: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 4%, transparent);">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="w-2.5 h-2.5 rounded-full {% if phase.status == 'active' %}animate-pulse{% endif %}" style="background:{% if phase.status == 'complete' %}{{ tokens.accent_blue | default('#CFCFCB') }}{% elif phase.status == 'active' %}{{ tokens.primary | default('#F5F5F1') }}{% else %}{{ tokens.muted | default('#A1A19B') }}{% endif %};"></span>
+        <h4 class="text-lg font-semibold tracking-tight" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ phase.phase }}</h4>
+      </div>
+      {% if phase.description %}<p class="text-sm leading-7" style="color: color-mix(in srgb, {{ tokens.ink | default('#E8E7E2') }} 78%, transparent);">{{ phase.description }}</p>{% endif %}
+      {% if phase.progress_pct > 0 %}
+      <div class="mt-4 h-1 rounded-full overflow-hidden" style="background: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 10%, transparent);">
+        <div class="h-full rounded-full" style="width: {{ phase.progress_pct }}%; background: {{ tokens.accent_blue | default('#CFCFCB') }};"></div>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>

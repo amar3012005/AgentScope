@@ -1,0 +1,133 @@
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.session-item:hover {
+  background: var(--bg-hover);
+}
+
+.session-item:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.session-item:active {
+  transform: scale(0.99);
+}
+
+.session-item.active {
+  background: var(--accent-soft);
+  border-color: rgba(79, 70, 229, 0.1);
+}
+
+/* Status dot */
+.session-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.session-dot--active {
+  background: var(--success);
+}
+
+.session-dot--idle {
+  background: var(--warning);
+}
+
+.session-dot--ended {
+  background: var(--text-muted);
+}
+
+.session-dot--error {
+  background: var(--danger);
+}
+
+/* Content */
+.session-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-item:not(.active) .session-title {
+  color: var(--text-secondary);
+}
+
+.session-timestamp {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: 1px;
+}
+
+/* Hover actions */
+.session-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.session-item:hover .session-actions {
+  opacity: 1;
+}
+
+.session-action-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.session-action-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-panel-strong);
+}
+
+.session-action-btn:focus-visible {
+  outline: 1px solid var(--border-focus);
+}
+
+.session-action-btn:active {
+  transform: scale(0.9);
+}
+
+.session-action-btn--delete:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* Empty state */
+.session-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}

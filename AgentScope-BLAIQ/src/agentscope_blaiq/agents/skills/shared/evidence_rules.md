@@ -1,12 +1,13 @@
 # Evidence Rules — Mandatory for ALL Artifact Generation
 
-## CRITICAL: Anti-Hallucination Policy
+## CRITICAL: Content Generation Policy
 
-1. **ONLY use content from the provided evidence findings.** Do NOT generate facts, statistics, names, or claims from your training data.
-2. If a section has insufficient evidence, write: "Insufficient evidence for this section" — do NOT fill with generic content.
-3. Every sentence with a factual claim MUST map to a specific finding from the evidence pack.
+1. **Use the provided evidence findings as your PRIMARY source material.** Extract facts, names, details, and claims from them.
+2. **ALWAYS generate content for every section** — never write "Insufficient evidence." If the evidence doesn't perfectly match a section, use the CLOSEST relevant findings and adapt them to fit the section's purpose.
+3. If evidence is sparse for a specific section, synthesize from what IS available — combine related findings, draw reasonable inferences, or use the user's HITL answers to fill gaps.
 4. If the user's HITL answers provide direction, use those as the primary guide. Evidence supplements HITL answers.
 5. When web findings and memory findings conflict, prefer memory findings (enterprise ground truth).
+6. The findings may cover broad topics about the subject — use them creatively across sections. A finding about "architecture" can inform both "Solution" and "Proof" slides.
 
 ## Content Source Priority
 

@@ -1,177 +1,164 @@
-# Coolify-compatible GraphRAG Optimized Service
-# This file is designed to be used with Coolify deployment
-# Place this in /data/coolify/services/<service-id>/docker-compose.yml
+ # Coolify-compatible AgentScope-BLAIQ deployment
+# Copy this file into the Coolify service directory as docker-compose.yml.
 
 services:
-  # Redis Cache (Required for optimizations)
-  redis:
-    image: redis:7-alpine
+  app:
+    build:
+      context: ./AgentScope-BLAIQ
+      dockerfile: deployment/Dockerfile
+    ports:
+      - "${HOST_PORT:-8090}:8090"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      APP_HOST: ${APP_HOST:-0.0.0.0}
+      APP_PORT: ${APP_PORT:-8090}
+      DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
+      REDIS_URL: ${APP_REDIS_URL:-redis://redis:6379/0}
+      UPLOAD_DIR: /app/data/uploads
+      ARTIFACT_DIR: /app/data/artifacts
+      LOG_DIR: /app/logs
+      DEFAULT_TENANT: ${DEFAULT_TENANT:-default}
+      DEFAULT_SOURCE_SCOPE: ${DEFAULT_SOURCE_SCOPE:-web}
+      DEFAULT_ARTIFACT_TYPE: ${DEFAULT_ARTIFACT_TYPE:-visual_html}
+      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-gemini-2.5-pro}
+      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-gemini-2.5-pro}
+      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-gemini-2.5-pro}
+      LITELLM_REFORMAT_MODEL: ${LITELLM_REFORMAT_MODEL:-gemini-2.5-pro}
+      LITELLM_TIMEOUT_SECONDS: ${LITELLM_TIMEOUT_SECONDS:-25}
+      LITELLM_MAX_OUTPUT_TOKENS: ${LITELLM_MAX_OUTPUT_TOKENS:-1200}
+      CONTENT_DIRECTOR_MAX_OUTPUT_TOKENS: ${CONTENT_DIRECTOR_MAX_OUTPUT_TOKENS:-4000}
+      VANGOGH_MAX_OUTPUT_TOKENS: ${VANGOGH_MAX_OUTPUT_TOKENS:-16000}
+      LITELLM_API_BASE_URL: ${LITELLM_API_BASE_URL:-}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      MODEL_REASONING_EFFORT: ${MODEL_REASONING_EFFORT:-}
+      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-gemini-2.5-pro}
+      ROUTING_MODEL: ${ROUTING_MODEL:-gemini-2.5-flash-lite}
+      RESEARCH_MODEL: ${RESEARCH_MODEL:-gemini-2.5-pro}
+      VANGOGH_MODEL: ${VANGOGH_MODEL:-vertex_ai/claude-sonnet-4-6@default}
+      GOVERNANCE_MODEL: ${GOVERNANCE_MODEL:-gemini-2.5-pro}
+      OPENAI_FALLBACK_MODEL: ${OPENAI_FALLBACK_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
+      HIVEMIND_MCP_RPC_URL: ${HIVEMIND_MCP_RPC_URL:-}
+      HIVEMIND_API_KEY: ${HIVEMIND_API_KEY:-}
+      HIVEMIND_TIMEOUT_SECONDS: ${HIVEMIND_TIMEOUT_SECONDS:-45}
+      HIVEMIND_WEB_POLL_INTERVAL_SECONDS: ${HIVEMIND_WEB_POLL_INTERVAL_SECONDS:-1.0}
+      HIVEMIND_WEB_POLL_ATTEMPTS: ${HIVEMIND_WEB_POLL_ATTEMPTS:-10}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      RESEARCH_MAX_DEPTH: ${RESEARCH_MAX_DEPTH:-3}
+      RESEARCH_MAX_ITERS: ${RESEARCH_MAX_ITERS:-15}
+      ENABLE_GRAPH_AGENT: ${ENABLE_GRAPH_AGENT:-false}
+      COOLIFY_CONTAINER_NAME: ${APP_CONTAINER_NAME:-agentscope-blaiq-app}
+    command: >
+      sh -c "python /app/deployment/bootstrap.py --migrate &&
+      exec python -m uvicorn agentscope_blaiq.app.main:app
+      --host ${APP_HOST:-0.0.0.0}
+      --port ${APP_PORT:-8090}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
-      - graphrag_optimized_redis_data:/data
-    command: redis-server --appendonly yes --bind 0.0.0.0
-    # container_name: redis-e0cwcccswckc8okk4k00skck
-    networks:
-      graphrag-optimized: null
+      - agentscope_blaiq_uploads:/app/data/uploads
+      - agentscope_blaiq_artifacts:/app/data/artifacts
+      - agentscope_blaiq_logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8090/readyz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    labels:
+      - coolify.managed=true
+      - coolify.type=service
+      - coolify.name=agentscope-blaiq
+      - coolify.service.subType=application
+      - coolify.service.subName=app
+    env_file:
+      - .env
+    networks:
+      - coolify
+      - agentscope-blaiq
+    deploy:
+      resources:
+        limits:
+          cpus: "${APP_CPU_LIMIT:-4}"
+          memory: ${APP_MEMORY_LIMIT:-8G}
+        reservations:
+          cpus: "${APP_CPU_RESERVATION:-1}"
+          memory: ${APP_MEMORY_RESERVATION:-2G}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agentscope_blaiq}
+      POSTGRES_USER: ${POSTGRES_USER:-agentscope_blaiq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentscope_blaiq}
+      COOLIFY_CONTAINER_NAME: ${POSTGRES_CONTAINER_NAME:-agentscope-blaiq-postgres}
+    volumes:
+      - agentscope_blaiq_postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentscope_blaiq} -d ${POSTGRES_DB:-agentscope_blaiq}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - coolify.managed=true
+      - coolify.type=service
+      - coolify.name=postgres-agentscope-blaiq
+      - coolify.service.subType=database
+      - coolify.service.subName=postgres
+    networks:
+      - agentscope-blaiq
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --bind 0.0.0.0
+    environment:
+      COOLIFY_CONTAINER_NAME: ${REDIS_CONTAINER_NAME:-agentscope-blaiq-redis}
+    volumes:
+      - agentscope_blaiq_redis:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 3
     labels:
       - coolify.managed=true
       - coolify.type=service
-      - coolify.name=redis-graphrag-optimized
+      - coolify.name=redis-agentscope-blaiq
       - coolify.service.subType=database
       - coolify.service.subName=redis
-    environment:
-      COOLIFY_CONTAINER_NAME: redis-graphrag-optimized
-    env_file:
-      - .env
-
-  # Optimized GraphRAG API
-  graphrag-optimized:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    # container_name: graphrag-optimized-e0cwcccswckc8okk4k00skck
-    ports:
-      - "${HOST_PORT:-8020}:8001" # Allow overriding the host port via environment variable (default 8020)
-    volumes:
-      # Persistent data directories
-      - graphrag_optimized_data:/app/data
-      - graphrag_optimized_logs:/app/logs
-      # Mount source code for development (DISABLED for production stability)
-      # - /data/coolify/services/e0cwcccswckc8okk4k00skck/graphrag-optimized:/app
-      # Optional: SSL certificates (if needed)
-      # - /etc/letsencrypt/live/rag-optimized.demo.davinciai.eu/fullchain.pem:/certs/fullchain.pem
-      # - /etc/letsencrypt/live/rag-optimized.demo.davinciai.eu/privkey.pem:/certs/privkey.pem
-    environment:
-      # Redis Configuration
-      REDIS_URL: redis://redis:6379/0
-      ENABLE_CACHE: "true"
-      CACHE_TTL: 3600
-
-      # Qdrant Configuration (REQUIRED)
-      QDRANT_URL: ${QDRANT_URL}
-      QDRANT_API_KEY: ${QDRANT_API_KEY}
-      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-graphrag_chunks}
-      QDRANT_PORT: ${QDRANT_PORT:-443}
-
-      # Neo4j Configuration (Optional - for graph features)
-      NEO4J_URI: ${NEO4J_URI}
-      NEO4J_USER: ${NEO4J_USER:-neo4j}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
-
-      # LLM Configuration (REQUIRED)
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
-      OPENAI_MODEL: ${OPENAI_MODEL:-groq/llama-3.1-8b-instant}
-
-      # LiteLLM Model Configuration
-      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-groq/llama-3.1-8b-instant}
-      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-groq/llama-3.3-70b-versatile}
-      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-groq/llama-3.3-70b-versatile}
-
-      # Optional: Fallback model and timeouts
-      OPENAI_FALLBACK_MODEL: ${OPENAI_FALLBACK_MODEL}
-      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-25}
-      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-4000}
-      FINAL_REASONING_EFFORT: ${FINAL_REASONING_EFFORT:-medium}
-      FINAL_REASONING_EFFORT_GPT_OSS: ${FINAL_REASONING_EFFORT_GPT_OSS:-low}
-      KEYWORD_TIME_BUDGET_S: ${KEYWORD_TIME_BUDGET_S:-0.9}
-      KEYWORD_MAX_TERMS: ${KEYWORD_MAX_TERMS:-6}
-      KEYWORD_PER_CALL_TIMEOUT_S: ${KEYWORD_PER_CALL_TIMEOUT_S:-0.7}
-      KEYWORD_PER_TERM_LIMIT: ${KEYWORD_PER_TERM_LIMIT:-40}
-      DOCID_TIME_BUDGET_S: ${DOCID_TIME_BUDGET_S:-0.7}
-      DOCID_MAX_TERMS: ${DOCID_MAX_TERMS:-6}
-      DOCID_PER_CALL_TIMEOUT_S: ${DOCID_PER_CALL_TIMEOUT_S:-0.6}
-      DOCID_PER_TERM_LIMIT: ${DOCID_PER_TERM_LIMIT:-25}
-
-      # BGE-M3 Embedding Service
-      BGE_M3_SERVICE_URL: ${BGE_M3_SERVICE_URL}
-      BGE_M3_API_KEY: ${BGE_M3_API_KEY}
-      BGE_M3_MODEL_ID: ${BGE_M3_MODEL_ID:-bge-m3}
-
-      # API Security
-      API_KEY: ${API_KEY}
-
-      # Feature Flags
-      ENABLE_RERANKER: "false"
-      DEBUG_LLM: "true"
-      DEBUG_RETRIEVAL: "true"
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      PYTHONUNBUFFERED: 1
-
-      # Coolify metadata
-      COOLIFY_CONTAINER_NAME: graphrag-optimized
-
-    # Optional: SSL command (uncomment if using SSL certificates)
-    # command: "uvicorn src.retriever.retriever_api:app --host 0.0.0.0 --port 8001 --ssl-keyfile /certs/privkey.pem --ssl-certfile /certs/fullchain.pem"
-
-    depends_on:
-      redis:
-        condition: service_healthy
-
     networks:
-      graphrag-optimized: null
+      - agentscope-blaiq
 
-    restart: unless-stopped
-
-    # DNS configuration for external hostname resolution
-    dns:
-      - 8.8.8.8 # Google
-      - 8.8.4.4 # Google backup
-
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8001/" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-    labels:
-      - coolify.managed=true
-      - coolify.type=service
-      - coolify.name=graphrag-optimized
-      - coolify.service.subType=application
-      - coolify.service.subName=graphrag-optimized
-      # Uncomment and configure for Traefik routing
-      # - traefik.enable=true
-      # - traefik.http.routers.graphrag-optimized.rule=Host(`rag-optimized.demo.davinciai.eu`)
-      # - traefik.http.services.graphrag-optimized.loadbalancer.server.port=8001
-
-    env_file:
-      - .env
-
-    deploy:
-      resources:
-        limits:
-          cpus: '4'
-          memory: 8G
-        reservations:
-          cpus: '2'
-          memory: 4G
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-# Named volumes for persistence
 volumes:
-  graphrag_optimized_redis_data:
-    name: graphrag_optimized_redis_data
-  graphrag_optimized_data:
-    name: graphrag_optimized_data
-  graphrag_optimized_logs:
-    name: graphrag_optimized_logs
+  agentscope_blaiq_postgres:
+    name: agentscope_blaiq_postgres
+  agentscope_blaiq_redis:
+    name: agentscope_blaiq_redis
+  agentscope_blaiq_uploads:
+    name: agentscope_blaiq_uploads
+  agentscope_blaiq_artifacts:
+    name: agentscope_blaiq_artifacts
+  agentscope_blaiq_logs:
+    name: agentscope_blaiq_logs
 
-# Networks
 networks:
   coolify:
     external: true
-  graphrag-optimized:
-    name: graphrag-optimized
-    external: true
+  agentscope-blaiq:
+    name: agentscope-blaiq

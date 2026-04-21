@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title | default("Da'Vinci Artifact") }}</title>
+  <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: {{ tokens.background | default('#050505') }};
+      --surface: {{ tokens.surface | default('#111111') }};
+      --border: {{ tokens.border | default('#2A2A2A') }};
+      --primary: {{ tokens.primary | default('#F5F5F1') }};
+      --ink: {{ tokens.ink | default('#E8E7E2') }};
+      --muted: {{ tokens.muted | default('#A1A19B') }};
+      --accent-blue: {{ tokens.accent_blue | default('#CFCFCB') }};
+      --accent-emerald: {{ tokens.accent_emerald | default('#8F8F8A') }};
+      --accent-purple: {{ tokens.accent_purple | default('#6E6E6A') }};
+      --bp-max-width: {{ blueprint.layout.max_width | default('1120px') }};
+      --bp-section-spacing: {{ blueprint.layout.section_spacing | default('24px') }};
+      --bp-grid-step: {{ blueprint.layout.grid_step | default('42px') }};
+      --bp-slide-padding: {{ blueprint.layout.slide_padding | default('48px 32px') }};
+    }
+    body {
+      font-family: '{{ typography.body | default("Manrope, sans-serif") }}';
+      background: var(--bg);
+      color: var(--ink);
+      margin: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      font-family: '{{ typography.headings | default("Cormorant Garamond, serif") }}';
+    }
+    html { scroll-behavior: smooth; }
+    .vangogh-section {
+      opacity: 0;
+      animation: fadeInUp 0.6s ease-out forwards;
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .vangogh-section:nth-child(2) { animation-delay: 0.1s; }
+    .vangogh-section:nth-child(3) { animation-delay: 0.2s; }
+    .vangogh-section:nth-child(4) { animation-delay: 0.3s; }
+    .vangogh-section:nth-child(5) { animation-delay: 0.4s; }
+    .vangogh-section:nth-child(n+6) { animation-delay: 0.5s; }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div id="vangogh-root">
+    {{ body }}
+  </div>
+  <script>
+    mermaid.initialize({ theme: 'neutral', startOnLoad: false });
+    function initVangoghCharts(container) {
+      var root = container || document;
+      root.querySelectorAll('canvas[data-chart-config]').forEach(function(canvas) {
+        if (canvas._chartInstance) return;
+        try {
+          var config = JSON.parse(canvas.getAttribute('data-chart-config'));
+          canvas._chartInstance = new Chart(canvas, config);
+        } catch(e) { console.warn('Chart init error:', e); }
+      });
+      mermaid.run({ querySelector: '.mermaid' });
+    }
+    document.addEventListener('DOMContentLoaded', function() { initVangoghCharts(); });
+    window.addEventListener('message', function(e) {
+      if (e.data && e.data.type === 'navigate-slide') {
+        var target = document.querySelector('[data-slide="' + e.data.slideIndex + '"]');
+        if (target) target.scrollIntoView({ behavior: 'smooth' });
+      }
+      if (e.data && e.data.type === 'init-charts') {
+        initVangoghCharts();
+      }
+    });
+  </script>
+</body>
+</html>

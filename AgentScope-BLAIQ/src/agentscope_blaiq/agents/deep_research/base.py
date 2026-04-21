@@ -1,10 +1,16 @@
 """BlaiqDeepResearchAgent — tree-search deep research with HIVE-MIND priority.
 
-Replaces the flat ResearchAgent with a decompose-and-research pattern:
-  Phase 1: HIVE-MIND deep recall (multi-pass: recall -> AI synthesis -> graph traversal)
-  Phase 2: LLM decomposes query into 2-4 sub-questions based on memory gaps
-  Phase 3: For each sub-question: HIVE-MIND first, web only if insufficient
-  Phase 4: Synthesize summary, build EvidencePack
+Implements the official AgentScope Deep Research pattern:
+  - Stack-based task decomposition & expansion
+  - Deep search with recursive information filling
+  - Self-reflection on failures
+  - Intermediate report generation with citations
+
+Extends with HIVE-MIND enterprise memory integration:
+  - Phase 1: HIVE-MIND deep recall (multi-pass)
+  - Phase 2: LLM decomposes query into subtasks
+  - Phase 3: Research each subtask (memory-first, web-if-needed)
+  - Phase 4: Synthesize final report from intermediate drafts
 """
 
 from __future__ import annotations
@@ -14,27 +20,72 @@ import hashlib
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from agentscope_blaiq.contracts.evidence import (
     Citation,
+    ContentBriefHandoff,
+    ContentHook,
     EvidenceContradiction,
     EvidenceFinding,
     EvidenceFreshness,
     EvidencePack,
     EvidenceProvenance,
+    ResearchCacheEntry,
+    RiskFlag,
     SourceRecord,
+    StructuredInsight,
 )
 from agentscope_blaiq.runtime.agent_base import AgentLogSink, _noop_sink
 from agentscope_blaiq.runtime.config import Settings, settings
+from agentscope_blaiq.runtime.hivemind_client import get_hivemind_client
 from agentscope_blaiq.runtime.hivemind_mcp import HivemindMCPClient, HivemindMCPError
 from agentscope_blaiq.runtime.model_resolver import LiteLLMModelResolver
 
 logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+@dataclass
+class Subtask:
+    """A research subtask with stack-based management.
+
+    Attributes:
+        objective: The research question or goal
+        working_plan: Specific steps to complete this subtask
+        knowledge_gaps: What information is missing
+        status: pending | in_progress | completed | failed | reflected
+        findings: Evidence gathered for this subtask
+        parent_id: Parent task ID (None for root tasks)
+        depth: Depth in task tree (0 for root)
+        reflection_count: Number of times this task was reflected upon
+    """
+    objective: str
+    working_plan: str | None = None
+    knowledge_gaps: str | None = None
+    status: str = "pending"
+    findings: list[EvidenceFinding] = field(default_factory=list)
+    parent_id: str | None = None
+    depth: int = 0
+    reflection_count: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON/logging."""
+        return {
+            "objective": self.objective,
+            "working_plan": self.working_plan,
+            "knowledge_gaps": self.knowledge_gaps,
+            "status": self.status,
+            "depth": self.depth,
+            "parent_id": self.parent_id,
+            "finding_count": len(self.findings),
+            "reflection_count": self.reflection_count,
+        }
+
 
 # Limits
 _MAX_SUB_QUESTIONS = 4
@@ -43,6 +94,8 @@ _MAX_RECALL_RESULTS = 10
 _GRAPH_TRAVERSAL_DEPTH = 2
 _WEB_RESULTS_LIMIT = 5
 _MIN_FINDING_LENGTH = 20
+_MAX_REFLECTIONS_PER_TASK = 2  # Avoid infinite reflection loops
+_MAX_TASK_DEPTH = 4  # Maximum tree depth for task decomposition
 # HIVE-MIND recall already ranks, scores, dedupes, and filters.
 # Don't over-fetch — trust the ranking pipeline. Injection_text has the rich content.
 _RECALL_LIMITS = {"quick": 5, "insight": 10, "panorama": 10}
@@ -215,7 +268,7 @@ class BlaiqDeepResearchAgent:
         await self._log_sink(message, kind, visibility, detail)
 
     # ------------------------------------------------------------------
-    # Public API
+    # Public API — Stack-based Deep Research
     # ------------------------------------------------------------------
 
     async def gather(
@@ -224,47 +277,273 @@ class BlaiqDeepResearchAgent:
         tenant_id: str,
         user_query: str,
         source_scope: str,
+        quick_recall: bool = False,
     ) -> EvidencePack:
-        """Execute deep research and return an EvidencePack.
+        """Execute stack-based deep research with reflection and intermediate reports.
+
+        Implements the official AgentScope Deep Research pattern:
+        1. Initial HIVE-MIND recall for context
+        2. Push root task onto stack
+        3. While stack not empty:
+           a. Pop current task
+           b. Decompose if needed (push children)
+           c. Research (memory-first, web-if-needed)
+           d. Reflect on failures
+           e. Update intermediate report
+        4. Synthesize final report from intermediate drafts
 
         Args:
             session: SQLAlchemy async session (passed through, may not be used).
             tenant_id: Tenant isolation identifier.
             user_query: The research query from the user.
             source_scope: One of "web", "docs", or "all".
+            quick_recall: If True, skip deep research tree and return only HIVE-MIND recall.
 
         Returns:
             EvidencePack with memory, web, and doc findings.
         """
+        if quick_recall:
+            # Quick mode: just HIVE-MIND recall, no decomposition tree
+            return await self._quick_recall_gather(user_query, source_scope)
+
         await self._log(f"Deep research started: {user_query[:80]}...", kind="status")
 
-        # Phase 1: HIVE-MIND deep recall
+        # Initialize task stack and intermediate report
+        task_stack: list[Subtask] = []
+        completed_tasks: list[Subtask] = []
+        intermediate_report: list[str] = []
+        all_findings: list[EvidenceFinding] = []
+        all_sources: list[SourceRecord] = []
+        all_citations: list[Citation] = []
+        all_web_findings: list[EvidenceFinding] = []
+        all_web_sources: list[SourceRecord] = []
+        all_web_citations: list[Citation] = []
+
+        # Phase 1: Initial HIVE-MIND recall for context
         phase1_findings, phase1_sources, phase1_citations, synthesis = (
             await self._phase1_deep_recall(user_query)
         )
+        all_findings.extend(phase1_findings)
+        all_sources.extend(phase1_sources)
+        all_citations.extend(phase1_citations)
+
         await self._log(
-            f"Phase 1 complete: {len(phase1_findings)} memory findings",
+            f"Phase 1 (recall) complete: {len(phase1_findings)} memory findings",
             kind="status",
             detail={"finding_count": len(phase1_findings)},
         )
 
-        # Phase 2: Decompose into sub-questions
-        memory_summary = synthesis or self._summarize_findings(phase1_findings)
-        sub_questions = await self._phase2_decompose(user_query, memory_summary, source_scope)
-        await self._log(
-            f"Phase 2 complete: {len(sub_questions)} sub-questions",
-            kind="thought",
-            detail={"sub_questions": sub_questions},
+        # Phase 2: Create root task and decompose
+        root_task = Subtask(
+            objective=user_query,
+            working_plan=None,  # Will be filled by decomposition
+            knowledge_gaps=None,
+            status="pending",
+            depth=0,
         )
+        task_stack.append(root_task)
 
-        # Phase 3: Research each sub-question
-        sub_findings, sub_sources, sub_citations, web_findings, web_sources, web_citations = (
-            await self._phase3_research_sub_questions(sub_questions, source_scope)
-        )
+        await self._log("Phase 2 (task stack) initialized with root task", kind="status")
+
+        # Phase 3: Stack-based research loop
+        reflection_failures: list[str] = []
+        processed_objectives: set[str] = set()  # Track to avoid infinite loops
+
+        def normalize_objective(obj: str) -> str:
+            """Normalize objective for duplicate detection."""
+            # Lowercase, strip whitespace, remove common prefixes
+            normalized = obj.lower().strip()
+            # Remove "what is/are" prefixes for comparison
+            normalized = re.sub(r'^(what\s+is|what\s+are|how\s+to|describe|explain|summarize)\s+', '', normalized)
+            # Remove trailing question marks and extra spaces
+            normalized = normalized.rstrip('?').strip()
+            # Hash long objectives for efficient comparison
+            if len(normalized) > 100:
+                return hashlib.md5(normalized.encode()).hexdigest()
+            return normalized
+
+        while task_stack:
+            current = task_stack.pop()
+
+            # Skip if we've already processed this objective (prevent infinite loops)
+            objective_key = normalize_objective(current.objective)
+            if objective_key in processed_objectives:
+                await self._log(
+                    f"Skipping duplicate task: {current.objective[:50]}...",
+                    kind="status",
+                    visibility="debug",
+                )
+                continue
+            processed_objectives.add(objective_key)
+
+            await self._log(
+                f"Processing task: {current.objective[:60]}... (depth={current.depth}, status={current.status})",
+                kind="status",
+                visibility="debug",
+            )
+
+            # Step 3a: Decompose if plan is empty and not too deep
+            if not current.working_plan and current.depth < _MAX_TASK_DEPTH:
+                await self._log(f"Decomposing task at depth {current.depth}", kind="thought")
+                memory_summary = synthesis or self._summarize_findings(all_findings)
+                decomposition = await self._phase2_decompose_with_plan(
+                    current.objective, memory_summary, source_scope, current.depth
+                )
+                current.working_plan = decomposition.get("working_plan")
+                current.knowledge_gaps = decomposition.get("knowledge_gaps")
+                current.status = "in_progress"
+
+                # Push subtasks if decomposition produced children
+                if decomposition.get("sub_questions"):
+                    for i, sq in enumerate(decomposition["sub_questions"][:_MAX_SUB_QUESTIONS]):
+                        child = Subtask(
+                            objective=sq if isinstance(sq, str) else sq.get("question", str(sq)),
+                            parent_id=current.objective[:20],
+                            depth=current.depth + 1,
+                        )
+                        task_stack.append(child)
+                    await self._log(
+                        f"Decomposed into {len(decomposition['sub_questions'])} subtasks",
+                        kind="thought",
+                    )
+                    # Mark parent as in_progress but don't complete it yet - will be done when all children complete
+                    continue  # Process children first
+            elif not current.working_plan and current.depth >= _MAX_TASK_DEPTH:
+                # At max depth, force a simple working plan to avoid decomposition loop
+                current.working_plan = f"Research and summarize: {current.objective}"
+                current.knowledge_gaps = "None - final synthesis step"
+                current.status = "in_progress"
+
+            # Step 3b: Research current task
+            current.status = "in_progress"
+            await self._log(f"Researching: {current.objective[:50]}...", kind="status")
+
+            findings, sources, citations, web_findings, web_sources, web_citations = (
+                await self._research_with_deep_search(current.objective, source_scope)
+            )
+
+            current.findings = findings
+            all_findings.extend(findings)
+            all_sources.extend(sources)
+            all_citations.extend(citations)
+            all_web_findings.extend(web_findings)
+            all_web_sources.extend(web_sources)
+            all_web_citations.extend(web_citations)
+
+            # Step 3c: Check if research was sufficient
+            if len(findings) + len(web_findings) < 2:
+                # Insufficient results — reflect on failure
+                if current.reflection_count >= _MAX_REFLECTIONS_PER_TASK:
+                    current.status = "failed"
+                    reflection_failures.append(f"Max reflections reached for: {current.objective[:50]}")
+                    await self._log(f"Task failed (max reflections): {current.objective[:50]}", kind="status")
+                else:
+                    current.reflection_count += 1
+                    current.status = "reflected"
+
+                    reflection = await self._reflect_on_failure(
+                        current.objective,
+                        current.working_plan or "",
+                        current.knowledge_gaps or "",
+                        f"Insufficient evidence: {len(findings)} memory + {len(web_findings)} web findings",
+                    )
+
+                    if reflection.get("recommendation") == "decompose" and current.depth < _MAX_TASK_DEPTH:
+                        # Decompose into subtasks
+                        for sq in reflection.get("decomposition_questions", [])[:_MAX_SUB_QUESTIONS]:
+                            child = Subtask(
+                                objective=sq,
+                                parent_id=current.objective[:20],
+                                depth=current.depth + 1,
+                            )
+                            task_stack.append(child)
+                        await self._log(f"Reflected → decomposed into {len(reflection.get('decomposition_questions', []))} subtasks", kind="thought")
+                        continue
+                    elif reflection.get("recommendation") == "rephrase":
+                        current.objective = reflection.get("rephrased_plan", current.objective)
+                        task_stack.append(current)  # Retry with rephrased objective
+                        await self._log("Reflected → rephrased objective, retrying", kind="thought")
+                        continue
+                    else:
+                        current.status = "failed"
+                        await self._log(f"Task failed after reflection: {reflection.get('root_cause', 'unknown')}", kind="status")
+            else:
+                # Sufficient results — mark complete
+                current.status = "completed"
+                completed_tasks.append(current)
+
+                # Update intermediate report
+                report_section = await self._update_intermediate_report(
+                    current.objective,
+                    current.working_plan or "",
+                    findings + web_findings,
+                )
+                intermediate_report.append(report_section)
+
+                await self._log(
+                    f"Task completed: {len(findings)} memory + {len(web_findings)} web findings",
+                    kind="status",
+                )
+
+        # Phase 4: Synthesize final report
         await self._log(
-            f"Phase 3 complete: {len(sub_findings)} memory + {len(web_findings)} web findings",
+            f"Research loop complete: {len(completed_tasks)} tasks completed, {len(reflection_failures)} failed",
             kind="status",
         )
+
+        # Deduplicate findings
+        all_memory = self._deduplicate_findings(all_findings)
+        all_web = self._deduplicate_findings(all_web_findings)
+        all_sources = self._deduplicate_sources(all_sources)
+
+        # Compute confidence
+        if all_memory:
+            avg_confidence = sum(f.confidence for f in all_memory) / len(all_memory)
+        elif all_web:
+            avg_confidence = sum(f.confidence for f in all_web) / len(all_web) * 0.8
+        else:
+            avg_confidence = 0.2
+
+        # Final synthesis
+        summary = await self._phase4_synthesize(
+            user_query, all_memory, all_web, synthesis,
+        )
+
+        pack = EvidencePack(
+            summary=summary,
+            sources=all_sources,
+            memory_findings=all_memory,
+            web_findings=all_web,
+            doc_findings=[],
+            open_questions=[t.objective for t in completed_tasks if len(t.findings) < 2],
+            confidence=round(min(avg_confidence, 1.0), 2),
+            citations=all_citations + all_web_citations,
+            contradictions=[],
+            freshness=EvidenceFreshness(
+                memory_is_fresh=bool(all_memory),
+                web_verified=bool(all_web),
+                freshness_summary=f"Deep research: {len(all_memory)} memory + {len(all_web)} web findings from {len(completed_tasks)} tasks",
+                checked_at=_now_iso(),
+            ),
+            provenance=EvidenceProvenance(
+                memory_sources=len(all_sources),
+                web_sources=len(all_web),
+                upload_sources=0,
+                graph_traversals=1 if phase1_findings else 0,
+                primary_ground_truth="memory" if all_memory else "web",
+                save_back_eligible=False,
+            ),
+            recommended_followups=reflection_failures,
+        )
+
+        # Enrich pack with structured insights, hooks, and content brief
+        pack = await self._enrich_evidence_pack(pack, user_query)
+
+        # Store findings in HiveMind for future recalls
+        await self._store_findings_in_hivemind(user_query, pack)
+
+        await self._log("Deep research complete", kind="status", detail={"confidence": pack.confidence})
+        return pack
 
         # Phase 4: Synthesize and build EvidencePack
         all_memory_findings = self._deduplicate_findings(phase1_findings + sub_findings)
@@ -308,7 +587,7 @@ class BlaiqDeepResearchAgent:
                 upload_sources=0,
                 graph_traversals=1 if phase1_findings else 0,
                 primary_ground_truth="memory" if all_memory_findings else "web",
-                save_back_eligible=bool(all_memory_findings),
+                save_back_eligible=False,  # disabled — never save back to HIVE-MIND
             ),
             recommended_followups=[],
         )
@@ -477,6 +756,55 @@ class BlaiqDeepResearchAgent:
     # Phase 1: HIVE-MIND Deep Recall
     # ------------------------------------------------------------------
 
+    async def _quick_recall_gather(
+        self, user_query: str, source_scope: str,
+    ) -> EvidencePack:
+        """Quick HIVE-MIND recall only - no deep research tree.
+
+        Use this for standard queries where full research decomposition
+        is not needed. Returns memory findings with optional web enrichment.
+        """
+        await self._log(f"Quick recall started: {user_query[:80]}...", kind="status")
+
+        # Phase 1: HIVE-MIND recall
+        findings, sources, citations, synthesis = await self._phase1_deep_recall(user_query)
+
+        await self._log(
+            f"Quick recall complete: {len(findings)} memory findings",
+            kind="status",
+        )
+
+        # Deduplicate findings
+        all_memory = self._deduplicate_findings(findings)
+        all_sources = self._deduplicate_sources(sources)
+
+        # Compute confidence
+        if all_memory:
+            avg_confidence = sum(f.confidence for f in all_memory) / len(all_memory)
+        else:
+            avg_confidence = 0.3
+
+        # Build EvidencePack with just recall results
+        pack = EvidencePack(
+            summary=synthesis or f"Quick recall found {len(all_memory)} relevant memories",
+            sources=all_sources,
+            memory_findings=all_memory,
+            web_findings=[],
+            doc_findings=[],
+            open_questions=[],
+            confidence=round(min(avg_confidence, 1.0), 2),
+            citations=citations,
+            contradictions=[],
+            structured_insights=[],
+            content_hooks=[],
+            risk_flags=[],
+        )
+
+        # Store findings in HiveMind
+        await self._store_findings_in_hivemind(user_query, pack)
+
+        return pack
+
     async def _phase1_deep_recall(
         self, query: str
     ) -> tuple[list[EvidenceFinding], list[SourceRecord], list[Citation], str | None]:
@@ -511,16 +839,20 @@ class BlaiqDeepResearchAgent:
                     sources.append(s)
                     citations.append(c)
 
-            # Parse injection text — this is where the REAL detailed content lives
-            # (product specs, technical details, full paragraphs). Memory titles are often
-            # just meta-descriptions like "The user is discussing..."
+            # Injection text: only useful if it's prose/bullet content (quick mode).
+            # Insight mode returns JSON dumps or XML user-profile — parsing those creates
+            # garbage findings from raw metadata fields. Structured memories already have
+            # the real content via _memory_to_finding().
             injection = _normalize_injection_text(payload)
             if injection:
-                injection_findings = _injection_to_findings(injection)
-                # Cap injection findings — HIVE-MIND already ranked them, take top 15
-                injection_findings = injection_findings[:15]
-                logger.info("Phase 1 injection findings: %d (capped)", len(injection_findings))
-                findings.extend(injection_findings)
+                first_chars = injection.lstrip()[:20]
+                is_structured = first_chars.startswith(("{", "[", "<user-profile", "<", '"'))
+                if not is_structured:
+                    injection_findings = _injection_to_findings(injection)[:15]
+                    logger.info("Phase 1 injection findings: %d (prose content)", len(injection_findings))
+                    findings.extend(injection_findings)
+                else:
+                    logger.info("Phase 1 injection text skipped: structured metadata, not prose")
         except HivemindMCPError as exc:
             logger.warning("Phase 1 recall failed: %s", exc)
             await self._log(f"Memory recall error (continuing): {exc}", kind="status", visibility="debug")
@@ -572,7 +904,7 @@ class BlaiqDeepResearchAgent:
         prompt = prompt.replace("{source_scope}", source_scope)
 
         messages = [
-            {"role": "system", "content": "You are a research planner. Return valid JSON only."},
+            {"role": "system", "content": "You are a research planner. Return ONLY valid JSON. No markdown, no code blocks, no explanatory text. Raw JSON only."},
             {"role": "user", "content": prompt},
         ]
 
@@ -590,15 +922,331 @@ class BlaiqDeepResearchAgent:
             await self._log(f"Decomposition failed, using fallback: {exc}", kind="status", visibility="debug")
 
         # Fallback: generate basic sub-questions
-        return self._fallback_decompose(query)
+        return self._fallback_decompose(query, depth=0)
 
     @staticmethod
-    def _fallback_decompose(query: str) -> list[str]:
-        """Generate basic sub-questions when LLM decomposition fails."""
-        return [
-            f"What background context and history exists for: {query}",
-            f"What are the key facts and data points relevant to: {query}",
+    def _fallback_decompose(query: str, depth: int = 0) -> list[str]:
+        """Generate basic sub-questions when LLM decomposition fails.
+
+        Varies questions based on depth to avoid infinite loops.
+        At max depth (4+), returns a single synthesis question that will complete.
+        """
+        # Depth-based question templates to avoid repetition
+        depth_templates = [
+            # Depth 0 - High-level overview
+            [
+                f"What is the historical background and context of: {query}",
+                f"What are the main components and aspects of: {query}",
+            ],
+            # Depth 1 - Facts and details
+            [
+                f"What key facts and data points exist about: {query}",
+                f"What are the important characteristics of: {query}",
+            ],
+            # Depth 2 - Analysis and relationships
+            [
+                f"What relationships and connections exist for: {query}",
+                f"What factors influence or affect: {query}",
+            ],
+            # Depth 3 - Implications and outcomes
+            [
+                f"What are the implications and consequences of: {query}",
+                f"What outcomes or results are associated with: {query}",
+            ],
+            # Depth 4+ - Final synthesis (terminate recursion - single item = no further decomposition)
+            [f"Final synthesis: {query}"],
         ]
+
+        # Use template for current depth, or last one if deeper
+        template_idx = min(depth, len(depth_templates) - 1)
+        return depth_templates[template_idx]
+
+    # ------------------------------------------------------------------
+    # Stack-based Research Helpers (Official AgentScope Pattern)
+    # ------------------------------------------------------------------
+
+    async def _phase2_decompose_with_plan(
+        self, query: str, memory_summary: str, source_scope: str, depth: int = 0,
+    ) -> dict[str, Any]:
+        """Decompose query with working plan and knowledge gaps (stack-based).
+
+        Returns dict with:
+        - sub_questions: list of sub-task objectives
+        - working_plan: specific steps to complete
+        - knowledge_gaps: what information is missing
+        """
+        prompt_template = _load_prompt("decompose_subtask.md")
+        prompt = prompt_template.replace("{query}", query)
+        prompt = prompt.replace("{memory_summary}", memory_summary or "No memory findings yet.")
+        prompt = prompt.replace("{source_scope}", source_scope)
+
+        messages = [
+            {"role": "system", "content": "You are a research planner. Return ONLY valid JSON. No markdown, no code blocks, no explanatory text. Raw JSON only."},
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            response = await self.resolver.acompletion(
+                "research", messages, max_tokens=800, temperature=0.5,
+            )
+            text = self.resolver.extract_text(response)
+
+            # Log raw response for debugging
+            logger.warning("Decomposition LLM response (raw): %s", text[:500] if text else "(EMPTY)")
+
+            parsed = self.resolver.safe_json_loads(text)
+
+            # Extract working plan from rationale or generate one
+            sub_questions = parsed.get("sub_questions", [])
+            if isinstance(sub_questions, list) and len(sub_questions) >= 1:
+                # Build working plan from sub-questions
+                working_plan = "\n".join([
+                    f"{i+1}. Research: {sq.get('question', str(sq)) if isinstance(sq, dict) else sq}"
+                    for i, sq in enumerate(sub_questions[:_MAX_SUB_QUESTIONS])
+                ])
+                return {
+                    "sub_questions": sub_questions[:_MAX_SUB_QUESTIONS],
+                    "working_plan": working_plan,
+                    "knowledge_gaps": parsed.get("knowledge_gaps_summary", ""),
+                }
+        except Exception as exc:
+            logger.warning("Decomposition with plan failed: %s", exc)
+
+        # Fallback - vary questions by depth to avoid infinite loops
+        fallback_questions = self._fallback_decompose(query, depth)
+        return {
+            "sub_questions": fallback_questions,
+            "working_plan": "\n".join([f"{i+1}. {q}" for i, q in enumerate(fallback_questions)]),
+            "knowledge_gaps": "Insufficient context to identify specific gaps",
+        }
+
+    async def _research_with_deep_search(
+        self, objective: str, source_scope: str,
+    ) -> tuple[
+        list[EvidenceFinding], list[SourceRecord], list[Citation],
+        list[EvidenceFinding], list[SourceRecord], list[Citation],
+    ]:
+        """Research with deep search: memory-first, then web with follow-up extraction.
+
+        Implements recursive information filling:
+        1. HIVE-MIND memory recall
+        2. If insufficient: web search
+        3. Analyze if results are sufficient
+        4. If gaps remain: extract from specific URLs or search again
+        """
+        mem_findings: list[EvidenceFinding] = []
+        mem_sources: list[SourceRecord] = []
+        mem_citations: list[Citation] = []
+        web_findings: list[EvidenceFinding] = []
+        web_sources: list[SourceRecord] = []
+        web_citations: list[Citation] = []
+
+        # Step 1: Memory recall
+        if self.hivemind.enabled:
+            try:
+                mode, limit = self._recall_profile_for_query(objective)
+                recall_result = await self.hivemind.recall(
+                    query=objective, limit=limit, mode=mode,
+                )
+                payload = (
+                    self.hivemind._extract_tool_payload(recall_result)
+                    if isinstance(recall_result, dict) else recall_result
+                )
+                memories = _normalize_memories(payload)
+                for mem in memories:
+                    f, s, c = self._memory_to_finding(mem, source_prefix="memory")
+                    if f is not None:
+                        mem_findings.append(f)
+                        mem_sources.append(s)
+                        mem_citations.append(c)
+            except HivemindMCPError as exc:
+                logger.warning("Memory recall failed for '%s': %s", objective[:40], exc)
+
+        # Check if memory is sufficient
+        if len(mem_findings) >= 3:
+            return mem_findings, mem_sources, mem_citations, web_findings, web_sources, web_citations
+
+        # Step 2: Web search if memory insufficient
+        if source_scope in ("web", "all") and self.hivemind.enabled:
+            try:
+                web_result = await self.hivemind.web_search(
+                    query=objective, limit=_WEB_RESULTS_LIMIT * 2,
+                )
+                web_payload = (
+                    self.hivemind._extract_tool_payload(web_result)
+                    if isinstance(web_result, dict) else web_result
+                )
+                results = _normalize_web_results(web_payload)
+
+                # Step 3: Deep search follow-up analysis
+                followup_decision = await self._analyze_deep_search_followup(
+                    objective, objective, str(results)[:2000], ""
+                )
+
+                if followup_decision.get("is_sufficient", False):
+                    # Results are sufficient — extract findings
+                    for item in results:
+                        f, s, c = self._web_result_to_finding(item)
+                        if f is not None:
+                            web_findings.append(f)
+                            web_sources.append(s)
+                            web_citations.append(c)
+                else:
+                    # Results insufficient — extract from specific URLs or search again
+                    urls = followup_decision.get("url", [])
+                    if urls and isinstance(urls, list):
+                        # Extract from specific URLs
+                        for url in urls[:3]:
+                            try:
+                                crawl_result = await self.hivemind.web_crawl(url=url)
+                                crawl_payload = (
+                                    self.hivemind._extract_tool_payload(crawl_result)
+                                    if isinstance(crawl_result, dict) else crawl_result
+                                )
+                                content = crawl_payload.get("content", "") or crawl_payload.get("text", "")
+                                if content:
+                                    f = EvidenceFinding(
+                                        finding_id=f"webcrawl:{hashlib.md5(url.encode()).hexdigest()[:12]}",
+                                        title=f"Extracted from {url[:50]}",
+                                        summary=content[:500],
+                                        source_ids=[f"webcrawl:{url}"],
+                                        confidence=0.7,
+                                    )
+                                    web_findings.append(f)
+                                    web_sources.append(SourceRecord(
+                                        source_id=f"webcrawl:{url}",
+                                        source_type="web_crawl",
+                                        url=url,
+                                    ))
+                            except Exception as e:
+                                logger.warning("URL extraction failed for %s: %s", url, e)
+                    else:
+                        # Try alternative search
+                        new_query = followup_decision.get("subtask", objective)
+                        retry_result = await self.hivemind.web_search(
+                            query=new_query, limit=_WEB_RESULTS_LIMIT,
+                        )
+                        retry_payload = (
+                            self.hivemind._extract_tool_payload(retry_result)
+                            if isinstance(retry_result, dict) else retry_result
+                        )
+                        retry_results = _normalize_web_results(retry_payload)
+                        for item in retry_results:
+                            f, s, c = self._web_result_to_finding(item)
+                            if f is not None:
+                                web_findings.append(f)
+                                web_sources.append(s)
+                                web_citations.append(c)
+
+            except HivemindMCPError as exc:
+                logger.warning("Web search failed for '%s': %s", objective[:40], exc)
+
+        return mem_findings, mem_sources, mem_citations, web_findings, web_sources, web_citations
+
+    async def _analyze_deep_search_followup(
+        self, objective: str, search_query: str, search_results: str, knowledge_gaps: str,
+    ) -> dict[str, Any]:
+        """Analyze whether search results need follow-up extraction."""
+        prompt_template = _load_prompt("deep_search_followup.md")
+        prompt = (
+            prompt_template
+            .replace("{objective}", objective)
+            .replace("{search_query}", search_query)
+            .replace("{search_results}", search_results[:3000])
+            .replace("{knowledge_gaps}", knowledge_gaps or "None specified")
+            .replace("{working_plan}", "Research the objective")
+        )
+
+        messages = [
+            {"role": "system", "content": "You are a deep search analyst. Return ONLY valid JSON. No markdown, no code blocks, no explanatory text. Raw JSON only."},
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            response = await self.resolver.acompletion(
+                "research", messages, max_tokens=800, temperature=0.3,
+            )
+            text = self.resolver.extract_text(response)
+            return self.resolver.safe_json_loads(text)
+        except Exception as exc:
+            logger.warning("Deep search followup analysis failed: %s", exc)
+
+        # Default: assume sufficient
+        return {"is_sufficient": True, "reasoning": "Unable to analyze, assuming sufficient"}
+
+    async def _reflect_on_failure(
+        self, objective: str, working_plan: str, knowledge_gaps: str, failure_description: str,
+    ) -> dict[str, Any]:
+        """Reflect on research failure and recommend corrective action."""
+        prompt_template = _load_prompt("research_reflection.md")
+        prompt = (
+            prompt_template
+            .replace("{objective}", objective)
+            .replace("{working_plan}", working_plan or "No plan specified")
+            .replace("{knowledge_gaps}", knowledge_gaps or "None specified")
+            .replace("{failure_description}", failure_description)
+            .replace("{steps_attempted}", "Memory recall and web search attempted")
+        )
+
+        messages = [
+            {"role": "system", "content": "You are a research quality controller. Return ONLY valid JSON. No markdown, no code blocks, no explanatory text. Raw JSON only."},
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            response = await self.resolver.acompletion(
+                "research", messages, max_tokens=1000, temperature=0.2,
+            )
+            text = self.resolver.extract_text(response)
+            return self.resolver.safe_json_loads(text)
+        except Exception as exc:
+            logger.warning("Reflection failed: %s", exc)
+
+        # Fallback: recommend decomposition
+        return {
+            "failure_type": "insufficient_results",
+            "root_cause": "Search returned insufficient evidence",
+            "recommendation": "decompose",
+            "decomposition_questions": [
+                f"What specific data exists about: {objective[:50]}",
+                f"What are the key components or aspects of: {objective[:50]}",
+            ],
+            "reasoning": "Fallback: decompose into narrower subtasks",
+        }
+
+    async def _update_intermediate_report(
+        self, objective: str, working_plan: str, findings: list[EvidenceFinding],
+    ) -> str:
+        """Update intermediate report with findings from completed task."""
+        prompt_template = _load_prompt("intermediate_report.md")
+
+        findings_text = "\n".join([
+            f"- [{f.finding_id}] {f.title}: {f.summary[:200]}"
+            for f in findings[:10]
+        ])
+
+        prompt = (
+            prompt_template
+            .replace("{objective}", objective)
+            .replace("{working_plan}", working_plan or "Research completed")
+            .replace("{tool_results}", findings_text or "No findings recorded")
+        )
+
+        messages = [
+            {"role": "system", "content": "You are a research synthesizer. Return markdown report."},
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            response = await self.resolver.acompletion(
+                "research", messages, max_tokens=2000, temperature=0.3,
+            )
+            return self.resolver.extract_text(response)
+        except Exception as exc:
+            logger.warning("Intermediate report update failed: %s", exc)
+
+        # Fallback: simple summary
+        return f"\n## Completed: {objective}\n\n{len(findings)} findings gathered.\n"
 
     # ------------------------------------------------------------------
     # Phase 3: Research Sub-questions
@@ -768,6 +1416,42 @@ class BlaiqDeepResearchAgent:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _store_findings_in_hivemind(self, query: str, pack: EvidencePack) -> None:
+        """Store research findings in HiveMind for future recalls."""
+        try:
+            client = get_hivemind_client()
+            findings_dict = {
+                "memory_count": len(pack.memory_findings),
+                "web_count": len(pack.web_findings),
+                "doc_count": len(pack.doc_findings),
+                "confidence": pack.confidence,
+                "summary": pack.summary,
+                "findings": [
+                    {
+                        "type": "memory",
+                        "title": f.title,
+                        "summary": f.summary,
+                        "confidence": f.confidence,
+                    }
+                    for f in pack.memory_findings[:5]
+                ] + [
+                    {
+                        "type": "web",
+                        "title": f.title,
+                        "summary": f.summary,
+                        "confidence": f.confidence,
+                    }
+                    for f in pack.web_findings[:5]
+                ],
+            }
+            result = await client.store_memory(query, findings_dict)
+            if result.get("ok"):
+                await self._log("Findings stored in HiveMind", kind="status")
+            else:
+                logger.warning(f"Failed to store findings in HiveMind: {result.get('error')}")
+        except Exception as exc:
+            logger.warning(f"HiveMind storage error: {exc}")
 
     def _memory_to_finding(
         self, mem: dict[str, Any], source_prefix: str = "memory",
@@ -949,3 +1633,333 @@ class BlaiqDeepResearchAgent:
                 seen.add(s.source_id)
                 deduped.append(s)
         return deduped
+
+    # ------------------------------------------------------------------
+    # Evidence Enrichment — Downstream Agent Optimization
+    # ------------------------------------------------------------------
+
+    async def _enrich_evidence_pack(
+        self,
+        pack: EvidencePack,
+        user_query: str,
+    ) -> EvidencePack:
+        """Enrich EvidencePack with structured insights, hooks, and content brief.
+
+        Called after research completes, before returning to workflow engine.
+        Adds:
+        - structured_insights: Content-ready insights with audience tagging
+        - content_hooks: Narrative hooks for content creation
+        - risk_flags: Compliance/legal flags for governance
+        - content_brief: Structured handoff for ContentDirector
+        - cache_entry: Cache metadata for reuse
+        """
+        all_findings = pack.memory_findings + pack.web_findings + pack.doc_findings
+
+        # Extract structured insights
+        pack.structured_insights = await self._extract_structured_insights(all_findings, user_query)
+
+        # Extract content hooks
+        pack.content_hooks = await self._extract_content_hooks(all_findings, user_query)
+
+        # Identify risk flags
+        pack.risk_flags = await self._identify_risk_flags(all_findings, user_query)
+
+        # Generate content brief handoff
+        pack.content_brief = await self._generate_content_brief(pack, user_query)
+
+        # Create cache entry
+        pack.cache_entry = await self._create_cache_entry(pack, user_query)
+
+        return pack
+
+    async def _extract_structured_insights(
+        self,
+        findings: list[EvidenceFinding],
+        query: str,
+    ) -> list[StructuredInsight]:
+        """Extract structured, content-ready insights from findings.
+
+        Uses LLM to identify key claims, evidence, metrics, and opportunities.
+        Tags each insight with audience relevance and quotable flag.
+        """
+        if not findings:
+            return []
+
+        findings_text = "\n".join([
+            f"[{f.finding_id}] {f.title}: {f.summary}"
+            for f in findings[:20]  # Limit context
+        ])
+
+        prompt = f"""You are extracting structured insights from research findings for content creation.
+
+=== FINDINGS ===
+{findings_text}
+
+=== QUERY ===
+{query}
+
+Extract 3-7 key insights that content creators can use directly. For each insight:
+- insight: Clear 1-2 sentence statement
+- insight_type: "key_claim" | "supporting_evidence" | "metric" | "comparison" | "risk" | "opportunity"
+- audience_relevance: ["investor"] | ["customer"] | ["technical"] | ["executive"] | multiple
+- confidence: 0-1 based on source quality
+- source_refs: List of finding IDs that support this
+- quotable: true if this is a strong, standalone statement
+- narrative_hook: How this connects to a bigger story
+
+Return JSON array of insights."""
+
+        try:
+            response = await self.resolver.acompletion(
+                "research",
+                [{"role": "user", "content": prompt}],
+                max_tokens=1500,
+                temperature=0.2,
+            )
+            text = self.resolver.extract_text(response)
+            parsed = self.resolver.safe_json_loads(text)
+
+            if isinstance(parsed, list):
+                return [StructuredInsight(**item) for item in parsed if isinstance(item, dict)]
+        except Exception as exc:
+            logger.warning("Insight extraction failed: %s", exc)
+
+        # Fallback: create basic insights from top findings
+        insights = []
+        for f in findings[:5]:
+            insights.append(StructuredInsight(
+                insight=f.summary[:200],
+                insight_type="supporting_evidence",
+                audience_relevance=["general"],
+                confidence=f.confidence,
+                source_refs=[f.finding_id],
+                quotable=len(f.summary) < 100,
+            ))
+        return insights
+
+    async def _extract_content_hooks(
+        self,
+        findings: list[EvidenceFinding],
+        query: str,
+    ) -> list[ContentHook]:
+        """Extract narrative hooks for content creation.
+
+        Identifies problem/solution/proof/urgency angles from evidence.
+        """
+        if not findings:
+            return []
+
+        findings_text = "\n".join([f.summary[:300] for f in findings[:15]])
+
+        prompt = f"""You are identifying content hooks — narrative angles that make compelling content.
+
+=== FINDINGS ===
+{findings_text}
+
+=== QUERY ===
+{query}
+
+Identify 2-5 content hooks. For each:
+- hook_type: "problem" | "solution" | "proof" | "urgency" | "contrast" | "social_proof"
+- description: The hook statement (1-2 sentences)
+- supporting_evidence: List of finding IDs
+- emotional_weight: "low" | "medium" | "high"
+
+Return JSON array of hooks."""
+
+        try:
+            response = await self.resolver.acompletion(
+                "research",
+                [{"role": "user", "content": prompt}],
+                max_tokens=1000,
+                temperature=0.3,
+            )
+            text = self.resolver.extract_text(response)
+            parsed = self.resolver.safe_json_loads(text)
+
+            if isinstance(parsed, list):
+                return [ContentHook(**item) for item in parsed if isinstance(item, dict)]
+        except Exception as exc:
+            logger.warning("Content hook extraction failed: %s", exc)
+
+        return []
+
+    async def _identify_risk_flags(
+        self,
+        findings: list[EvidenceFinding],
+        query: str,
+    ) -> list[RiskFlag]:
+        """Identify compliance, legal, reputational, and accuracy risks.
+
+        Flags claims that need qualification or governance review.
+        """
+        if not findings:
+            return []
+
+        # Check for contradictions first
+        risk_flags = []
+
+        # Look for potential accuracy risks (low confidence, conflicting sources)
+        low_confidence = [f for f in findings if f.confidence < 0.4]
+        if low_confidence:
+            risk_flags.append(RiskFlag(
+                risk_type="accuracy",
+                description="Some findings have low confidence scores and may need verification",
+                severity="medium",
+                affected_claims=[f.finding_id for f in low_confidence],
+                mitigation="Qualify claims with uncertainty language; seek primary sources",
+            ))
+
+        # Check for contradictions in the pack
+        # (This could be enhanced with contradiction detection logic)
+
+        # LLM-based risk detection
+        findings_text = "\n".join([f.summary[:200] for f in findings[:20]])
+
+        prompt = f"""You are identifying potential risks in research findings that content/governance teams should know about.
+
+=== FINDINGS ===
+{findings_text}
+
+=== QUERY ===
+{query}
+
+Identify any risk flags. Consider:
+- compliance: Regulatory or policy concerns
+- legal: Potential liability or legal exposure
+- reputational: Claims that could backfire if wrong
+- accuracy: Unverified or hard-to-verify claims
+- sensitivity: Topics requiring careful framing
+
+Return JSON array with:
+- risk_type: one of above
+- description: What the risk is
+- severity: "low" | "medium" | "high" | "critical"
+- affected_claims: List of finding IDs
+- mitigation: How to handle this risk
+
+Return empty array if no significant risks identified."""
+
+        try:
+            response = await self.resolver.acompletion(
+                "research",
+                [{"role": "user", "content": prompt}],
+                max_tokens=1000,
+                temperature=0.2,
+            )
+            text = self.resolver.extract_text(response)
+            parsed = self.resolver.safe_json_loads(text)
+
+            if isinstance(parsed, list):
+                llm_flags = [RiskFlag(**item) for item in parsed if isinstance(item, dict)]
+                risk_flags.extend(llm_flags)
+        except Exception as exc:
+            logger.warning("Risk flag detection failed: %s", exc)
+
+        return risk_flags
+
+    async def _generate_content_brief(
+        self,
+        pack: EvidencePack,
+        query: str,
+    ) -> ContentBriefHandoff:
+        """Generate a structured handoff brief for ContentDirector.
+
+        Translates research findings into content creation guidance.
+        """
+        all_findings = pack.memory_findings + pack.web_findings + pack.doc_findings
+
+        if not all_findings:
+            return ContentBriefHandoff(
+                key_message=f"Research on '{query}' yielded insufficient evidence",
+                supporting_pillars=[],
+            )
+
+        findings_text = "\n".join([f.summary[:200] for f in all_findings[:15]])
+
+        prompt = f"""You are creating a content handoff brief for a ContentDirector agent.
+
+=== EVIDENCE SUMMARY ===
+{pack.summary}
+
+=== KEY FINDINGS ===
+{findings_text}
+
+=== QUERY ===
+{query}
+
+Create a ContentBriefHandoff with:
+- key_message: One sentence — the core message content must convey
+- supporting_pillars: 2-4 key supporting points (bullet format)
+- audience_angles: Dict mapping audience -> how to frame for them
+  - "investor": ROI/growth framing
+  - "customer": benefit/solution framing
+  - "technical": how it works framing
+  - "executive": strategic impact framing
+- recommended_structure: Suggested section order (e.g., ["problem", "solution", "proof", "cta"])
+- tone_guidance: Tone recommendation based on evidence (professional, urgent, optimistic, etc.)
+- must_include_claims: 2-4 specific claims that MUST appear in content
+- avoid_claims: Claims to avoid or qualify (if any)
+- visual_opportunities: Data points that would work well as visuals
+  - Each: {{"value": "40%", "label": "Market Growth", "visual_type": "stat_callout"}}
+
+Return JSON object."""
+
+        try:
+            response = await self.resolver.acompletion(
+                "research",
+                [{"role": "user", "content": prompt}],
+                max_tokens=1500,
+                temperature=0.25,
+            )
+            text = self.resolver.extract_text(response)
+            parsed = self.resolver.safe_json_loads(text)
+
+            if isinstance(parsed, dict):
+                return ContentBriefHandoff(**parsed)
+        except Exception as exc:
+            logger.warning("Content brief generation failed: %s", exc)
+
+        # Fallback: basic brief from summary
+        return ContentBriefHandoff(
+            key_message=pack.summary[:200],
+            supporting_pillars=[f.summary[:100] for f in all_findings[:3]],
+            tone_guidance="professional and evidence-based",
+            must_include_claims=[f.summary[:80] for f in all_findings[:2]],
+        )
+
+    async def _create_cache_entry(
+        self,
+        pack: EvidencePack,
+        query: str,
+    ) -> ResearchCacheEntry:
+        """Create a cache entry for this research result.
+
+        Enables reuse of research for similar queries within freshness window.
+        """
+        from datetime import timedelta
+
+        query_hash = hashlib.sha256(query.lower().strip().encode()).hexdigest()[:16]
+        now = datetime.now(timezone.utc)
+
+        # Determine cache TTL based on query type
+        # Time-sensitive queries get shorter TTL
+        time_sensitive_keywords = ["quarter", "latest", "recent", "current", "2026", "2025"]
+        is_time_sensitive = any(kw in query.lower() for kw in time_sensitive_keywords)
+        ttl_hours = 6 if is_time_sensitive else 72  # 6 hours vs 3 days
+
+        # Identify freshness tags — data elements that may go stale
+        freshness_tags = []
+        for f in pack.memory_findings[:5] + pack.web_findings[:5]:
+            # Look for metrics, dates, numbers
+            if any(c.isdigit() for c in f.summary):
+                freshness_tags.append(f.finding_id)
+
+        return ResearchCacheEntry(
+            query_hash=query_hash,
+            cached_at=now.isoformat(),
+            expires_at=(now + timedelta(hours=ttl_hours)).isoformat(),
+            query=query,
+            evidence_pack_summary=pack.summary[:500],
+            freshness_tags=freshness_tags,
+        )

@@ -92,6 +92,7 @@ class SlidesData(BaseModel):
     """Complete slides.json output that maps directly to a React template."""
     title: str
     brand: str = "default"
+    layout: str = "slides"
     slides: list[SlideData] = Field(default_factory=list)
 
 
@@ -168,10 +169,24 @@ class ContentDirectorAgent(BaseAgent):
             name="ContentDirectorAgent",
             role="content_director",
             sys_prompt=(
-                "You are a world-class content director for high-stakes presentations and research reports. "
-                "Your job is to transform evidence and user requirements into precise, slide-by-slide content plans. "
-                "Every section plan must contain SPECIFIC copy guidance drawn from the actual evidence — no generic placeholders. "
-                "core_message must be 2-4 sentences of real content the renderer can use directly. "
+                "You are a senior creative director who has shipped award-winning digital posters, pitch decks, "
+                "and data-driven reports for Fortune 500 brands. You art-direct visual structures, not just label sections.\n\n"
+                "YOUR OUTPUTS must include precise visual art direction for each section:\n"
+                "• visual_intent: SPECIFIC layout pattern + typography choice + emotional tone. "
+                  "Bad: 'Show the main message'. "
+                  "Good: 'Full-bleed hero — h1.poster-display gradient text (max 8 words), "
+                  "supporting .poster-lead in var(--text-secondary), .poster-tag eyebrow with category. "
+                  "Dark heroic tone with ambient glow background. High contrast, zero clutter.'\n"
+                "• headline: 10 words max. Power verb + specific claim. No generic titles.\n"
+                "• subheadline: One sentence. The proof or the promise. Max 20 words.\n"
+                "• bullets: Each bullet = a complete fact with evidence. Min 15 words each. No vague summaries.\n"
+                "• stats: Real numbers from evidence only. Format as {value: '50%', label: 'cost reduction in year 1'}.\n\n"
+                "SECTION SELECTION for posters:\n"
+                "1. HERO — bold headline, one powerful claim, eyebrow tag\n"
+                "2. KEY STATS — 3–4 big numbers in grid cards\n"
+                "3. EVIDENCE / PROOF POINTS — structured bullets with source attribution\n"
+                "4. CTA / CLOSE — the ask, with urgency\n\n"
+                "Think: what would a reader understand in 5 seconds scanning this section?\n"
                 "Return valid JSON matching the ContentBrief schema."
             ),
             **kwargs,
@@ -691,6 +706,7 @@ Return ONLY valid JSON matching the SlidesData schema:
 {{
   "title": "...",
   "brand": "{tenant_id}",
+    "layout": "{ 'poster' if artifact_family == 'poster' else 'slides' }",
   "slides": [
     {{"type": "hero", "tag": "...", "headline": "...", ...}},
     ...
@@ -732,6 +748,10 @@ Return ONLY valid JSON matching the SlidesData schema:
                 hitl_answers=hitl_answers,
                 tenant_id=tenant_id,
             )
+
+        expected_layout = "poster" if artifact_family == "poster" else "slides"
+        if slides.layout != expected_layout:
+            slides.layout = expected_layout
 
         # await self.log(
         #     f"Slides plan ready: {len(slides.slides)} slides generated.",
@@ -808,5 +828,6 @@ Return ONLY valid JSON matching the SlidesData schema:
         return SlidesData(
             title=user_query,
             brand=tenant_id,
+            layout="slides",
             slides=slides,
         )

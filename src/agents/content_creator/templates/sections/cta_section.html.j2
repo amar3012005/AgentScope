@@ -1,0 +1,16 @@
+<div class="flex flex-col items-center justify-center min-h-[50vh] text-center px-8 relative overflow-hidden">
+  <div class="absolute inset-0 pointer-events-none" style="background: radial-gradient(circle at center, color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 10%, transparent), transparent 60%);"></div>
+  <h2 class="text-4xl md:text-6xl font-semibold tracking-[-0.03em] relative z-10 font-['Cormorant_Garamond'] max-w-4xl" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ headline }}</h2>
+  {% if body %}<p class="text-lg mt-6 max-w-2xl leading-8 relative z-10" style="color: color-mix(in srgb, {{ tokens.ink | default('#E8E7E2') }} 80%, transparent);">{{ body }}</p>{% endif %}
+  {% if stats %}
+  <div class="flex gap-8 mt-10 relative z-10">
+    {% for stat in stats %}
+    <div class="text-center">
+      <span class="block text-3xl font-semibold font-['Cormorant_Garamond']" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ stat.value }}</span>
+      <span class="text-[10px] uppercase tracking-[0.2em]" style="color: color-mix(in srgb, {{ tokens.muted | default('#A1A19B') }} 82%, transparent);">{{ stat.label }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if button_text %}<a {% if button_url %}href="{{ button_url }}"{% endif %} class="mt-10 inline-block px-10 py-4 text-sm font-medium tracking-wider uppercase rounded-full transition-all duration-300 relative z-10" style="background: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 8%, transparent); border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 20%, transparent); color: {{ tokens.primary | default('#F5F5F1') }};">{{ button_text }}</a>{% endif %}
+</div>

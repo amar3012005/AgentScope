@@ -12,6 +12,8 @@ services:
       BLAIQ_GRAPHRAG_AGENT: ${BLAIQ_GRAPHRAG_AGENT:-blaiq-graph-rag}
       BLAIQ_GRAPHRAG_TIMEOUT_SECONDS: ${BLAIQ_GRAPHRAG_TIMEOUT_SECONDS:-180}
       STRATEGIST_ENABLED: ${STRATEGIST_ENABLED:-true}
+      API_KEY: ${API_KEY:-}
+      API_KEYS: ${API_KEYS:-}
       LITELLM_STRATEGIST_MODEL: ${LITELLM_STRATEGIST_MODEL:-openai/gpt-4o-mini}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
@@ -46,6 +48,7 @@ services:
     restart: unless-stopped
     networks:
       - blaiq-optimized
+      - blaiq-agent-os
 
   blaiq-graph-rag:
     build:
@@ -70,19 +73,30 @@ services:
 
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-openai/gpt-4o-mini}
-      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-openai/gpt-4o}
-      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-openai/gpt-4o}
+      OPENAI_MODEL: ${OPENAI_MODEL:-eu.anthropic.claude-sonnet-4-5-20250929-v1:0}
+      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-gemini-2.5-pro}
+      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-eu.anthropic.claude-sonnet-4-5-20250929-v1:0}
+      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-eu.anthropic.claude-sonnet-4-5-20250929-v1:0}
 
       OPENAI_FALLBACK_MODEL: ${OPENAI_FALLBACK_MODEL}
       LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-25}
-      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-4000}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-1200}
+      GRAPHRAG_DEFAULT_USE_CACHE: ${GRAPHRAG_DEFAULT_USE_CACHE:-true}
+      GRAPHRAG_FAST_ANSWER_MODEL: ${GRAPHRAG_FAST_ANSWER_MODEL:-gemini-2.5-pro}
+      GRAPHRAG_FAST_ANSWER_MAX_CHUNKS: ${GRAPHRAG_FAST_ANSWER_MAX_CHUNKS:-5}
+      GRAPHRAG_FAST_ANSWER_MAX_TOKENS: ${GRAPHRAG_FAST_ANSWER_MAX_TOKENS:-800}
+      GRAPHRAG_RETRIEVAL_BROAD_K_MULTIPLIER: ${GRAPHRAG_RETRIEVAL_BROAD_K_MULTIPLIER:-2}
+      GRAPHRAG_RETRIEVAL_BROAD_K_MIN: ${GRAPHRAG_RETRIEVAL_BROAD_K_MIN:-16}
+      GRAPHRAG_RETRIEVAL_BROAD_K_MAX: ${GRAPHRAG_RETRIEVAL_BROAD_K_MAX:-40}
+      GRAPHRAG_RETRIEVAL_POOL_K_MULTIPLIER: ${GRAPHRAG_RETRIEVAL_POOL_K_MULTIPLIER:-2}
+      GRAPHRAG_RETRIEVAL_POOL_K_MIN: ${GRAPHRAG_RETRIEVAL_POOL_K_MIN:-16}
+      GRAPHRAG_RETRIEVAL_POOL_K_MAX: ${GRAPHRAG_RETRIEVAL_POOL_K_MAX:-40}
 
       BGE_M3_SERVICE_URL: ${BGE_M3_SERVICE_URL}
       BGE_M3_API_KEY: ${BGE_M3_API_KEY}
 
       API_KEY: ${API_KEY}
+      API_KEYS: ${API_KEYS:-}
       ENABLE_RERANKER: ${ENABLE_RERANKER:-false}
       DEBUG_LLM: ${DEBUG_LLM:-true}
       DEBUG_RETRIEVAL: ${DEBUG_RETRIEVAL:-true}
@@ -102,6 +116,7 @@ services:
       start_period: 40s
     networks:
       - blaiq-optimized
+      - blaiq-agent-os
 
   blaiq-echo-agent:
     build:
@@ -124,6 +139,8 @@ services:
 
 networks:
   blaiq-optimized:
+    driver: bridge
+  blaiq-agent-os:
     driver: bridge
 
 volumes:

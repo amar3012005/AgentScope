@@ -1,0 +1,6 @@
+<div class="flex flex-col items-center justify-center p-8 rounded-[32px] border border-white/10 bg-white/[0.035] backdrop-blur-md">
+  <span class="text-4xl md:text-6xl font-semibold text-stone-100 tracking-[-0.04em] font-['Cormorant_Garamond']">{{ value }}</span>
+  <span class="text-[11px] uppercase tracking-[0.24em] text-stone-400/70 mt-3">{{ label }}</span>
+  {% if unit %}<span class="text-sm text-stone-400/60 mt-1">{{ unit }}</span>{% endif %}
+  {% if trend %}<span class="text-xs mt-2 {% if trend.startswith('+') or trend == 'up' %}text-emerald-400/80{% elif trend.startswith('-') or trend == 'down' %}text-red-400/80{% else %}text-stone-400/60{% endif %}">{{ trend }}</span>{% endif %}
+</div>

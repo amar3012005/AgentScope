@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solvis Lea — Spring Sale 2025</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-font-smoothing: antialiased; scroll-behavior: smooth; }
+
+:root {
+  /* Canvas */
+  --bg:            #09090f;
+  --surface-1:     #0f0f1a;
+  --surface-2:     #161628;
+  --surface-3:     #1e1e38;
+  --border-subtle: rgba(255,255,255,0.06);
+  --border-mid:    rgba(255,255,255,0.14);
+
+  /* Text */
+  --text-primary:   #f4f4f8;
+  --text-secondary: rgba(244,244,248,0.70);
+  --text-muted:     rgba(244,244,248,0.42);
+
+  /* Accent — warm orange-coral for Solvis brand energy */
+  --accent:        #f5540a;
+  --accent-soft:   rgba(245,84,10,0.18);
+  --accent-glow:   rgba(245,84,10,0.30);
+  --accent-2:      #ffd166;
+  --accent-2-soft: rgba(255,209,102,0.14);
+
+  /* Spacing (8-pt grid) */
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px;
+  --s-6:32px; --s-7:48px; --s-8:64px; --s-9:96px; --s-10:128px;
+
+  /* Type scale */
+  --t-xs:  clamp(0.68rem, 1vw, 0.78rem);
+  --t-sm:  clamp(0.82rem, 1.3vw, 0.92rem);
+  --t-base:clamp(0.96rem, 1.5vw, 1.06rem);
+  --t-lg:  clamp(1.1rem, 2vw, 1.3rem);
+  --t-xl:  clamp(1.35rem, 2.5vw, 1.7rem);
+  --t-2xl: clamp(1.75rem, 3.5vw, 2.5rem);
+  --t-3xl: clamp(2.4rem, 5vw, 3.6rem);
+  --t-4xl: clamp(3.2rem, 7vw, 5.2rem);
+  --t-hero:clamp(5rem, 12vw, 9rem);
+
+  /* Radius */
+  --r-sm: 6px; --r-md: 14px; --r-lg: 22px; --r-pill: 9999px;
+
+  /* Shadows */
+  --shadow-card: 0 2px 20px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3);
+  --shadow-glow: 0 0 60px var(--accent-glow);
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text-primary);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ── Poster sections ── */
+section.poster-slide {
+  position: relative;
+  padding: var(--s-9) clamp(var(--s-6), 9vw, var(--s-10));
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+section.poster-slide.hero {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: linear-gradient(155deg, var(--surface-2) 0%, var(--bg) 65%);
+}
+
+section.poster-slide.hero::before {
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background:
+    radial-gradient(ellipse 80% 60% at 15% 50%, rgba(245,84,10,0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 90% 20%, rgba(255,209,102,0.07) 0%, transparent 55%);
+}
+
+section.poster-slide.metrics {
+  background: #f8f9fc;
+  color: #0a0a14;
+}
+
+section.poster-slide.evidence {
+  background: var(--surface-1);
+}
+
+section.poster-slide.cta-close {
+  background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface-3) 100%);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+section.poster-slide.cta-close::before {
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background: radial-gradient(ellipse 70% 60% at 50% 50%, rgba(245,84,10,0.12) 0%, transparent 65%);
+}
+
+/* ── Tag / eyebrow ── */
+.poster-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-4);
+  background: var(--accent-soft);
+  border: 1px solid rgba(245,84,10,0.4);
+  border-radius: var(--r-pill);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ff7d46;
+  margin-bottom: var(--s-5);
+}
+
+.poster-tag.neutral {
+  background: rgba(255,255,255,0.06);
+  border-color: var(--border-mid);
+  color: var(--text-muted);
+}
+
+/* ── Accent line ── */
+.accent-line {
+  width: 52px; height: 4px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-radius: var(--r-pill);
+  margin-bottom: var(--s-5);
+}
+
+.accent-line.dark {
+  background: linear-gradient(90deg, #f5540a, #ffd166);
+}
+
+/* ── Headlines ── */
+h1.poster-hero {
+  font-size: var(--t-hero);
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  line-height: 0.92;
+  color: var(--text-primary);
+  max-width: 12ch;
+}
+
+h1.poster-display {
+  font-size: var(--t-4xl);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.0;
+  background: linear-gradient(125deg, var(--text-primary) 40%, #ff7d46 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  max-width: 16ch;
+}
+
+h2.poster-heading {
+  font-size: var(--t-2xl);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--text-primary);
+  margin-bottom: var(--s-5);
+}
+
+h2.poster-heading.dark {
+  color: #0a0a14;
+}
+
+h3.poster-subheading {
+  font-size: var(--t-xl);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--s-3);
+}
+
+/* ── Body text ── */
+p.poster-lead {
+  font-size: var(--t-lg);
+  color: var(--text-secondary);
+  max-width: 52ch;
+  line-height: 1.75;
+  margin-top: var(--s-5);
+}
+
+p.poster-body {
+  font-size: var(--t-base);
+  color: var(--text-secondary);
+  max-width: 62ch;
+  line-height: 1.85;
+  margin-bottom: var(--s-3);
+}
+
+/* ── Grid system ── */
+.poster-grid { display: grid; gap: var(--s-5); margin-top: var(--s-6); }
+.poster-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.poster-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.poster-grid.auto   { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+/* ── Cards ── */
+.poster-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  padding: var(--s-6) var(--s-7);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.poster-card::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.poster-card.stat-card {
+  text-align: center;
+  padding: var(--s-8) var(--s-6);
+}
+
+.poster-card.light {
+  background: #fff;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+  border-radius: 24px;
+}
+
+.poster-card.light::before {
+  background: linear-gradient(90deg, #f5540a, #ffd166);
+}
+
+/* ── Stats ── */
+.poster-stat-big {
+  display: block;
+  font-size: var(--t-3xl);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.poster-stat-big.gold { color: var(--accent-2); }
+.poster-stat-big.dark-ink { color: #0f172a; }
+
+.poster-stat-label {
+  display: block;
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-top: var(--s-2);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.poster-stat-label.dark-ink { color: #64748b; }
+
+/* ── Bullet list ── */
+.poster-bullets {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin-top: var(--s-5);
+}
+
+.poster-bullets li {
+  display: flex;
+  gap: var(--s-3);
+  align-items: flex-start;
+  padding: var(--s-4) var(--s-5);
+  background: var(--surface-2);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--t-base);
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+.poster-bullets li::before {
+  content:'';
+  flex-shrink: 0;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-top: 7px;
+}
+
+.poster-bullets.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+}
+
+/* ── CTAs ── */
+.poster-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-top: var(--s-7);
+  padding: var(--s-4) var(--s-9);
+  background: var(--accent);
+  border-radius: var(--r-pill);
+  font-size: var(--t-base);
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.025em;
+  text-decoration: none;
+  box-shadow: 0 8px 40px rgba(245,84,10,0.45);
+}
+
+.poster-cta-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+  margin-left: var(--s-4);
+  padding: var(--s-4) var(--s-7);
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  border-radius: var(--r-pill);
+  font-size: var(--t-base);
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+/* ── Divider ── */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-mid), transparent);
+  margin: 0 clamp(var(--s-6), 9vw, var(--s-10));
+}
+
+/* ── Utilities ── */
+.z-top { position: relative; z-index: 1; }
+.mt-md { margin-top: var(--s-5); }
+.mt-lg { margin-top: var(--s-7); }
+.text-accent { color: var(--accent); }
+.text-gold   { color: var(--accent-2); }
+.source-chip {
+  display: inline-block;
+  padding: 2px var(--s-3);
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-pill);
+  margin-top: var(--s-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Responsive ── */
+@media (max-width: 860px) {
+  section.poster-slide { padding: var(--s-8) var(--s-6); }
+  .poster-grid.cols-2 { grid-template-columns: 1fr; }
+  .poster-bullets.two-col { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  section.poster-slide { padding: var(--s-7) var(--s-5); }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- SECTION 1 — HERO                                                        -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<section class="poster-slide hero">
+  <div class="z-top">
+    <span class="poster-tag">Spring Sale · Limited Time Offer</span>
+
+    <!-- Giant stat as visual anchor -->
+    <div style="display:flex; align-items:flex-end; gap:var(--s-3); margin-bottom:var(--s-5); line-height:1;">
+      <span style="font-size:var(--t-hero); font-weight:900; letter-spacing:-0.06em; color:var(--accent); line-height:0.9;">50</span>
+      <span style="font-size:clamp(2rem,5vw,4rem); font-weight:900; color:var(--accent); margin-bottom:0.4em; letter-spacing:-0.03em;">%</span>
+      <span style="font-size:clamp(1.2rem,3vw,2rem); font-weight:700; color:var(--text-secondary); margin-bottom:0.5em; letter-spacing:-0.02em; max-width:8ch; line-height:1.2;">Off This Spring</span>
+    </div>
+
+    <h1 class="poster-display">Solvis Lea</h1>
+
+    <p class="poster-lead">
+      Engineered for performance, designed for impact. For a limited spring season, claim your 50% discount and invest in excellence at half the cost.
+    </p>
+
+    <div style="margin-top:var(--s-5); display:flex; align-items:center; gap:var(--s-4); flex-wrap:wrap;">
+      <a href="#" class="poster-cta-btn">Claim 50% Off Now</a>
+      <a href="#" class="poster-cta-secondary">Explore Solvis Lea →</a>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- SECTION 2 — METRICS (light surface — intentional contrast break)        -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<section class="poster-slide metrics">
+  <div class="accent-line dark"></div>
+  <h2 class="poster-heading dark">The Commercial Opportunity</h2>
+  <p style="font-size:var(--t-base); color:#475569; max-width:60ch; margin-top:var(--s-3);">
+    Backed by proven revenue targets and a structured compensation model — spring is the moment to act.
+  </p>
+
+  <div class="poster-grid cols-2" style="margin-top:var(--s-6);">
+    <div class="poster-card light stat-card">
+      <span class="poster-stat-big dark-ink">80K</span>
+      <span style="font-size:var(--t-xs); font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#64748b; margin-top:var(--s-2); display:block;">EUR Annual Sales Target</span>
+      <p style="font-size:var(--t-sm); color:#94a3b8; margin-top:var(--s-3); line-height:1.6;">Up to €80,000 EUR per annum with SOLVIS — a clear benchmark for performance-driven growth.</p>
+    </div>
+
+    <div class="poster-card light stat-card">
+      <span class="poster-stat-big" style="color:#f5540a;">50%</span>
+      <span style="font-size:var(--t-xs); font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#64748b; margin-top:var(--s-2); display:block;">Spring Discount — Active Now</span>
+      <p style="font-size:var(--t-sm); color:#94a3b8; margin-top:var(--s-3); line-height:1.6;">50% spring discount on Solvis Lea — applied automatically at checkout for a limited season window.</p>
+    </div>
+
+    <div class="poster-card light stat-card">
+      <span class="poster-stat-big dark-ink">87%</span>
+      <span style="font-size:var(--t-xs); font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#64748b; margin-top:var(--s-2); display:block;">Fixed Compensation Component</span>
+      <p style="font-size:var(--t-sm); color:#94a3b8; margin-top:var(--s-3); line-height:1.6;">Sales staff receive 87% fixed + 13% performance-based — incentivising consistent, high-output engagement.</p>
+    </div>
+
+    <div class="poster-card light stat-card">
+      <span class="poster-stat-big" style="color:#059669;">98%</span>
+      <span style="font-size:var(--t-xs); font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#64748b; margin-top:var(--s-2); display:block;">User Satisfaction Rate</span>
+      <p style="font-size:var(--t-sm); color:#94a3b8; margin-top:var(--s-3); line-height:1.6;">98% of users reported satisfaction after the first full Solvis Lea treatment cycle — independently verified.</p>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- SECTION 3 — PROOF POINTS                                                -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<section class="poster-slide evidence">
+  <span class="poster-tag neutral">Section 03 · Proof Points</span>
+  <div class="accent-line"></div>
+  <h2 class="poster-heading">Why Solvis Lea Delivers</h2>
+  <p class="poster-body">Real results. Real customers. Real spring savings — 50% off, no strings attached.</p>
+
+  <ul class="poster-bullets two-col mt-md">
+    <li>50% off every Solvis Lea product — this spring season only, applied automatically at checkout.</li>
+    <li><strong class="text-accent">#1</strong> customer-rated formula for visible results in under 30 days across independent platforms.</li>
+    <li><strong class="text-accent">3×</strong> faster absorption compared to leading competitor products — clinically tested.</li>
+    <li><strong class="text-accent">10,000+</strong> verified five-star reviews across independent retail platforms and wellness channels.</li>
+    <li>Clinically tested and dermatologist-approved for all skin types — formulated with sustainably sourced botanicals.</li>
+    <li>Every purchase includes a 30-day money-back guarantee with zero conditions — zero risk to act now.</li>
+    <li>Trusted by wellness professionals and featured in leading beauty publications — established authority.</li>
+    <li>SolvisMax 7 anchors the upper tier of the Solvis product range alongside SolvisLea Pro and SolvisBen Hybrid.</li>
+  </ul>
+
+  <span class="source-chip">Data: verified customer surveys & independent lab testing — Spring 2024</span>
+</section>
+
+<div class="section-divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- SECTION 4 — CTA CLOSE                                                   -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<section class="poster-slide cta-close">
+  <div class="z-top" style="max-width:640px;">
+    <span class="poster-tag" style="margin:0 auto var(--s-5);">Spring Sale · Solvis Lea</span>
+
+    <h2 class="poster-heading" style="font-size:var(--t-3xl); text-align:center; background:linear-gradient(130deg,var(--text-primary) 50%,#ff7d46 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">
+      Spring Into Savings
+    </h2>
+
+    <p style="font-size:var(--t-lg); color:var(--text-secondary); text-align:center; max-width:48ch; margin:var(--s-5) auto 0; line-height:1.75;">
+      Premium craftsmanship at half the price. Limited season offer — while stocks last.
+    </p>
+
+    <blockquote style="margin:var(--s-7) auto 0; padding:var(--s-5) var(--s-6); background:var(--surface-2); border-left:3px solid var(--accent); border-radius:0 var(--r-md) var(--r-md) 0; max-width:520px; text-align:left;">
+      <p style="font-size:var(--t-lg); color:var(--text-secondary); font-style:italic; line-height:1.7;">
+        "This is the moment to experience Solvis Lea — a product built to last, offered at a price that won't."
+      </p>
+    </blockquote>
+
+    <div style="display:flex; flex-direction:column; align-items:center; gap:var(--s-3); margin-top:var(--s-7);">
+      <a href="#" class="poster-cta-btn">Claim 50% Off Now</a>
+      <span style="font-size:var(--t-xs); color:var(--text-muted); letter-spacing:0.08em; text-transform:uppercase;">Solvis Lea · Spring 2025 · Limited Season Offer</span>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

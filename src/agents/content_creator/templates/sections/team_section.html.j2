@@ -1,0 +1,24 @@
+<div class="px-8 md:px-16 py-16">
+  <h2 class="text-3xl md:text-5xl font-semibold tracking-[-0.03em] mb-12 font-['Cormorant_Garamond']" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ title | default("Team") }}</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    {% for member in members %}
+    <div class="p-6 rounded-[28px] backdrop-blur-md" style="border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 10%, transparent); background: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 4%, transparent);">
+      <div class="flex items-center gap-4 mb-4">
+        <div class="w-14 h-14 rounded-full flex items-center justify-center text-lg font-semibold" style="background: linear-gradient(135deg, {{ tokens.primary | default('#F5F5F1') }}, {{ tokens.accent_emerald | default('#8F8F8A') }}); color: {{ tokens.background | default('#050505') }};">{{ member.avatar_initials or member.name[:2] | upper }}</div>
+        <div>
+          <h4 class="text-lg font-semibold" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ member.name }}</h4>
+          <span class="text-sm" style="color: color-mix(in srgb, {{ tokens.muted | default('#A1A19B') }} 82%, transparent);">{{ member.role }}</span>
+        </div>
+      </div>
+      {% if member.bio %}<p class="text-sm leading-7 mb-3" style="color: color-mix(in srgb, {{ tokens.ink | default('#E8E7E2') }} 78%, transparent);">{{ member.bio }}</p>{% endif %}
+      {% if member.expertise %}
+      <div class="flex flex-wrap gap-1.5">
+        {% for skill in member.expertise %}
+        <span class="px-2 py-0.5 text-[10px] font-mono rounded-full" style="color: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 78%, transparent); background: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 5%, transparent); border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 10%, transparent);">{{ skill }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>

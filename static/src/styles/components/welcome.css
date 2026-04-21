@@ -1,0 +1,110 @@
+/* Empty state: centered, clean, Langdock-style */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 48px 24px;
+  animation: fadeIn 0.4s ease both;
+}
+
+/* Large icon */
+.welcome-icon {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.welcome-greeting {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+}
+
+.welcome-greeting-accent {
+  color: var(--accent);
+}
+
+.welcome-subtitle {
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: 32px;
+  max-width: 480px;
+  line-height: 1.5;
+}
+
+/* Suggestion chips */
+.welcome-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  max-width: 640px;
+}
+
+.welcome-chip {
+  padding: 10px 18px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  transition: all var(--transition-fast);
+  animation: slideUp 0.3s ease both;
+}
+
+.welcome-chip:nth-child(1) { animation-delay: 0.05s; }
+.welcome-chip:nth-child(2) { animation-delay: 0.1s; }
+.welcome-chip:nth-child(3) { animation-delay: 0.15s; }
+.welcome-chip:nth-child(4) { animation-delay: 0.2s; }
+.welcome-chip:nth-child(5) { animation-delay: 0.25s; }
+.welcome-chip:nth-child(6) { animation-delay: 0.3s; }
+
+.welcome-chip:hover {
+  background: var(--accent-soft);
+  border-color: rgba(79, 70, 229, 0.2);
+  color: var(--text-primary);
+}
+
+.welcome-chip:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.welcome-chip:active {
+  transform: scale(0.97);
+}
+
+/* New workflow link */
+.welcome-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 24px;
+  padding: 10px 20px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: white;
+  background: var(--accent);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.welcome-cta:hover {
+  background: var(--accent-hover);
+}
+
+.welcome-version {
+  margin-top: 32px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}

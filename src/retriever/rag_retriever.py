@@ -71,7 +71,7 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_FALLBACK_MODEL = os.getenv("OPENAI_FALLBACK_MODEL")
 LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "25"))
 LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "25"))
-_token_env = os.getenv("LLM_MAX_OUTPUT_TOKENS", "4000")
+_token_env = os.getenv("LLM_MAX_OUTPUT_TOKENS", "1200")
 LLM_MAX_OUTPUT_TOKENS = int(_token_env) if _token_env and _token_env.strip().isdigit() and int(_token_env) > 0 else None
 
 BGE_M3_DIMENSION = 1024

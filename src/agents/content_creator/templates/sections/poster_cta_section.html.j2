@@ -1,0 +1,37 @@
+<section class="px-8 py-8 md:px-12 md:pb-12">
+  <div class="rounded-[2.4rem] p-6 md:p-8" style="background: linear-gradient(135deg, color-mix(in srgb, {{ tokens.accent | default(tokens.primary | default('#F5F5F1')) }} 16%, {{ tokens.surface | default('#171718') }} 84%), color-mix(in srgb, {{ tokens.surface | default('#171718') }} 90%, transparent)); border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 14%, transparent);">
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_auto] lg:items-end">
+      <div>
+        <h2 class="text-3xl font-semibold tracking-[-0.04em] md:text-5xl font-['Cormorant_Garamond']" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ headline }}</h2>
+        {% if body %}
+        <p class="mt-4 max-w-2xl text-sm leading-7 md:text-base" style="color: color-mix(in srgb, {{ tokens.ink | default('#E8E7E2') }} 82%, transparent);">{{ body }}</p>
+        {% endif %}
+        {% if contact_line %}
+        <div class="mt-4 text-[11px] font-mono uppercase tracking-[0.18em]" style="color: color-mix(in srgb, {{ tokens.muted | default('#A1A19B') }} 92%, transparent);">{{ contact_line }}</div>
+        {% endif %}
+      </div>
+
+      <div class="flex flex-col items-start gap-3 lg:items-end">
+        {% if urgency_label %}
+        <span class="rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-[0.18em]" style="background: color-mix(in srgb, {{ tokens.background | default('#0f0f10') }} 38%, transparent); border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 16%, transparent); color: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 90%, transparent);">{{ urgency_label }}</span>
+        {% endif %}
+        {% if button_text %}
+        <a {% if button_url %}href="{{ button_url }}"{% endif %} class="inline-flex items-center rounded-full px-6 py-3 text-xs font-semibold uppercase tracking-[0.18em]" style="background: {{ tokens.primary | default('#F5F5F1') }}; color: {{ tokens.background | default('#0f0f10') }};">
+          {{ button_text }}
+        </a>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if stats %}
+    <div class="mt-6 grid gap-3 md:grid-cols-3">
+      {% for stat in stats %}
+      <div class="rounded-[1.4rem] px-4 py-3" style="background: color-mix(in srgb, {{ tokens.background | default('#0f0f10') }} 34%, transparent);">
+        <div class="text-2xl font-semibold font-['Cormorant_Garamond']" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ stat.value }}</div>
+        <div class="text-[10px] uppercase tracking-[0.16em]" style="color: color-mix(in srgb, {{ tokens.muted | default('#A1A19B') }} 92%, transparent);">{{ stat.label }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</section>

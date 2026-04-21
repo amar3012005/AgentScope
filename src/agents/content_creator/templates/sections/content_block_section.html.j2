@@ -1,0 +1,21 @@
+<div class="px-8 md:px-16 py-16">
+  <h2 class="text-3xl md:text-5xl font-semibold tracking-[-0.03em] mb-8 font-['Cormorant_Garamond']" style="color: {{ tokens.primary | default('#F5F5F1') }};">{{ headline }}</h2>
+  {% if body %}<p class="text-base leading-8 max-w-3xl mb-8" style="color: color-mix(in srgb, {{ tokens.ink | default('#E8E7E2') }} 84%, transparent);">{{ body }}</p>{% endif %}
+  {% if bullets %}
+  <ul class="space-y-3 max-w-3xl">
+    {% for bullet in bullets %}
+    <li class="flex items-start gap-3">
+      <span class="w-1.5 h-1.5 rounded-full mt-3 shrink-0" style="background: color-mix(in srgb, {{ tokens.muted | default('#A1A19B') }} 60%, transparent);"></span>
+      <span class="text-sm leading-7" style="color: color-mix(in srgb, {{ tokens.ink | default('#E8E7E2') }} 80%, transparent);">{{ bullet }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if tech_stack %}
+  <div class="flex flex-wrap gap-2 mt-8">
+    {% for item in tech_stack %}
+    <span class="px-3 py-1.5 text-xs font-mono rounded-full" style="color: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 78%, transparent); background: color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 5%, transparent); border: 1px solid color-mix(in srgb, {{ tokens.primary | default('#F5F5F1') }} 10%, transparent);">{{ item }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

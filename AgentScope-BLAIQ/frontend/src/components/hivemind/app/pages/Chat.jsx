@@ -11,6 +11,7 @@ import {
   ChevronUp,
   Circle,
   Clock,
+  Code,
   Eye,
   FileUp,
   FileText,
@@ -717,6 +718,7 @@ function StepsContent({ task, isDayMode }) {
 function PreviewContent({ task, isDayMode }) {
   const iframeRef = useRef(null);
   const [maximized, setMaximized] = useState(false);
+  const [showCode, setShowCode] = useState(false);
 
   const rawPreviewHtml = (() => {
     if (task.artifact?.html) return task.artifact.html;
@@ -733,11 +735,30 @@ function PreviewContent({ task, isDayMode }) {
   const hasPreview = Boolean(rawPreviewHtml.trim());
 
   useEffect(() => {
-    if (hasPreview && iframeRef.current) {
+    if (hasPreview && iframeRef.current && !showCode) {
       const doc = iframeRef.current.contentDocument || iframeRef.current.contentWindow?.document;
       if (doc) { doc.open(); doc.write(previewHtml); doc.close(); }
     }
-  }, [previewHtml, hasPreview]);
+  }, [previewHtml, hasPreview, showCode]);
+
+  const formatHtml = (html) => {
+    let formatted = html;
+    let indent = 0;
+    return formatted
+      .split('\n')
+      .map((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return '';
+        if (trimmed.startsWith('</')) indent = Math.max(0, indent - 1);
+        const result = '  '.repeat(indent) + trimmed;
+        if (trimmed.startsWith('<') && !trimmed.startsWith('</') && !trimmed.endsWith('/>')) {
+          if (!trimmed.includes('<!') && !trimmed.includes('<?')) indent++;
+        }
+        return result;
+      })
+      .filter(Boolean)
+      .join('\n');
+  };
 
   if (!hasPreview) {
     return (
@@ -764,12 +785,29 @@ function PreviewContent({ task, isDayMode }) {
             {task.artifact?.title || 'Artifact'}
           </span>
         </div>
-        <button type="button" onClick={() => setMaximized((v) => !v)} className={`rounded-lg p-1.5 ${isDayMode ? 'text-gray-400 hover:bg-gray-50' : 'text-[#525252] hover:bg-[#1e1e1e]'}`}>
-          {maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-        </button>
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={() => setShowCode((v) => !v)} className={`rounded-lg p-1.5 ${isDayMode ? 'text-gray-400 hover:bg-gray-50' : 'text-[#525252] hover:bg-[#1e1e1e]'}`} title="Toggle code view">
+            <Code size={13} />
+          </button>
+          <button type="button" onClick={() => setMaximized((v) => !v)} className={`rounded-lg p-1.5 ${isDayMode ? 'text-gray-400 hover:bg-gray-50' : 'text-[#525252] hover:bg-[#1e1e1e]'}`}>
+            {maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          </button>
+        </div>
       </div>
-      <div className="flex-1 overflow-hidden bg-[#f3efe7]">
-        <iframe ref={iframeRef} title="preview" className="h-full w-full border-0" sandbox="allow-scripts allow-same-origin" />
+      <div className="flex-1 overflow-hidden bg-[#050505]">
+        {showCode ? (
+          <pre className={`h-full w-full overflow-auto p-4 font-mono text-xs ${isDayMode ? 'bg-gray-50 text-gray-900' : 'bg-[#1a1a1a] text-[#e0e0e0]'}`}>
+            {formatHtml(rawPreviewHtml)}
+          </pre>
+        ) : (
+          <iframe
+            ref={iframeRef}
+            title="preview"
+            className="h-full w-full border-0"
+            sandbox="allow-scripts allow-same-origin allow-popups"
+            style={{ background: 'transparent' }}
+          />
+        )}
       </div>
     </div>
   );
@@ -1118,7 +1156,7 @@ function EvidenceMetadata({ evidencePack, isDayMode }) {
 }
 
 function ConversationArea({ task, sessionTasks }) {
-  const { submit, isSubmitting, isDayMode, previewOpen, setPreviewOpen, hitl, updateHitlAnswer, updateHitlAnswerMode, updateHitlIndex, markFinalAnswerStreamed, resume } = useBlaiqWorkspace();
+  const { submit, isSubmitting, isDayMode, previewOpen, setPreviewOpen, updateHitlAnswer, updateHitlAnswerMode, updateHitlIndex, markFinalAnswerStreamed, resume } = useBlaiqWorkspace();
   const [input, setInput] = useState('');
   const scrollRef = useRef(null);
   const d = isDayMode;
@@ -1137,12 +1175,13 @@ function ConversationArea({ task, sessionTasks }) {
   const pendingQueueRef = useRef([]);
   const seenIdsRef = useRef(new Set());
   const typingTimerRef = useRef(null);
-  const questions = hitl?.questions || [];
-  const currentIndex = Number.isFinite(hitl?.currentIndex) ? hitl.currentIndex : 0;
+  const hitlState = task?.hitl || { open: false, questions: [], answers: {}, answerModes: {}, currentIndex: 0 };
+  const questions = hitlState.questions || [];
+  const currentIndex = Number.isFinite(hitlState.currentIndex) ? hitlState.currentIndex : 0;
   const currentQuestion = questions[currentIndex] || null;
   const currentQuestionId = currentQuestion?.requirement_id || '';
-  const currentQuestionAnswer = currentQuestionId ? (hitl?.answers?.[currentQuestionId] || '') : '';
-  const currentQuestionMode = currentQuestionId ? (hitl?.answerModes?.[currentQuestionId] || 'option') : 'option';
+  const currentQuestionAnswer = currentQuestionId ? (hitlState.answers?.[currentQuestionId] || '') : '';
+  const currentQuestionMode = currentQuestionId ? (hitlState.answerModes?.[currentQuestionId] || 'option') : 'option';
   const currentQuestionOptions = Array.isArray(currentQuestion?.answer_options) && currentQuestion.answer_options.length > 0
     ? currentQuestion.answer_options
     : quickChips(currentQuestion?.question || '');
@@ -1258,11 +1297,11 @@ function ConversationArea({ task, sessionTasks }) {
   }, [renderedAgentMessages, typingState]);
 
   const hitlVisible = useMemo(() => {
-    if (!(hitl?.open && currentQuestion)) {
+    if (!(hitlState.open && currentQuestion)) {
       return false;
     }
     return streams.some((stream) => stream.agent === 'HITL Agent' && stream.entries.length > 0);
-  }, [currentQuestion, hitl?.open, streams]);
+  }, [currentQuestion, hitlState.open, streams]);
 
   function toggleAgent(agent) {
     setExpandedAgents((prev) => ({

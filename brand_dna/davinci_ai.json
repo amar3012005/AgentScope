@@ -1,74 +1,76 @@
 {
-    "theme": "Dark Mode / Cyber-Technical",
+    "theme": "Monochrome Editorial / Luxury Perfume",
     "version": "2.0",
-    "description": "DaVinci AI Brand DNA - Premium UI/UX Design System with component mappings",
+    "description": "DaVinci AI Brand DNA - monochrome editorial design system for luxury narrative, premium decks, and product storytelling",
     "tokens": {
-        "primary": "#FF4500",
-        "background": "#0a0a0a",
-        "surface": "#0d0d0d",
-        "border": "#1a1a1a",
-        "accent_blue": "#3b82f6",
-        "accent_emerald": "#10b981",
-        "accent_purple": "#8b5cf6"
+        "primary": "#F5F5F1",
+        "background": "#050505",
+        "surface": "#111111",
+        "border": "#2A2A2A",
+        "accent_blue": "#CFCFCB",
+        "accent_emerald": "#8F8F8A",
+        "accent_purple": "#6E6E6A",
+        "muted": "#A1A19B",
+        "ink": "#E8E7E2"
     },
     "typography": {
-        "headings": "Bebas Neue, sans-serif",
-        "body": "Space Grotesk, monospace",
-        "letter_spacing": "tracking-tighter",
-        "title_massive": "text-6xl font-extrabold tracking-tighter uppercase",
-        "title_large": "text-4xl md:text-5xl font-bold tracking-tight",
-        "title_medium": "text-2xl md:text-3xl font-bold tracking-tight",
-        "title_small": "text-lg md:text-xl font-bold tracking-tight",
-        "body_default": "text-base text-white/80 leading-relaxed",
-        "body_small": "text-sm text-white/70 leading-relaxed",
-        "stat_value": "text-4xl md:text-7xl font-mono font-bold text-orange-500 tracking-tighter",
-        "label_uppercase": "text-xs uppercase tracking-widest text-white/60",
-        "mono_code": "text-sm font-mono text-white/80"
+        "headings": "Cormorant Garamond, serif",
+        "body": "Manrope, sans-serif",
+        "letter_spacing": "tracking-[0.02em]",
+        "title_massive": "text-6xl md:text-8xl font-semibold tracking-[-0.04em] uppercase",
+        "title_large": "text-4xl md:text-6xl font-semibold tracking-[-0.03em]",
+        "title_medium": "text-2xl md:text-4xl font-semibold tracking-[-0.02em]",
+        "title_small": "text-lg md:text-2xl font-semibold tracking-tight",
+        "body_default": "text-base text-stone-200/84 leading-8",
+        "body_small": "text-sm text-stone-300/70 leading-7",
+        "stat_value": "text-4xl md:text-7xl font-semibold text-stone-100 tracking-[-0.05em]",
+        "label_uppercase": "text-[11px] uppercase tracking-[0.24em] text-stone-400/70",
+        "mono_code": "text-sm font-mono text-stone-200/75"
     },
     "effects": [
-        "Glassmorphism (backdrop-blur-md bg-white/5 border-white/10)",
-        "Subtle orange radial gradients",
-        "1px borders for that 'Tech Spec' look",
-        "Bento grid layouts",
-        "Technical scanline overlays"
+        "Editorial monochrome panels with deep black canvas",
+        "Soft spotlight gradients in white and graphite",
+        "Hairline borders and quiet shadows",
+        "Large typographic contrast with generous whitespace",
+        "Slow fade and reveal motion instead of technical UI noise"
     ],
     "component_mappings": {
         "PhaseCard": {
             "description": "Represents a project phase or milestone",
-            "structure": "p-6 rounded-xl border border-white/10 bg-white/5 backdrop-blur-md hover:border-orange-500/50 transition-all duration-300",
+            "structure": "p-6 rounded-[28px] border border-white/10 bg-white/[0.03] backdrop-blur-md hover:border-white/25 transition-all duration-300",
             "content": {
-                "title": "text-lg font-bold tracking-tight text-white",
-                "status_dot": "w-2 h-2 rounded-full bg-emerald-500 or bg-orange-500",
-                "description": "text-white/70 text-sm leading-relaxed",
-                "progress_bar": "h-1 bg-white/10 rounded-full overflow-hidden"
+                "title": "text-lg font-semibold tracking-tight text-stone-100",
+                "status_dot": "w-2 h-2 rounded-full bg-stone-100 or bg-stone-500",
+                "description": "text-stone-300/72 text-sm leading-7",
+                "progress_bar": "h-px bg-white/10 rounded-full overflow-hidden"
             }
         },
         "InsightCard": {
             "description": "Strategic insight or finding",
-            "structure": "p-6 rounded-xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur-md",
+            "structure": "p-6 rounded-[28px] border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.01] backdrop-blur-md",
             "content": {
-                "title": "text-base font-bold text-white tracking-tight",
-                "body": "text-white/70 text-sm leading-7 mt-3",
-                "tag": "inline-block px-2 py-1 text-xs uppercase tracking-widest text-orange-500 border border-orange-500/30 rounded"
+                "title": "text-base font-semibold text-stone-100 tracking-tight",
+                "body": "text-stone-300/72 text-sm leading-7 mt-3",
+                "tag": "inline-block px-3 py-1 text-[10px] uppercase tracking-[0.22em] text-stone-200 border border-white/15 rounded-full"
             }
         },
         "StatBox": {
             "description": "Single prominent metric",
-            "structure": "flex flex-col items-center justify-center p-8 rounded-xl border border-white/10 bg-white/5 backdrop-blur-md",
+            "structure": "flex flex-col items-center justify-center p-8 rounded-[32px] border border-white/10 bg-white/[0.035] backdrop-blur-md",
             "content": {
-                "value": "text-4xl md:text-5xl font-mono font-bold text-orange-500 tracking-tighter",
-                "label": "text-xs uppercase tracking-widest text-white/60 mt-2",
-                "unit": "text-sm text-white/50 ml-1"
+                "value": "text-4xl md:text-6xl font-semibold text-stone-100 tracking-[-0.04em]",
+                "label": "text-[11px] uppercase tracking-[0.24em] text-stone-400/70 mt-2",
+                "unit": "text-sm text-stone-400/60 ml-1"
             }
         },
         "PersonaCard": {
             "description": "Target audience representation",
-            "structure": "p-6 rounded-xl border border-white/10 bg-white/5 backdrop-blur-md",
+            "structure": "p-6 rounded-[28px] border border-white/10 bg-white/[0.03] backdrop-blur-md",
             "content": {
-                "avatar": "w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-orange-700 mb-4",
-                "name": "text-xl font-bold text-white tracking-tight",
-                "pain_points": "ul list-disc ml-4 text-white/70 text-sm mt-3",
-                "quote": "italic text-white/60 border-l-2 border-orange-500 pl-4 mt-4"
+                "avatar": "w-16 h-16 rounded-full bg-gradient-to-br from-stone-100 to-stone-500 mb-4",
+                "name": "text-xl font-semibold text-stone-100 tracking-tight",
+                "pain_points": "ul list-disc ml-4 text-stone-300/72 text-sm mt-3",
+                "quote": "italic text-stone-300/66 border-l border-white/15 pl-4 mt-4"
             }
         },
         "TechStack": {
@@ -78,11 +80,11 @@
         },
         "VisionBlock": {
             "description": "Compelling vision statement",
-            "structure": "relative p-8 rounded-xl border border-orange-500/30 bg-gradient-to-br from-orange-500/10 to-transparent backdrop-blur-md overflow-hidden",
-            "decorative": "absolute -top-10 -right-10 w-40 h-40 bg-orange-500/20 rounded-full blur-3xl",
+            "structure": "relative p-8 rounded-[32px] border border-white/12 bg-gradient-to-br from-white/[0.07] to-transparent backdrop-blur-md overflow-hidden",
+            "decorative": "absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl",
             "content": {
-                "text": "text-lg md:text-xl text-white/90 leading-relaxed italic",
-                "attribution": "text-sm text-white/50 mt-4"
+                "text": "text-lg md:text-2xl text-stone-100/92 leading-relaxed italic",
+                "attribution": "text-sm text-stone-400/60 mt-4"
             }
         }
     },
@@ -94,19 +96,19 @@
         "Stat-Showcase": "flex flex-col items-center justify-center p-8"
     },
     "glassmorphism": {
-        "base": "backdrop-blur-md bg-white/5 border-white/10",
-        "strong": "backdrop-blur-lg bg-white/10 border-white/20",
+        "base": "backdrop-blur-md bg-white/[0.04] border-white/10",
+        "strong": "backdrop-blur-lg bg-white/[0.08] border-white/16",
         "subtle": "backdrop-blur-sm bg-white/[0.02] border-white/5"
     },
     "borders": {
         "technical": "border border-white/10",
-        "accent": "border border-orange-500/30",
-        "gradient": "border border-transparent bg-gradient-to-r from-orange-500/50 to-transparent bg-clip-border"
+        "accent": "border border-white/20",
+        "gradient": "border border-transparent bg-gradient-to-r from-white/50 to-transparent bg-clip-border"
     },
     "animations": {
-        "fade_in": "transition-opacity duration-300 ease-out",
-        "slide_up": "transition-transform duration-300 ease-out translate-y-4 to translate-y-0",
-        "hover_glow": "transition-all duration-300 hover:shadow-[0_0_15px_rgba(255,69,0,0.3)]",
+        "fade_in": "transition-opacity duration-500 ease-out",
+        "slide_up": "transition-transform duration-500 ease-out translate-y-4 to translate-y-0",
+        "hover_glow": "transition-all duration-300 hover:shadow-[0_20px_60px_rgba(255,255,255,0.06)]",
         "pulse": "animate-pulse"
     }
 }

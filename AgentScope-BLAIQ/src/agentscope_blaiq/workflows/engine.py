@@ -131,6 +131,7 @@ class WorkflowRunContext:
     resume_cursor: str | None = None
     last_completed_node: str | None = None
     prior_turns: dict[str, Any] | None = None
+    re_run_from_planning: bool = False
 
     @property
     def resume_from_post_research_hitl(self) -> bool:
@@ -588,6 +589,7 @@ class WorkflowEngine:
                     agent_run_repo=agent_run_repo,
                     state_store=self.state_store,
                     is_resume=is_resume,
+                    re_run_from_planning=getattr(request, "re_run_from_planning", False),
                     resume_cursor=resume_cursor,
                     last_completed_node=last_completed_node,
                     prior_turns=(request.metadata or {}).get("prior_turns"),
@@ -719,7 +721,9 @@ class WorkflowEngine:
         await task
 
     async def _resolve_plan(self, request: SubmitWorkflowRequest, repo: WorkflowRepository, *, is_resume: bool) -> WorkflowPlan:
-        if is_resume:
+        # For simple resumes (answers/blocked), reuse the exact same plan.
+        # For re-run retries, we want to RE-PLAN (to iterate on style/sections) but skip RESEARCH.
+        if is_resume and not request.re_run_from_planning:
             workflow = await repo.get_workflow_record(request.thread_id)
             if workflow is not None and workflow.workflow_plan_json:
                 try:
@@ -1338,7 +1342,8 @@ class WorkflowEngine:
         if ctx.plan.direct_answer:
             return await self._run_direct_answer(ctx, events, publish)
         branch_id = "sequential-research"
-        evidence = await self._load_latest_evidence(ctx.evidence_repo, ctx.request.thread_id) if ctx.resume_answers else None
+        skip_research = ctx.resume_answers or ctx.re_run_from_planning
+        evidence = await self._load_latest_evidence(ctx.evidence_repo, ctx.request.thread_id) if skip_research else None
         if evidence is None:
             await self._set_branch(
                 ctx,
@@ -1702,7 +1707,8 @@ class WorkflowEngine:
             await publish(events.build("workflow_cancelled", phase="research", data={"reason": "User requested cancellation"}))
             return WorkflowExecutionResult()
 
-        merged_evidence = await self._load_latest_evidence(ctx.evidence_repo, ctx.request.thread_id) if ctx.resume_answers else None
+        skip_research = ctx.resume_answers or ctx.re_run_from_planning
+        merged_evidence = await self._load_latest_evidence(ctx.evidence_repo, ctx.request.thread_id) if skip_research else None
         branch_ids = ["research-web", "research-docs"]
         replay_research_merge = not (ctx.resume_from_post_research_hitl and merged_evidence is not None)
         if merged_evidence is None:
@@ -1783,7 +1789,8 @@ class WorkflowEngine:
             await publish(events.build("workflow_cancelled", phase="research", data={"reason": "User requested cancellation"}))
             return WorkflowExecutionResult()
 
-        merged_evidence = await self._load_latest_evidence(ctx.evidence_repo, ctx.request.thread_id) if ctx.resume_answers else None
+        skip_research = ctx.resume_answers or ctx.re_run_from_planning
+        merged_evidence = await self._load_latest_evidence(ctx.evidence_repo, ctx.request.thread_id) if skip_research else None
         branch_ids = ["research-web", "research-docs"]
         replay_research_merge = not (ctx.resume_from_post_research_hitl and merged_evidence is not None)
         if merged_evidence is None:

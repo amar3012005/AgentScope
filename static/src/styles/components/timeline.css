@@ -1,0 +1,138 @@
+.timeline-panel {
+  overflow: hidden;
+}
+
+.timeline-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+  padding: 0 18px 18px 18px;
+}
+
+.timeline-steps::before {
+  content: "";
+  position: absolute;
+  left: 28px;
+  top: 10px;
+  bottom: 24px;
+  width: 2px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.02));
+}
+
+.timeline-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 0;
+  position: relative;
+}
+
+.timeline-step-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.95);
+  border: 2px solid var(--border);
+  transition: all var(--transition-fast);
+}
+
+.timeline-step-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline-step-label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.timeline-step-detail {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.timeline-step-time {
+  margin-top: 4px;
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.timeline-step-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.timeline-step-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.timeline-step-meta-key {
+  font-size: 0.64rem;
+  line-height: 1;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.timeline-step-meta-value {
+  font-size: 0.72rem;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.timeline-step--active .timeline-step-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 6px rgba(255, 92, 75, 0.12);
+}
+
+.timeline-step--done .timeline-step-dot {
+  background: rgba(255, 255, 255, 1);
+  border-color: rgba(0, 0, 0, 0.18);
+}
+
+.timeline-step--done .timeline-step-label {
+  color: var(--text-primary);
+}
+
+.timeline-step--blocked .timeline-step-dot,
+.timeline-step--warning .timeline-step-dot {
+  background: rgba(209, 123, 31, 0.12);
+  border-color: rgba(209, 123, 31, 0.32);
+}
+
+.timeline-step--failed .timeline-step-dot {
+  background: rgba(199, 56, 44, 0.12);
+  border-color: rgba(199, 56, 44, 0.34);
+}
+
+.timeline-step--failed .timeline-step-label {
+  color: var(--danger);
+}
+
+@media (max-width: 768px) {
+  .timeline-steps {
+    padding: 0 14px 14px;
+  }
+
+  .timeline-steps::before {
+    left: 24px;
+  }
+}

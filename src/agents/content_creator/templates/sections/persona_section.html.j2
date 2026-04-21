@@ -1,0 +1,22 @@
+<div class="px-8 md:px-16 py-16">
+  {% if title %}<h2 class="text-3xl md:text-5xl font-semibold tracking-[-0.03em] text-stone-100 mb-12 font-['Cormorant_Garamond']">{{ title }}</h2>{% endif %}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    {% for persona in personas %}
+    <div class="p-6 rounded-[28px] border border-white/10 bg-white/[0.03] backdrop-blur-md">
+      <div class="flex items-center gap-4 mb-4">
+        <div class="w-14 h-14 rounded-full bg-gradient-to-br from-stone-200 to-stone-500 flex items-center justify-center text-lg font-semibold text-stone-900">{{ persona.avatar_initials or persona.name[:2] | upper }}</div>
+        <div>
+          <h4 class="text-lg font-semibold text-stone-100">{{ persona.name }}</h4>
+          {% if persona.role %}<span class="text-sm text-stone-400/70">{{ persona.role }}</span>{% endif %}
+        </div>
+      </div>
+      {% if persona.pain_points %}
+      <ul class="list-disc ml-4 text-sm text-stone-300/72 leading-7 space-y-1">
+        {% for point in persona.pain_points %}<li>{{ point }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+      {% if persona.quote %}<blockquote class="mt-4 italic text-stone-300/66 border-l-2 border-white/15 pl-4 text-sm">{{ persona.quote }}</blockquote>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>

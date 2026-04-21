@@ -1,0 +1,215 @@
+/* Inline badge */
+.governance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: var(--radius-pill);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+
+/* Success: green text with green dot */
+.governance-badge--passed {
+  background: var(--success-soft);
+  color: var(--success);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+}
+
+/* Failed: danger text with danger dot */
+.governance-badge--failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.governance-badge:hover {
+  opacity: 0.85;
+}
+
+.governance-badge:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.governance-badge:active {
+  transform: scale(0.97);
+}
+
+.governance-badge-icon {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.governance-badge--passed .governance-badge-icon {
+  background: var(--success);
+}
+
+.governance-badge--failed .governance-badge-icon {
+  background: var(--danger);
+}
+
+/* Expandable detail panel: white bg, clean table-style rows */
+.governance-detail {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-top: 8px;
+  animation: slideUp var(--transition-fast) both;
+}
+
+.governance-detail--embedded {
+  margin: 0 18px 18px;
+}
+
+.governance-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 0;
+  flex-wrap: wrap;
+}
+
+.governance-summary-text {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.governance-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.governance-detail-title {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.governance-detail-close {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.governance-detail-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.governance-detail-close:focus-visible {
+  outline: 1px solid var(--border-focus);
+}
+
+.governance-detail-close:active {
+  transform: scale(0.9);
+}
+
+/* Policy check rows */
+.governance-checks {
+  padding: 8px 0;
+}
+
+.governance-check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  transition: background var(--transition-fast);
+}
+
+.governance-check-row:hover {
+  background: var(--bg-hover);
+}
+
+.governance-check-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.625rem;
+}
+
+.governance-check-icon--passed {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.governance-check-icon--failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.governance-check-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.governance-check-rule {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.governance-check-detail {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Violations summary */
+.governance-violations {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.governance-violations-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--danger);
+  margin-bottom: 6px;
+}
+
+.governance-violation-item {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  padding: 2px 0;
+  padding-left: 12px;
+  position: relative;
+}
+
+.governance-violation-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--danger);
+}

@@ -1,0 +1,7 @@
+<div class="min-h-screen p-4 md:p-8">
+  {% for section in sections %}
+  <div class="vangogh-section mb-6" style="animation-delay: {{ loop.index0 * 0.1 }}s">
+    {{ section.html_fragment }}
+  </div>
+  {% endfor %}
+</div>

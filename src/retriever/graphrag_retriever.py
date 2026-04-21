@@ -53,6 +53,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import FieldCondition, Filter, MatchText, MatchValue
 
 from utils.bge_m3_embedding import BGEM3Embeddings
+from utils.logging_utils import log_flow
 from utils.qdrant_helpers import compute_point_id
 
 # 260108-BundB Jun – For error log.
@@ -68,6 +69,7 @@ logging.getLogger("neo4j.notifications").setLevel(logging.ERROR)
 logging.getLogger("neo4j.io").setLevel(logging.ERROR)
 logging.getLogger("qdrant_client").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore")
+logger = logging.getLogger("graphrag_retriever")
 
 # Load environment variables
 load_dotenv()
@@ -99,15 +101,27 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 # Prioritize environment variable over config file
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION") or CONFIG.get("qdrant", {}).get("collection_name", "graphrag_chunks")
 
+# Graph search is intentionally disabled for the fast retrieval path unless explicitly enabled.
+GRAPH_SEARCH_ENABLED = os.getenv("GRAPH_SEARCH_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
 # Neo4j configuration
 NEO4J_URI = os.getenv("NEO4J_URI") or CONFIG.get("neo4j", {}).get("uri", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER") or CONFIG.get("neo4j", {}).get("user", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 
 # LLM Model Configuration (Groq / OpenAI SDK)
-LITELLM_PLANNER_MODEL = os.getenv("LITELLM_PLANNER_MODEL") or "groq/llama-3.1-8b-instant"
-LITELLM_PRE_MODEL = os.getenv("LITELLM_PRE_MODEL") or "groq/llama-3.1-8b-instant"
-LITELLM_POST_MODEL = os.getenv("LITELLM_POST_MODEL") or "openai/gpt-4o"
+LITELLM_PLANNER_MODEL = os.getenv("LITELLM_PLANNER_MODEL") or "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
+LITELLM_PRE_MODEL = os.getenv("LITELLM_PRE_MODEL") or "gemini-2.5-pro"
+LITELLM_POST_MODEL = os.getenv("LITELLM_POST_MODEL") or "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
+FAST_ANSWER_MODEL = os.getenv("GRAPHRAG_FAST_ANSWER_MODEL", "gemini-2.5-pro")
+FAST_ANSWER_MAX_CHUNKS = int(os.getenv("GRAPHRAG_FAST_ANSWER_MAX_CHUNKS", "5"))
+FAST_ANSWER_MAX_TOKENS = int(os.getenv("GRAPHRAG_FAST_ANSWER_MAX_TOKENS", "800"))
+RETRIEVAL_BROAD_K_MULTIPLIER = max(1, int(os.getenv("GRAPHRAG_RETRIEVAL_BROAD_K_MULTIPLIER", "2")))
+RETRIEVAL_BROAD_K_MIN = max(1, int(os.getenv("GRAPHRAG_RETRIEVAL_BROAD_K_MIN", "24")))
+RETRIEVAL_BROAD_K_MAX = max(RETRIEVAL_BROAD_K_MIN, int(os.getenv("GRAPHRAG_RETRIEVAL_BROAD_K_MAX", "48")))
+RETRIEVAL_POOL_K_MULTIPLIER = max(1, int(os.getenv("GRAPHRAG_RETRIEVAL_POOL_K_MULTIPLIER", "2")))
+RETRIEVAL_POOL_K_MIN = max(1, int(os.getenv("GRAPHRAG_RETRIEVAL_POOL_K_MIN", "24")))
+RETRIEVAL_POOL_K_MAX = max(RETRIEVAL_POOL_K_MIN, int(os.getenv("GRAPHRAG_RETRIEVAL_POOL_K_MAX", "48")))
 FINAL_REASONING_EFFORT = os.getenv("FINAL_REASONING_EFFORT", "medium")
 FINAL_REASONING_EFFORT_GPT_OSS = os.getenv("FINAL_REASONING_EFFORT_GPT_OSS", "low")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -115,12 +129,12 @@ OPENAI_API_BASE_URL = os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "25"))
-_token_env = os.getenv("LLM_MAX_OUTPUT_TOKENS", "4000")
+_token_env = os.getenv("LLM_MAX_OUTPUT_TOKENS", "1200")
 LLM_MAX_OUTPUT_TOKENS = int(_token_env) if _token_env and _token_env.strip().isdigit() and int(_token_env) > 0 else None
 
 # Pre-Retrieval: The Search Architect Prompt
 PRE_RETRIEVAL_SYSTEM_PROMPT = """You are the 'Search Architect' for a high-performance GraphRAG system.
-Your mission is to extract key entities and keywords from the user's query to enable a robust multi-database search (Vector + Graph + Keyword).
+Your mission is to extract key entities and keywords from the user's query to enable a fast multi-database search (Vector + Keyword).
 
 CRITICAL INSTRUCTIONS:
 1. LANGUAGE NORMALIZATION: The knowledge base is written in GERMAN. 
@@ -153,7 +167,7 @@ Triggers:
 - Factual questions: "What is the budget?", "When was it signed?", "Who is responsible?"
 - Comparison requests: "Compare X and Y", "What are the differences?"
 
-Action: Use vector + keyword search. Graph only if entities are involved.
+Action: Use vector + keyword search only.
 
 ### 3. ANALYTICAL_SEARCH (Cross-document analysis)
 Triggers:
@@ -161,7 +175,7 @@ Triggers:
 - Summary requests: "Summarize all projects", "Give me an overview"
 - Strategic questions: "What should we prioritize?", "What are the key takeaways?"
 
-Action: Use all retrieval methods. Prioritize graph for entity relationships.
+Action: Use vector + keyword search only. Prioritize vector for precision and keyword for recall.
 
 ### 4. CLARIFICATION_NEEDED (Ambiguous query)
 Triggers:
@@ -176,7 +190,7 @@ Action: Ask for clarification before retrieval.
   "mode": "SMALL_TALK" | "DOCUMENT_SEARCH" | "ANALYTICAL_SEARCH" | "CLARIFICATION_NEEDED",
   "confidence": 0.0 to 1.0,
   "reasoning": "Brief explanation of classification",
-  "search_plan": {
+    "search_plan": {
     "use_vector": boolean,
     "use_graph": boolean,
     "use_keyword": boolean,
@@ -329,6 +343,8 @@ def _resolve_model_and_client(model: str):
 
     if model.startswith("groq/"):
         return _get_groq_client(), model.replace("groq/", "", 1)
+    elif model.startswith("gemini/"):
+        return _get_openai_client(), model.replace("gemini/", "", 1)
     elif model.startswith("openai/"):
         # Route openai/* through OpenAI-compatible client/base URL.
         # This allows reasoning_effort controls for gpt-oss via compatible providers.
@@ -343,6 +359,22 @@ def _resolve_final_reasoning_effort(model: str) -> str:
     if "gpt-oss" in model_lower:
         return FINAL_REASONING_EFFORT_GPT_OSS
     return FINAL_REASONING_EFFORT
+
+
+def _resolve_answer_model(
+    query: str,
+    chunks: List[Document],
+    model: Optional[str] = None,
+    content_mode: Optional[str] = None,
+) -> str:
+    """Pick a faster final model for short retrieval answers."""
+    if model:
+        return model
+    if content_mode and content_mode.upper() != "DEFAULT":
+        return LITELLM_POST_MODEL
+    if len(chunks or []) <= FAST_ANSWER_MAX_CHUNKS or len((query or "").strip()) <= 120:
+        return FAST_ANSWER_MODEL
+    return LITELLM_POST_MODEL
 
 
 def _is_anthropic_model_name(model_name: str) -> bool:
@@ -373,6 +405,10 @@ def _invoke_llm(messages, model: str, **kwargs):
         # Force compatible value and avoid unsupported reasoning_effort mapping.
         kwargs["temperature"] = 1
         kwargs.pop("reasoning_effort", None)
+
+    # OVHcloud gpt-oss models do not support response_format — strip it.
+    if "gpt-oss" in model_name.lower() or "ovhcloud" in model.lower():
+        kwargs.pop("response_format", None)
 
     try:
         if os.getenv("DEBUG_LLM", "false").lower() == "true":
@@ -595,12 +631,12 @@ class GraphRAGRetriever:
                      # This is likely where the async calls happen
                      pass # It's hard to replace deeply.
             except Exception as e:
-                print(f"⚠️ Failed to patch async client: {e}")
+                log_flow(logger, "qdrant_async_patch_failed", level="warning", error=str(e))
 
-            print(f"✅ Qdrant connected via URL: {final_url}")
+            log_flow(logger, "qdrant_connected", mode="url", url=final_url)
         else:
             self.qdrant_client = QdrantClient(host=final_host, port=final_port, prefer_grpc=False)
-            print(f"✅ Qdrant connected at {final_host}:{final_port}")
+            log_flow(logger, "qdrant_connected", mode="host_port", host=final_host, port=final_port)
         
         if self.debug:
             print(f"DEBUG: qdrant_client type is {type(self.qdrant_client)}")
@@ -611,32 +647,59 @@ class GraphRAGRetriever:
         self.collection_name = collection_name or QDRANT_COLLECTION
         self.filter_label = self.collection_name
         self.vector_name = os.getenv("QDRANT_VECTOR_NAME", "text")  # Default vector name for Qdrant search
+        self._vector_search_mode = "named"  # named | legacy
+        self._vector_mode_switch_logged = False
+        self._graph_disabled_until_reinit = not GRAPH_SEARCH_ENABLED
 
         if not self.filter_label:
-            print("⚠️ WARNING: No collection_name/filter_label provided!")
-            print("   Multi-tenant isolation is DISABLED. This may cause data leaks.")
+            log_flow(logger, "tenant_filter_missing", level="warning")
         else:
-            print(f"   📁 Collection: {self.collection_name}")
-            print(f"   🏷️ Filter label (tenant): {self.filter_label}")
-            print(f"   📐 Vector name: {self.vector_name}")
+            log_flow(
+                logger,
+                "retriever_scope",
+                collection=self.collection_name,
+                tenant=self.filter_label,
+                vector_name=self.vector_name,
+            )
+            # Pre-detect vector mode from collection config to avoid noisy runtime fallback.
+            try:
+                vectors_repr = self._fetch_collection_vectors_repr()
+
+                if f'"{self.vector_name}"' not in vectors_repr:
+                    self._vector_search_mode = "legacy"
+                    self._vector_mode_switch_logged = True
+                    log_flow(
+                        logger,
+                        "vector_mode_detected",
+                        mode="legacy",
+                        vector_name=self.vector_name,
+                        reason="named_vector_not_present_in_collection_config",
+                    )
+                else:
+                    log_flow(logger, "vector_mode_detected", mode="named", vector_name=self.vector_name)
+            except Exception as exc:
+                log_flow(logger, "vector_mode_detect_skipped", error=str(exc))
 
         # === NEO4J CONNECTION ===
-        try:
-            if not self.neo4j_password:
-                raise ValueError("NEO4J_PASSWORD not set in environment")
+        if GRAPH_SEARCH_ENABLED:
+            try:
+                if not self.neo4j_password:
+                    raise ValueError("NEO4J_PASSWORD not set in environment")
 
-            self.neo4j_driver = GraphDatabase.driver(
-                self.neo4j_uri,
-                auth=(self.neo4j_user, self.neo4j_password),
-            )
-            # Test connection
-            with self.neo4j_driver.session() as session:
-                session.run("RETURN 1")
-            print(f"✅ Neo4j connected at {self.neo4j_uri}")
-        except Exception as e:
-            print(f"⚠️ Neo4j connection failed: {e}")
-            print("   GraphRAG will work with reduced graph features")
+                self.neo4j_driver = GraphDatabase.driver(
+                    self.neo4j_uri,
+                    auth=(self.neo4j_user, self.neo4j_password),
+                )
+                # Test connection
+                with self.neo4j_driver.session() as session:
+                    session.run("RETURN 1")
+                log_flow(logger, "neo4j_connected", uri=self.neo4j_uri)
+            except Exception as e:
+                log_flow(logger, "neo4j_connect_error", level="warning", error=str(e))
+                self.neo4j_driver = None
+        else:
             self.neo4j_driver = None
+            log_flow(logger, "neo4j_search_disabled", level="info", reason="GRAPH_SEARCH_ENABLED=false")
 
         # === EMBEDDINGS ===
         self.embeddings = BGEM3Embeddings(timeout=180)
@@ -653,15 +716,27 @@ class GraphRAGRetriever:
         except Exception:
             embedding_host = None
 
-        print(
-            f"✅ Embeddings ready "
-            f"(model={self.embedding_model}, dim={self.embedding_dim}, host={embedding_host})"
+        log_flow(
+            logger,
+            "embeddings_ready",
+            model=self.embedding_model,
+            dim=self.embedding_dim,
+            host=embedding_host,
         )
 
         # === LLM for architecture ===
         self.planner_model = LITELLM_PLANNER_MODEL
         self.pre_model = LITELLM_PRE_MODEL
         self.post_model = LITELLM_POST_MODEL
+        self.fast_post_model = FAST_ANSWER_MODEL
+        self.fast_answer_max_chunks = FAST_ANSWER_MAX_CHUNKS
+        self.fast_answer_max_tokens = FAST_ANSWER_MAX_TOKENS
+        self.retrieval_broad_multiplier = RETRIEVAL_BROAD_K_MULTIPLIER
+        self.retrieval_broad_min = RETRIEVAL_BROAD_K_MIN
+        self.retrieval_broad_max = RETRIEVAL_BROAD_K_MAX
+        self.retrieval_pool_multiplier = RETRIEVAL_POOL_K_MULTIPLIER
+        self.retrieval_pool_min = RETRIEVAL_POOL_K_MIN
+        self.retrieval_pool_max = RETRIEVAL_POOL_K_MAX
 
         # === PROMPT TEMPLATES ===
         self.loader = PromptLoader()
@@ -671,8 +746,99 @@ class GraphRAGRetriever:
         self.entity_extraction_prompt = self.loader.load_entity_prompt()
         self.response_generator_prompt = self.loader.load_response_generator()
 
-        print(f"✅ LLM Config: Planner={self.planner_model}, Pre={self.pre_model}, Post={self.post_model}")
-        print("✅ GraphRAG Retriever initialized (Graph + Vector + Keyword)")
+        log_flow(
+            logger,
+            "llm_config",
+            planner_model=self.planner_model,
+            pre_model=self.pre_model,
+            post_model=self.post_model,
+            fast_post_model=self.fast_post_model,
+        )
+        log_flow(
+            logger,
+            "retriever_initialized",
+            mode="vector_keyword",
+            graph_enabled=GRAPH_SEARCH_ENABLED,
+        )
+
+    def _disable_graph_temporarily(self, reason: str) -> None:
+        """Stop scheduling Neo4j work on this retriever after a hard connection failure."""
+        if self._graph_disabled_until_reinit:
+            return
+        self._graph_disabled_until_reinit = True
+        try:
+            if self.neo4j_driver:
+                self.neo4j_driver.close()
+        except Exception:
+            pass
+        self.neo4j_driver = None
+        log_flow(logger, "graph_search_disabled", level="warning", reason=reason)
+
+    def get_retrieval_broad_k(self, k: int) -> int:
+        """Return a smaller broad fanout for fast retrieval."""
+        return min(max(k * self.retrieval_broad_multiplier, self.retrieval_broad_min), self.retrieval_broad_max)
+
+    def get_retrieval_pool_k(self, k: int, rerank_top_k: Optional[int] = None) -> int:
+        """Return the pool size used before final chunk selection."""
+        base = k * self.retrieval_pool_multiplier
+        if rerank_top_k:
+            base = max(base, rerank_top_k)
+        return min(max(base, self.retrieval_pool_min), self.retrieval_pool_max)
+
+    def select_answer_model(
+        self,
+        query: str,
+        chunks: List[Document],
+        model: Optional[str] = None,
+        content_mode: Optional[str] = None,
+    ) -> str:
+        """Choose fast Gemini for short retrieval answers and Claude for heavier synthesis."""
+        return _resolve_answer_model(query, chunks, model=model, content_mode=content_mode)
+
+    def select_answer_max_tokens(
+        self,
+        query: str,
+        chunks: List[Document],
+        model: Optional[str] = None,
+        content_mode: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+    ) -> int:
+        """Choose a smaller output budget for fast retrieval answers."""
+        if max_tokens is not None:
+            return max_tokens
+        chosen_model = self.select_answer_model(query, chunks, model=model, content_mode=content_mode)
+        if chosen_model == self.fast_post_model:
+            return self.fast_answer_max_tokens
+        return LLM_MAX_OUTPUT_TOKENS or self.fast_answer_max_tokens
+
+    def _fetch_collection_vectors_repr(self) -> str:
+        """Read Qdrant collection vector config using the most reliable transport for the current deployment."""
+        if self.qdrant_url:
+            import requests as req_lib
+
+            collection_url = f"{self.qdrant_url.rstrip('/')}/collections/{self.collection_name}"
+            headers = {}
+            api_key = self.qdrant_api_key or os.getenv("QDRANT_API_KEY")
+            if api_key:
+                headers["api-key"] = api_key
+
+            response = req_lib.get(collection_url, headers=headers, verify=False, timeout=10.0)
+            response.raise_for_status()
+            payload = response.json()
+            result = payload.get("result", {}) if isinstance(payload, dict) else {}
+            config = result.get("config", {}) if isinstance(result, dict) else {}
+            params = config.get("params", {}) if isinstance(config, dict) else {}
+            vectors_cfg = params.get("vectors", params) if isinstance(params, dict) else params
+            return json.dumps(vectors_cfg, ensure_ascii=False)
+
+        collection_info = self.qdrant_client.get_collection(self.collection_name)
+        vectors_cfg = getattr(getattr(collection_info, "config", None), "params", None)
+        vectors_cfg = getattr(vectors_cfg, "vectors", vectors_cfg)
+        if hasattr(vectors_cfg, "model_dump"):
+            return json.dumps(vectors_cfg.model_dump(), ensure_ascii=False)
+        if hasattr(vectors_cfg, "dict"):
+            return json.dumps(vectors_cfg.dict(), ensure_ascii=False)
+        return str(vectors_cfg)
 
     def get_embedding(self, text: str) -> Optional[List[float]]:
         """Get embedding using BGE-M3 Embeddings. Returns None on failure."""
@@ -749,7 +915,7 @@ class GraphRAGRetriever:
             return _invoke_llm_stream(
                 messages,
                 model=actual_model,
-                max_tokens=4000,
+                max_tokens=1200,
                 timeout=120,
                 stream_options={"include_usage": True}
             )
@@ -818,6 +984,25 @@ class GraphRAGRetriever:
         Unified strategic planning: intent + entities + keywords in one LLM call.
         Returns plan with search_plan, entities, and keywords.
         """
+
+        def _normalize_planner_response(resp: Any) -> str:
+            if resp is None:
+                return ""
+            if isinstance(resp, (bytes, bytearray)):
+                text = resp.decode(errors="ignore")
+            else:
+                text = str(resp)
+            text = text.strip()
+            if not text:
+                return ""
+            if text.startswith("```"):
+                text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE).rstrip("`").strip()
+            if not text.startswith("{"):
+                json_match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+                if json_match:
+                    text = json_match.group(0)
+            return text.strip()
+
         try:
             messages = [
                 {"role": "system", "content": self.planner_prompt},
@@ -832,7 +1017,24 @@ class GraphRAGRetriever:
                 response_format={"type": "json_object"}
             )
 
-            plan = json.loads(raw_response)
+            raw_text = _normalize_planner_response(raw_response)
+            if not raw_text:
+                retry_messages = messages + [{
+                    "role": "user",
+                    "content": "Return ONLY one valid JSON object. No prose, no markdown, no code fences.",
+                }]
+                raw_response, used_model = _invoke_llm(
+                    retry_messages,
+                    model=self.planner_model,
+                    max_tokens=800,
+                    temperature=0.0,
+                    response_format={"type": "json_object"},
+                )
+            raw_text = _normalize_planner_response(raw_response)
+            if not raw_text:
+                raise ValueError("Planner returned empty response content")
+
+            plan = json.loads(raw_text)
 
             # Normalize search_plan from unified output
             search_plan = plan.get("search_plan", {})
@@ -853,17 +1055,8 @@ class GraphRAGRetriever:
             if not isinstance(plan.get("keywords"), list):
                 plan["keywords"] = []
 
-            # POLICY: Always enable graph for DOCUMENT_SEARCH and ANALYTICAL_SEARCH
-            mode = plan.get("mode", "DOCUMENT_SEARCH")
-            if mode in ["DOCUMENT_SEARCH", "ANALYTICAL_SEARCH"]:
-                search_plan["use_graph"] = True
-
-            # SAFETY: Force graph if query has proper names or IDs
-            if not search_plan.get("use_graph"):
-                has_entities = bool(re.findall(r'\b[A-Z][a-z]{3,12}\b', query))
-                has_ids = bool(re.findall(r'\b[A-Z]{2,5}-\d{2,8}\b', query))
-                if has_entities or has_ids:
-                    search_plan["use_graph"] = True
+            # Fast path: graph retrieval is disabled unless explicitly enabled in env.
+            search_plan["use_graph"] = bool(search_plan.get("use_graph") and GRAPH_SEARCH_ENABLED)
 
             # FALLBACK: If planner returned no entities, do fast rule-based extraction
             if not plan["entities"]:
@@ -882,10 +1075,16 @@ class GraphRAGRetriever:
 
         except Exception as e:
             print(f"⚠️ Planner failed, defaulting to FULL SEARCH with rule-based extraction. Error: {e}")
+            fallback_entities = self._extract_entities_fast(query)
             return {
                 "mode": "FALLBACK",
-                "search_plan": {"use_vector": True, "use_graph": True, "use_keyword": True, "use_hive_mind": False},
-                "entities": self._extract_entities_fast(query),
+                "search_plan": {
+                    "use_vector": True,
+                    "use_graph": bool(fallback_entities and self.neo4j_driver and not self._graph_disabled_until_reinit),
+                    "use_keyword": True,
+                    "use_hive_mind": False,
+                },
+                "entities": fallback_entities,
                 "keywords": self._augment_keywords_for_domain(query, self._extract_keywords_fast(query)),
             }
 
@@ -1330,7 +1529,7 @@ class GraphRAGRetriever:
         Returns:
             Dict mapping qdrant_point_id to relevance score
         """
-        if not self.neo4j_driver or not entities:
+        if self._graph_disabled_until_reinit or not self.neo4j_driver or not entities:
             return {}
 
         if not self.filter_label:
@@ -1477,6 +1676,7 @@ class GraphRAGRetriever:
                                     pass
 
         except Exception as e:
+            self._disable_graph_temporarily(str(e))
             if self.debug:
                 print(f"  ⚠️ Neo4j retrieval error: {e}")
 
@@ -1695,12 +1895,26 @@ Output ONLY a JSON object with this structure:
             if self.debug:
                 print(f"DEBUG: Vector search to {search_url} (k={k}, vector={self.vector_name})")
 
-            # Try with named vector first
-            resp = req_lib.post(search_url, json=payload_with_name, headers=headers, verify=False, timeout=15.0)
+            # Use cached vector mode to avoid repeated 400/not-configured noise.
+            if self._vector_search_mode == "legacy":
+                resp = req_lib.post(search_url, json=payload_without_name, headers=headers, verify=False, timeout=15.0)
+            else:
+                resp = req_lib.post(search_url, json=payload_with_name, headers=headers, verify=False, timeout=15.0)
 
             # If named vector fails with "not configured" error, try without name
             if resp.status_code == 400 and "not configured" in resp.text.lower():
-                print(f"  ⚠️ Named vector '{self.vector_name}' not found, trying legacy vector format...")
+                self._vector_search_mode = "legacy"
+                if not self._vector_mode_switch_logged:
+                    log_flow(
+                        logger,
+                        "vector_mode_switch",
+                        level="warning",
+                        from_mode="named",
+                        to_mode="legacy",
+                        vector_name=self.vector_name,
+                        reason="named_vector_not_configured",
+                    )
+                    self._vector_mode_switch_logged = True
                 resp = req_lib.post(search_url, json=payload_without_name, headers=headers, verify=False, timeout=15.0)
 
             if resp.status_code == 200:
@@ -1721,11 +1935,16 @@ Output ONLY a JSON object with this structure:
         # Strategy 2: QdrantClient fallback
         try:
             print(f"  🔄 Falling back to QdrantClient for vector search...")
-            # Use query_points for newer QdrantClient API
-            from qdrant_client.models import NamedVector
+            # Use query_points for newer QdrantClient API and honor the detected vector mode.
+            query_payload = query_embedding
+            if self._vector_search_mode != "legacy":
+                from qdrant_client.models import NamedVector
+
+                query_payload = NamedVector(name=self.vector_name, vector=query_embedding)
+
             results = self.qdrant_client.query_points(
                 collection_name=self.collection_name,
-                query=NamedVector(name=self.vector_name, vector=query_embedding),
+                query=query_payload,
                 limit=k,
                 score_threshold=0.1,
                 with_payload=False,
@@ -2087,7 +2306,8 @@ Output ONLY a JSON object with this structure:
         # Use unified planner's entities and keywords (no separate LLM calls)
         entities = plan.get("entities", [])
         keywords = plan.get("keywords", [])
-        search_plan = plan.get("search_plan", {"use_vector": True, "use_graph": True, "use_keyword": True})
+        search_plan = plan.get("search_plan", {"use_vector": True, "use_graph": False, "use_keyword": True})
+        search_plan["use_graph"] = bool(search_plan.get("use_graph") and GRAPH_SEARCH_ENABLED)
 
         # Build expanded_query from planner keywords
         expanded_query = {
@@ -2097,10 +2317,10 @@ Output ONLY a JSON object with this structure:
             "years": [], "percentages": [], "expected_patterns": [],
         }
 
-        broad_k = max(k * 10, 120)
+        broad_k = self.get_retrieval_broad_k(k)
         rankings = {}
 
-        # 1. GRAPH (Conditional)
+        # 1. GRAPH (Disabled on fast path unless explicitly re-enabled)
         if search_plan.get("use_graph") and self.neo4j_driver and entities and self.filter_label:
             graph_results = self.entity_based_retrieval(entities, k=broad_k)
             if graph_results:
@@ -2161,14 +2381,11 @@ Output ONLY a JSON object with this structure:
             return [], {"mode": "error", "error": "No relevant data found"}
 
         # Dynamic weights based on planner context
-        if "graph" in rankings:
-            weights = {"graph": 0.34, "vector": 0.38, "keyword": 0.10, "docid": 0.14, "bridge": 0.02, "adjacent": 0.02}
-        else:
-            weights = {"vector": 0.58, "keyword": 0.24, "docid": 0.14, "bridge": 0.02, "adjacent": 0.02}
+        weights = {"vector": 0.58, "keyword": 0.24, "docid": 0.14, "bridge": 0.02, "adjacent": 0.02}
 
         fused_results = self.weighted_rrf_fusion(rankings, weights=weights, k=25)
-        # Retrieve a broader pool first, then select by query-aware relevance + source diversity.
-        pool_k = min(max(k * 4, 40), 120)
+        # Retrieve a smaller pool first, then select by query-aware relevance + source diversity.
+        pool_k = min(max(k * 2, 20), 40)
         pool_chunks = self._retrieve_chunks(fused_results[:pool_k])
         chunks = self._select_diverse_chunks(pool_chunks, query=query, k=k)
 
@@ -2690,12 +2907,77 @@ def _enforce_sources_block(answer: str, query: str, chunks: List[Document]) -> s
     return answer.rstrip() + "\n" + "\n".join(block_lines)
 
 
+def _strip_sources_block(answer: str) -> str:
+    # Remove an existing trailing sources section to avoid duplicates.
+    return re.sub(r"\n\*\*SOURCES\*\*:\s*(?:\n- .*?)*(?=\n*$)", "", answer.strip(), flags=re.IGNORECASE | re.DOTALL)
+
+
+def _confidence_from_chunks(chunks: List[Document]) -> Tuple[float, str]:
+    if not chunks:
+        return 0.2, "LOW"
+
+    unique_docs = {
+        (_clean_doc_name(str(c.metadata.get("doc_id", "unknown"))) or "unknown").lower()
+        for c in chunks
+    }
+    scores = []
+    for chunk in chunks:
+        value = chunk.metadata.get("fusion_score")
+        if isinstance(value, (int, float)):
+            scores.append(float(value))
+    avg_score = sum(scores) / len(scores) if scores else 0.0
+    avg_score_norm = max(0.0, min(avg_score, 1.0))
+
+    score = 0.35
+    score += min(len(chunks), 12) * 0.025
+    score += min(len(unique_docs), 4) * 0.05
+    score += avg_score_norm * 0.20
+    score = max(0.05, min(score, 0.98))
+
+    if score >= 0.8:
+        label = "HIGH"
+    elif score >= 0.6:
+        label = "MEDIUM"
+    else:
+        label = "LOW"
+    return score, label
+
+
+def format_structured_graphrag_response(
+    answer: str,
+    chunks: List[Document],
+    query: str,
+) -> str:
+    clean_answer = _strip_sources_block(answer)
+    refs = _collect_source_refs(chunks, max_sources=8)
+    score, label = _confidence_from_chunks(chunks)
+
+    lines = [
+        "## Final Answer",
+        clean_answer.strip(),
+        "",
+        "## Confidence",
+        f"- Score: {score:.2f} ({label})",
+        f"- Evidence Chunks: {len(chunks)}",
+        f"- Source Documents: {len({(_clean_doc_name(str(c.metadata.get('doc_id', 'unknown'))) or 'unknown').lower() for c in chunks})}",
+        "",
+        "## Sources (GraphRAG)",
+    ]
+    if refs:
+        lines.extend(f"- [GraphRAG] {ref}" for ref in refs)
+    else:
+        lines.append("- [GraphRAG] No sources available")
+    return "\n".join(lines).strip()
+
+
 def generate_answer(
     query: str,
     chunks: List[Document],
     system_prompt: Optional[str] = None,
     user_prompt: Optional[str] = None,
     model: Optional[str] = None,
+    content_mode: Optional[str] = None,
+    max_tokens: Optional[int] = None,
 ) -> str:
     """
     Generate answer using LLM with configurable prompts.
@@ -2715,9 +2997,12 @@ def generate_answer(
     final_user_prompt = user_prompt or DEFAULT_USER_PROMPT
 
     # Use the specific POST model if not overridden by the call
-    actual_model = model or LITELLM_POST_MODEL
+    actual_model = _resolve_answer_model(query, chunks, model, content_mode=content_mode)
+    actual_max_tokens = max_tokens
+    if actual_max_tokens is None:
+        actual_max_tokens = FAST_ANSWER_MAX_TOKENS if actual_model == FAST_ANSWER_MODEL else LLM_MAX_OUTPUT_TOKENS
 
-    print(f"  🤖 Generating answer with reasoning model: {actual_model}")
+    log_flow(logger, "answer_generation_start", model=actual_model)
 
     try:
         context = format_chunks_for_context(chunks)
@@ -2733,10 +3018,11 @@ def generate_answer(
         content, used_model = _invoke_llm(
             messages,
             model=actual_model,
-            max_tokens=LLM_MAX_OUTPUT_TOKENS,
+            max_tokens=actual_max_tokens,
             reasoning_effort=reasoning_effort
         )
-        return _enforce_sources_block(content, query, chunks)
+        enforced = _enforce_sources_block(content, query, chunks)
+        return format_structured_graphrag_response(enforced, chunks, query)
 
     except Exception as e:
         return f"Fehler bei der Antwortgenerierung: {str(e)}"
@@ -2750,6 +3036,7 @@ def generate_answer_stream(
     model: Optional[str] = None,
     content_mode: Optional[str] = None,
     format_template: Optional[str] = None,
+    max_tokens: Optional[int] = None,
 ):
     """
     Generate answer stream using LLM with conversation history and integrated formatting.
@@ -2759,7 +3046,10 @@ def generate_answer_stream(
     """
     final_system_prompt = system_prompt or POST_RETRIEVAL_SYSTEM_PROMPT
     final_user_prompt = user_prompt or DEFAULT_USER_PROMPT
-    actual_model = model or LITELLM_POST_MODEL
+    actual_model = _resolve_answer_model(query, chunks, model, content_mode=content_mode)
+    actual_max_tokens = max_tokens
+    if actual_max_tokens is None:
+        actual_max_tokens = FAST_ANSWER_MAX_TOKENS if actual_model == FAST_ANSWER_MODEL else LLM_MAX_OUTPUT_TOKENS
 
     # Inject formatting template if content_mode is specified
     if content_mode and content_mode.upper() != "DEFAULT" and format_template:
@@ -2804,7 +3094,7 @@ IMPORTANT RULES FOR {mode_upper} FORMAT:
         return _invoke_llm_stream(
             messages,
             model=actual_model,
-            max_tokens=LLM_MAX_OUTPUT_TOKENS,
+            max_tokens=actual_max_tokens,
             reasoning_effort=reasoning_effort
         )
 
@@ -2862,7 +3152,7 @@ IMPORTANT RULES FOR {mode_upper} FORMAT:
         if status_callback: await status_callback({"step": "extraction_done", "details": f"Found {len(entities)} entities, {len(keywords)} keywords"})
 
         search_plan = plan.get("search_plan", {"use_vector": True, "use_graph": True, "use_keyword": True})
-        broad_k = k * 10
+        broad_k = self.get_retrieval_broad_k(k)
 
         # Build expanded_query from planner keywords
         expanded_query = {
@@ -2924,7 +3214,7 @@ IMPORTANT RULES FOR {mode_upper} FORMAT:
         else:
             weights = {"vector": 0.62, "keyword": 0.24, "docid": 0.10, "adjacent": 0.04}
 
-        fused_results = self.weighted_rrf_fusion(rankings, weights=weights, k=60)
+        fused_results = self.weighted_rrf_fusion(rankings, weights=weights, k=30)
         
         # Retrieve final chunks (I/O bound)
         chunks = await loop.run_in_executor(None, self._retrieve_chunks, fused_results[:k])

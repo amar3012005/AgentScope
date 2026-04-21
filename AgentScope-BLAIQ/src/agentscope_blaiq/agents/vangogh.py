@@ -107,9 +107,395 @@ _FINANCE_CSS = _REPORT_CSS + """
 .recommendation-box { background: linear-gradient(135deg, #1a56db10, #1a56db05); border: 2px solid var(--accent); border-radius: 16px; padding: 32px; margin-top: 2rem; }
 """
 
+# ─── PREMIUM POSTER DESIGN SYSTEM ────────────────────────────────────────────
+# Full design token system: spacing scale, typography scale, color system,
+# grid utilities, card components, contrast-enforced layout patterns.
+# Each CSS custom property is named semantically so the LLM can reference them.
+_POSTER_CSS = """
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+
+/* ── Design Tokens ───────────────────────────────────────────────────────── */
+:root {
+  /* Color system — dark canvas, high-contrast hierarchy */
+  --bg:           #080b14;
+  --surface-1:    #0f1420;
+  --surface-2:    #16203a;
+  --surface-3:    #1d2d52;
+  --border-subtle: rgba(255,255,255,0.07);
+  --border-mid:    rgba(255,255,255,0.15);
+  --border-bright: rgba(255,255,255,0.30);
+
+  /* Text — strict contrast tiers (7:1 / 4.5:1 / 3:1) */
+  --text-primary:   #f5f7ff;
+  --text-secondary: rgba(245,247,255,0.72);
+  --text-muted:     rgba(245,247,255,0.45);
+  --text-inverse:   #080b14;
+
+  /* Accent palette */
+  --accent:         #4f8ef7;
+  --accent-bright:  #7eb3ff;
+  --accent-glow:    rgba(79,142,247,0.22);
+  --accent-2:       #f76b4f;
+  --accent-2-glow:  rgba(247,107,79,0.18);
+  --success:        #3ecf8e;
+  --warning:        #f5a623;
+
+  /* Spacing scale — 8-point grid */
+  --s-1:  4px;
+  --s-2:  8px;
+  --s-3:  12px;
+  --s-4:  16px;
+  --s-5:  24px;
+  --s-6:  32px;
+  --s-7:  48px;
+  --s-8:  64px;
+  --s-9:  96px;
+  --s-10: 128px;
+
+  /* Typography scale — fluid sizing */
+  --t-xs:   clamp(0.7rem, 1vw, 0.8rem);
+  --t-sm:   clamp(0.85rem, 1.3vw, 0.95rem);
+  --t-base: clamp(1rem, 1.5vw, 1.1rem);
+  --t-lg:   clamp(1.15rem, 2vw, 1.35rem);
+  --t-xl:   clamp(1.4rem, 2.5vw, 1.75rem);
+  --t-2xl:  clamp(1.8rem, 3.5vw, 2.5rem);
+  --t-3xl:  clamp(2.5rem, 5vw, 3.75rem);
+  --t-4xl:  clamp(3.5rem, 7vw, 5.5rem);
+  --t-hero: clamp(4rem, 9vw, 7.5rem);
+
+  /* Radius */
+  --r-sm: 6px;
+  --r-md: 12px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --r-pill: 9999px;
+
+  /* Shadows */
+  --shadow-card: 0 2px 16px rgba(0,0,0,0.45), 0 1px 4px rgba(0,0,0,0.3);
+  --shadow-glow: 0 0 40px var(--accent-glow);
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text-primary);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ── Poster slide container ──────────────────────────────────────────────── */
+section.poster-slide {
+  position: relative;
+  min-height: 100vh;
+  padding: var(--s-9) clamp(var(--s-6), 10vw, var(--s-10));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg);
+}
+
+/* Ambient glow background — adds depth without hurting contrast */
+section.poster-slide::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 70% 50% at 15% 50%, rgba(79,142,247,0.1) 0%, transparent 60%),
+              radial-gradient(ellipse 50% 40% at 85% 80%, rgba(247,107,79,0.07) 0%, transparent 55%);
+  pointer-events: none;
+}
+
+/* Hero variant — full-bleed gradient top */
+section.poster-slide.hero {
+  background: linear-gradient(160deg, var(--surface-2) 0%, var(--bg) 60%);
+}
+section.poster-slide.hero::before {
+  background: radial-gradient(ellipse 90% 70% at 50% -10%, rgba(79,142,247,0.2) 0%, transparent 65%);
+}
+
+/* Dark variant — slightly lighter surface */
+section.poster-slide.dark { background: var(--surface-1); }
+
+/* Accent variant — branded highlight section */
+section.poster-slide.accent-section { background: var(--surface-2); }
+
+/* ── Typography ──────────────────────────────────────────────────────────── */
+/* Hero display — ultra-bold, max impact */
+h1.poster-hero {
+  font-size: var(--t-hero);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  color: var(--text-primary);
+  max-width: 15ch;
+}
+
+/* Primary display headline */
+h1.poster-display {
+  font-size: var(--t-4xl);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.0;
+  background: linear-gradient(135deg, var(--text-primary) 50%, var(--accent-bright) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  max-width: 18ch;
+}
+
+/* Section heading */
+h2.poster-heading {
+  font-size: var(--t-2xl);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--text-primary);
+  margin-bottom: var(--s-5);
+}
+
+/* Sub-heading */
+h3.poster-subheading {
+  font-size: var(--t-xl);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+  margin-bottom: var(--s-4);
+}
+
+/* Lead paragraph — supporting the headline */
+p.poster-lead {
+  font-size: var(--t-lg);
+  color: var(--text-secondary);
+  max-width: 55ch;
+  line-height: 1.7;
+  margin-top: var(--s-5);
+}
+
+/* Body text */
+p.poster-body {
+  font-size: var(--t-base);
+  color: var(--text-secondary);
+  max-width: 65ch;
+  line-height: 1.8;
+  margin-bottom: var(--s-4);
+}
+
+/* Eyebrow / category label above headline */
+.poster-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-4);
+  background: var(--accent-glow);
+  border: 1px solid rgba(79,142,247,0.35);
+  border-radius: var(--r-pill);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+  margin-bottom: var(--s-5);
+}
+
+/* Accent line — visual divider / section marker */
+.accent-line {
+  width: 48px;
+  height: 4px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-radius: var(--r-pill);
+  margin-bottom: var(--s-5);
+}
+
+/* ── Layout utilities ────────────────────────────────────────────────────── */
+.poster-grid {
+  display: grid;
+  gap: var(--s-5);
+  margin-top: var(--s-6);
+}
+.poster-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.poster-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.poster-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.poster-grid.auto   { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+
+/* Split layout: 60/40 or 50/50 */
+.poster-split {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: var(--s-8);
+  align-items: center;
+}
+.poster-split.equal { grid-template-columns: 1fr 1fr; }
+
+/* Content column max-width */
+.poster-col { max-width: 640px; }
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.poster-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  padding: var(--s-6) var(--s-7);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.2s;
+}
+/* Top accent bar — always present, color varies */
+.poster-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+/* Stat card variant */
+.poster-card.stat-card { text-align: center; padding: var(--s-7) var(--s-6); }
+
+/* Highlighted card — glowing border */
+.poster-card.highlighted {
+  border-color: rgba(79,142,247,0.4);
+  box-shadow: var(--shadow-card), var(--shadow-glow);
+}
+
+/* Evidence / quote card */
+.poster-card.evidence {
+  border-left: 3px solid var(--accent);
+  border-top: none;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: var(--surface-2);
+}
+.poster-card.evidence::before { display: none; }
+
+/* ── Stats ───────────────────────────────────────────────────────────────── */
+.poster-stat-big {
+  font-size: var(--t-3xl);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  color: var(--accent-bright);
+  line-height: 1;
+  display: block;
+}
+.poster-stat-label {
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-top: var(--s-2);
+  letter-spacing: 0.02em;
+  display: block;
+}
+
+/* ── Bullet list ─────────────────────────────────────────────────────────── */
+.poster-bullets {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin-top: var(--s-5);
+}
+.poster-bullets li {
+  display: flex;
+  gap: var(--s-3);
+  align-items: flex-start;
+  padding: var(--s-4) var(--s-5);
+  background: var(--surface-1);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--t-base);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.poster-bullets li::before {
+  content: '';
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-top: 7px;
+}
+
+/* ── CTA elements ────────────────────────────────────────────────────────── */
+.poster-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-top: var(--s-7);
+  padding: var(--s-4) var(--s-8);
+  background: var(--accent);
+  border-radius: var(--r-pill);
+  font-size: var(--t-base);
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  box-shadow: 0 8px 32px rgba(79,142,247,0.4);
+}
+.poster-cta-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-top: var(--s-5);
+  margin-left: var(--s-4);
+  padding: var(--s-4) var(--s-7);
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  border-radius: var(--r-pill);
+  font-size: var(--t-base);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+/* ── Source attribution ──────────────────────────────────────────────────── */
+.source-chip {
+  display: inline-block;
+  padding: var(--s-1) var(--s-3);
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-pill);
+  margin-top: var(--s-2);
+  margin-right: var(--s-2);
+}
+
+/* ── Utility ─────────────────────────────────────────────────────────────── */
+.z-top { position: relative; z-index: 1; }
+.text-accent { color: var(--accent-bright); }
+.text-muted { color: var(--text-muted); font-size: var(--t-sm); }
+.mt-sm { margin-top: var(--s-4); }
+.mt-md { margin-top: var(--s-5); }
+.mt-lg { margin-top: var(--s-7); }
+.divider { height: 1px; background: var(--border-subtle); margin: var(--s-6) 0; }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  section.poster-slide { padding: var(--s-7) var(--s-6); }
+  .poster-split { grid-template-columns: 1fr; gap: var(--s-6); }
+  .poster-grid.cols-3 { grid-template-columns: repeat(2, 1fr); }
+  .poster-grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  section.poster-slide { padding: var(--s-6) var(--s-5); }
+  .poster-grid.cols-2, .poster-grid.cols-3, .poster-grid.cols-4 { grid-template-columns: 1fr; }
+}
+"""
+
 
 def _css_for_family(family: str, brand_dna: dict | None = None) -> str:
-    base = _PITCH_DECK_CSS if family == "pitch_deck" else (_FINANCE_CSS if family == "finance_analysis" else _REPORT_CSS)
+    if family == "poster":
+        base = _POSTER_CSS
+    elif family == "pitch_deck":
+        base = _PITCH_DECK_CSS
+    elif family == "finance_analysis":
+        base = _FINANCE_CSS
+    else:
+        base = _REPORT_CSS
+    
     if not brand_dna:
         return base
     # Override CSS variables with brand DNA tokens
@@ -147,6 +533,8 @@ def _css_for_family(family: str, brand_dna: dict | None = None) -> str:
 
 
 def _slide_class_for_family(family: str) -> str:
+    if family == "poster":
+        return "poster-slide"
     return "slide" if family == "pitch_deck" else "report-section"
 
 
@@ -182,12 +570,52 @@ class VangoghAgent(BaseAgent):
             name="VangoghAgent",
             role="vangogh",
             sys_prompt=(
-                "You are Vangogh, a world-class HTML/CSS presentation and report designer. "
-                "You generate visually stunning, self-contained HTML sections. "
-                "Use modern design: dark themes for pitch decks, clean whites for reports. "
-                "Every section must contain REAL content from the brief — never placeholder text. "
-                "Use the provided CSS classes; add inline styles only for section-specific overrides. "
-                "Return ONLY the HTML fragment — no markdown fences, no explanation."
+                "You are Vangogh, an award-level frontend art director. You generate immersive, "
+                "single-canvas HTML artifacts that are architecturally precise and aesthetically exceptional.\n\n"
+
+                "## Brand DNA — NON-NEGOTIABLE\n"
+                "Read the Brand DNA tokens provided. Apply them EXACTLY:\n"
+                "- Background: var(--brand-bg) — the dark canvas, never override\n"
+                "- Primary text: var(--brand-primary) — high contrast on dark\n"
+                "- Muted text: var(--brand-muted) — labels, secondary copy\n"
+                "- Border: 1px solid var(--brand-border) — hairline, never thick\n"
+                "- Accent: var(--brand-accent) — sparingly on key words/CTAs only\n"
+                "- Headings font: 'Cormorant Garamond', serif — ALL display headlines\n"
+                "- Body font: 'Manrope', sans-serif — ALL body text, labels, stats\n"
+                "Never use Inter, Helvetica, or system-ui for headlines. Never hardcode hex colors.\n\n"
+
+                "## For POSTERS: Single-Canvas Architecture\n"
+                "html, body { width:100vw; height:100vh; overflow:hidden; }\n"
+                "Use CSS Grid to divide the viewport into editorial zones:\n"
+                "  - Zone A (top, full-width): eyebrow tag + horizontal hairline\n"
+                "  - Zone B (left, main): serif headline clamp(4rem,9vw,8rem) + subheadline + body\n"
+                "  - Zone C (right, top): stats panel — 3 metrics stacked, values in Cormorant Garamond\n"
+                "  - Zone D (right, bottom): 3–4 proof bullets in Manrope, dash markers\n"
+                "  - Zone E (bottom, full-width): CTA ghost button + source attribution\n"
+                "Background atmosphere: soft radial spotlight rgba(255,255,255,0.04) top-left "
+                "+ SVG fractalNoise grain layer at opacity 0.035 mix-blend-mode:overlay.\n\n"
+
+                "## Motion — GSAP from CDN\n"
+                "Include: <script src='https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js'></script>\n"
+                "Staggered timeline: tag(0.6s) → headline(0.9s) → subheadline(0.7s) → stats(0.6s stagger) "
+                "→ bullets(0.5s stagger) → cta(0.6s). Only animate opacity + transform. Never layout props.\n\n"
+
+                "## Typography Hierarchy\n"
+                "1. Poster headline: Cormorant Garamond 600, clamp(4rem,9vw,8rem), tracking -0.04em, leading 0.92\n"
+                "2. Stat values: Cormorant Garamond 600, clamp(2.5rem,5vw,5rem), tracking -0.05em\n"
+                "3. Subheadline: Manrope 400, clamp(0.9rem,1.6vw,1.15rem), color var(--brand-muted)\n"
+                "4. Labels/tags: Manrope 700, 0.65rem, tracking 0.22em, uppercase\n"
+                "5. Bullets: Manrope 400, clamp(0.72rem,1.1vw,0.88rem), color var(--brand-muted)\n\n"
+
+                "## Quality Rules\n"
+                "- Zero scrolling: every element within 100vh\n"
+                "- No colored card backgrounds (monochrome only; use var(--brand-surface) at most)\n"
+                "- No box-shadow glows — hairline borders only\n"
+                "- Grain texture overlay: mandatory for editorial depth\n"
+                "- Real content from brief only — no placeholders\n"
+                "- Google Fonts link in <head>: Cormorant Garamond + Manrope\n\n"
+
+                "Return ONLY the complete self-contained HTML document. No markdown. No explanation."
             ),
             **kwargs,
         )
@@ -265,7 +693,43 @@ class VangoghAgent(BaseAgent):
         is_cta = section.title.lower() in {"cta", "ask", "call to action"}
 
         layout_hint = ""
-        if is_hero:
+        if family == "poster":
+            if is_hero:
+                layout_hint = (
+                    "HERO LAYOUT — full-bleed cinematic opening.\n"
+                    "Structure: .z-top wrapper → .poster-tag (category label) → h1.poster-display (headline, max 8 words) "
+                    "→ p.poster-lead (one powerful sentence, max 20 words) → .poster-cta-btn (if CTA exists).\n"
+                    "Add class 'hero' to the section element. Use var(--accent-glow) or var(--surface-2) backgrounds for depth."
+                )
+            elif section.stats and len(section.stats) >= 2:
+                layout_hint = (
+                    "STAT GRID LAYOUT — visual proof of scale.\n"
+                    "Structure: .accent-line → h2.poster-heading (section title) → .poster-grid.auto (or .cols-3) "
+                    "containing .poster-card.stat-card for each stat. Each card: span.poster-stat-big (the number) "
+                    "+ span.poster-stat-label (what it means). If there are bullets, add .poster-bullets below the grid."
+                )
+            elif section.bullets and len(section.bullets) >= 3:
+                layout_hint = (
+                    "EVIDENCE LIST LAYOUT — structured proof points.\n"
+                    "Structure: .poster-tag (optional) → .accent-line → h2.poster-heading → p.poster-lead (body teaser) "
+                    "→ ul.poster-bullets (each li = one bullet). "
+                    "If evidence_refs exist, add .source-chip elements after bullets."
+                )
+            elif is_cta:
+                layout_hint = (
+                    "CTA LAYOUT — action-focused close.\n"
+                    "Structure: .poster-tag (urgency label) → h2.poster-heading (the ask, punchy) "
+                    "→ p.poster-lead (supporting reason) → .poster-cta-btn (primary action) + optional .poster-cta-secondary. "
+                    "Add class 'accent-section' to the section element."
+                )
+            else:
+                layout_hint = (
+                    "CONTENT LAYOUT — narrative body section.\n"
+                    "Structure: .accent-line → h2.poster-heading → p.poster-lead → p.poster-body. "
+                    "If multiple points, use .poster-grid.cols-2 with .poster-card.evidence for each point. "
+                    "Wrap source attribution in .source-chip."
+                )
+        elif is_hero:
             layout_hint = "Use <section class='slide hero-bg'>. Add a .tag label above the h1. Use h1.display for the headline. Include subheadline as p.lead."
         elif section.stats and len(section.stats) >= 2:
             layout_hint = "Use a .card-grid with one .card per stat. Each card: .stat for the number, .stat-label for the description. Follow with .bullet-list for the bullets."
@@ -276,28 +740,44 @@ class VangoghAgent(BaseAgent):
         else:
             layout_hint = "Use h2.section-title for the headline, p.lead for the body. If there are bullets, add a .bullet-list. Wrap evidence points in .evidence-block."
 
-        prompt = f"""Generate the HTML for slide {section_number} of {total_sections} in a {family} presentation titled "{title}".
+        poster_design_rules = ""
+        if family == "poster":
+            poster_design_rules = """
+=== POSTER DESIGN RULES (mandatory) ===
+• CONTRAST: text-primary (#f5f7ff) on dark surfaces. NEVER use opacity < 0.45 for readable text.
+• TOKENS: use CSS custom properties (var(--accent), var(--s-6), etc.) — no hardcoded hex except in gradient overrides.
+• GRID: use .poster-grid.cols-N or .poster-split — no custom inline grid/flex layouts.
+• DENSITY: max 3 content elements per card; max 5 bullets; max 4 stat cards per row.
+• SPACING: sections need min padding-top/bottom var(--s-9). Cards need min padding var(--s-6).
+• TYPOGRAPHY: only h1.poster-display OR h1.poster-hero per section (not both); follow with h2.poster-heading for sub-sections.
+• VISUAL ANCHOR: every section MUST start with either .poster-tag, .accent-line, or a category eyebrow."""
+
+        prompt = f"""Generate the HTML for section {section_number} of {total_sections} in a {family} visual titled "{title}".
 
 === SECTION: {section.title} ===
 PURPOSE: {section.purpose or section.objective}
+VISUAL INTENT: {section.visual_intent or "Bold, high-contrast, evidence-backed poster section"}
 {content_block}
-
-=== LAYOUT INSTRUCTION ===
+{poster_design_rules}
+=== LAYOUT PATTERN ===
 {layout_hint}
-VISUAL INTENT: {section.visual_intent or "Clean, bold, evidence-backed"}
 
-=== CSS CLASSES AVAILABLE ===
-.slide, .hero-bg, h1.display, h2.section-title, p.lead, .tag,
-.card-grid, .card, .stat, .stat-label,
-.bullet-list (ul > li), .cta-btn, .evidence-block, .source-chip
+=== AVAILABLE CSS CLASSES ===
+Poster layout: section.poster-slide[.hero|.dark|.accent-section], h1.poster-display, h1.poster-hero, h2.poster-heading, h3.poster-subheading, p.poster-lead, p.poster-body
+Poster grid: .poster-grid[.cols-2|.cols-3|.cols-4|.auto], .poster-split[.equal], .poster-col
+Poster cards: .poster-card[.stat-card|.highlighted|.evidence]
+Poster stats: span.poster-stat-big, span.poster-stat-label
+Poster bullets: ul.poster-bullets (li items)
+Poster UI: .poster-tag, .accent-line, .poster-cta-btn, .poster-cta-secondary, .source-chip
+Pitch/report: .slide, .hero-bg, h1.display, h2.section-title, p.lead, .tag, .card-grid, .card, .stat, .stat-label, .bullet-list, .cta-btn, .evidence-block
+Utility: .z-top, .text-accent, .text-muted, .mt-sm, .mt-md, .mt-lg, .divider
 
-=== RULES ===
-1. Wrapper MUST be <section class="{slide_class}"> (add .hero-bg for hero sections)
-2. Use EVERY content item above — do not drop any headline, bullet, stat, or body text
-3. Body text must appear in full — do not summarise or truncate
-4. No placeholder text — every word must come from the content block above
-5. Inline style overrides allowed only for section-specific colours or spacing
-6. Return ONLY the HTML fragment — no markdown, no explanation"""
+=== HARD RULES ===
+1. Outer wrapper: <section class="{slide_class} [variant]">
+2. Use ALL content — every headline, bullet, stat, body text from the block above
+3. Zero placeholders, zero lorem ipsum
+4. Use ONLY CSS classes listed above — no custom class names
+5. Return ONLY the HTML fragment — no markdown fences, no comments"""
 
         try:
             response = await self.resolver.acompletion(
@@ -486,7 +966,7 @@ VISUAL INTENT: {section.visual_intent or "Clean, bold, evidence-backed"}
             self._inject_brand_dna(workspace, brand_dna)
 
             await _progress("Writing slides data...", 0.25)
-            self._write_slides_data(workspace, slides_data)
+            self._write_slides_data(workspace, slides_data, artifact_family=artifact_family)
 
             await _progress("Installing dependencies and bundling...", 0.35)
             bundle_html = await self._bundle_workspace(workspace)
@@ -582,32 +1062,128 @@ VISUAL INTENT: {section.visual_intent or "Clean, bold, evidence-backed"}
 
         css_path.write_text(css, encoding="utf-8")
 
-    def _write_slides_data(self, workspace: Path, slides_data: dict) -> None:
+    def _write_slides_data(self, workspace: Path, slides_data: dict, *, artifact_family: str = "pitch_deck") -> None:
         """Write the slides.json file into the workspace."""
+        payload = dict(slides_data)
+        payload["layout"] = payload.get("layout") or ("poster" if artifact_family == "poster" else "slides")
         slides_path = workspace / "src" / "slides.json"
         slides_path.write_text(
-            json.dumps(slides_data, indent=2, ensure_ascii=False),
+            json.dumps(payload, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
 
+    def _inject_download_handler(self, html: str) -> str:
+        """Inject a download handler script into the HTML bundle.
+
+        This enables the parent window to request PDF/PNG captures via postMessage.
+        Uses CDN-loaded html2canvas and jsPDF libraries.
+        Captures the currently visible slide based on scroll position.
+        """
+        download_script = """
+    <script>
+      // Download handler for PDF/PNG export - captures current visible slide
+      window.addEventListener('message', async function(event) {
+        if (event.data && event.data.type === 'capture') {
+          const format = event.data.format;
+
+          // Find the slide that's most visible (based on scroll position)
+          const container = document.querySelector('[style*="overflow-x"]');
+          if (!container) {
+            console.error('Slide container not found');
+            return;
+          }
+
+          const scrollLeft = container.scrollLeft;
+          const slideWidth = container.clientWidth;
+          const currentSlideIndex = Math.round(scrollLeft / slideWidth);
+          const slideElement = container.querySelector(`[data-slide-index="${currentSlideIndex}"]`);
+
+          if (!slideElement) {
+            console.error('Current slide not found');
+            return;
+          }
+
+          try {
+            // Load html2canvas from CDN if not already loaded
+            if (typeof window.html2canvas === 'undefined') {
+              await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+              });
+            }
+
+            const canvas = await window.html2canvas(slideElement, {
+              backgroundColor: '#050505',
+              scale: 2,
+              useCORS: true,
+            });
+
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+            if (format === 'png') {
+              const link = document.createElement('a');
+              link.download = `slide-${currentSlideIndex + 1}-${timestamp}.png`;
+              link.href = canvas.toDataURL('image/png');
+              link.click();
+            } else if (format === 'pdf') {
+              // Load jsPDF from CDN if not already loaded
+              if (typeof window.jspdf === 'undefined') {
+                await new Promise((resolve, reject) => {
+                  const script = document.createElement('script');
+                  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js';
+                  script.onload = resolve;
+                  script.onerror = reject;
+                  document.head.appendChild(script);
+                });
+              }
+              const { jsPDF } = window.jspdf;
+              const pdf = new jsPDF({
+                orientation: 'landscape',
+                unit: 'px',
+                format: [canvas.width, canvas.height],
+              });
+              pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
+              pdf.save(`slide-${currentSlideIndex + 1}-${timestamp}.pdf`);
+            }
+          } catch (err) {
+            console.error('Capture failed:', err);
+          }
+        }
+      });
+    </script>
+"""
+        # Inject before closing </head> tag
+        if "</head>" in html:
+            html = html.replace("</head>", download_script + "</head>")
+        return html
+
     async def _bundle_workspace(self, workspace: Path) -> str:
         """Install deps and bundle the React app to a single HTML file."""
-        await self.log("Installing dependencies and bundling React app...", kind="status")
+        env = {**__import__("os").environ, "CI": "true"}  # CI=true skips pnpm TTY prompts
 
-        # Install dependencies
-        install_proc = await asyncio.create_subprocess_exec(
-            "pnpm", "install", "--no-frozen-lockfile",
-            cwd=str(workspace),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(
-            install_proc.communicate(), timeout=120,
-        )
-        if install_proc.returncode != 0:
-            raise RuntimeError(f"pnpm install failed: {stderr.decode()[:500]}")
+        # Only run pnpm install if node_modules is missing or not a symlink
+        nm_path = workspace / "node_modules"
+        if not nm_path.exists():
+            await self.log("Installing dependencies...", kind="status")
+            install_proc = await asyncio.create_subprocess_exec(
+                "pnpm", "install", "--no-frozen-lockfile",
+                cwd=str(workspace),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                install_proc.communicate(), timeout=120,
+            )
+            if install_proc.returncode != 0:
+                raise RuntimeError(f"pnpm install failed: {stderr.decode()[:500]}")
+            await self.log("Dependencies installed.", kind="status")
+        else:
+            await self.log("Using pre-installed dependencies.", kind="status")
 
-        await self.log("Dependencies installed. Bundling...", kind="status")
+        await self.log("Bundling React app...", kind="status")
 
         # Run the bundle script
         bundle_script = workspace / "scripts" / "bundle.sh"
@@ -616,6 +1192,7 @@ VISUAL INTENT: {section.visual_intent or "Clean, bold, evidence-backed"}
             cwd=str(workspace),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         stdout, stderr = await asyncio.wait_for(
             bundle_proc.communicate(), timeout=120,
@@ -628,6 +1205,7 @@ VISUAL INTENT: {section.visual_intent or "Clean, bold, evidence-backed"}
             raise RuntimeError("bundle.html not generated")
 
         html = bundle_path.read_text(encoding="utf-8")
+        html = self._inject_download_handler(html)
         await self.log(f"Bundle complete: {len(html)} bytes", kind="status")
 
         # Cleanup workspace
@@ -686,13 +1264,13 @@ VISUAL INTENT: {section.visual_intent or "Clean, bold, evidence-backed"}
         for i, slide in enumerate(slides):
             section_plan.append({
                 "section_id": f"slide-{i}",
-                "title": slide.get("title") or slide.get("headline") or f"Slide {i + 1}",
+                "title": slide.get("title") or slide.get("headline") or slide.get("headline") or f"Slide {i + 1}",
                 "purpose": slide.get("subtitle") or slide.get("body") or "",
                 "headline": slide.get("headline") or slide.get("title") or "",
                 "subheadline": slide.get("subheadline") or slide.get("subtitle") or "",
                 "body": slide.get("body") or "",
                 "bullets": slide.get("bullets", []),
-                "stats": slide.get("items", []),
+                "stats": slide.get("items", []) or slide.get("metrics", []),
                 "visual_intent": slide.get("type", ""),
                 "cta": slide.get("cta_text") or "",
             })
