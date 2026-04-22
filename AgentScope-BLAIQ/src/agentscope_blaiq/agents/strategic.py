@@ -40,6 +40,12 @@ class StrategicDraft(BaseModel):
     task_graph: TaskGraph = Field(default_factory=TaskGraph)
     hitl_nodes: list[WorkflowNode] = Field(default_factory=list)
     content_director_nodes: list[WorkflowNode] = Field(default_factory=list)
+    # Phase 3: Strict route metadata for dispatch enforcement
+    workflow_template_id: str | None = None
+    node_assignments: dict[str, str] = Field(default_factory=dict)  # node_id -> agent_id
+    required_tools_per_node: dict[str, list[str]] = Field(default_factory=dict)  # node_id -> [tool_id]
+    fallback_path: str | None = None
+    missing_requirements: list[str] = Field(default_factory=list)
 
 
 class DirectQueryIntent(BaseModel):
@@ -362,9 +368,16 @@ class StrategicAgent(BaseAgent):
             return False
 
         artifact_signals = (
-            "create ", "make ", "generate ", "build ", "design ", "render ", "draft ",
+            # Visual artifact verbs
+            "create ", "make ", "generate ", "build ", "design ", "render ",
+            # Text artifact verbs
+            "draft ", "write ", "compose ", "prepare ", "send ", "reply ",
+            # Visual artifact families
             "pitch deck", "presentation", "deck", "poster", "brochure", "landing page",
-            "one pager", "one-pager", "report", "proposal", "web page", "webpage",
+            "one pager", "one-pager", "report", "web page", "webpage",
+            # Text artifact families
+            "email", "e-mail", "letter", "memo", "memorandum", "invoice", "billing",
+            "proposal", "rfp", "social post", "tweet", "linkedin post", "newsletter",
         )
         if any(signal in query for signal in artifact_signals):
             return False
@@ -417,7 +430,12 @@ class StrategicAgent(BaseAgent):
             f"User request: \"{request.user_query}\"\n\n"
             "Is this a DIRECT KNOWLEDGE question or an ARTIFACT creation request?\n\n"
             "- direct_answer: asking for facts, details, specs, explanation, summary, what we know\n"
-            "- artifact: explicitly asks to CREATE/BUILD/GENERATE/RENDER/DESIGN a deliverable\n\n"
+            "  Examples: \"what is X\", \"tell me about Y\", \"explain Z\", \"give me info on\"\n"
+            "- artifact: explicitly asks to PRODUCE a deliverable of any kind\n"
+            "  Visual verbs: CREATE/BUILD/GENERATE/RENDER/DESIGN (pitch deck, poster, report)\n"
+            "  Text verbs: WRITE/COMPOSE/DRAFT/SEND/PREPARE (email, letter, memo, proposal, social post, invoice)\n"
+            "  Examples: \"write an email to...\", \"draft a memo\", \"compose a letter\",\n"
+            "  \"prepare a proposal\", \"send invoice\", \"create a pitch deck\", \"design a poster\"\n\n"
             "Return ONLY JSON: {\"route\": \"direct_answer\" or \"artifact\", \"confidence\": 0.0-1.0}"
         )
         try:

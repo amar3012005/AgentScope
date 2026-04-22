@@ -27,6 +27,8 @@ from agentscope_blaiq.persistence.repositories import (
 )
 from agentscope_blaiq.agents.skills import load_brand_voice
 from agentscope_blaiq.contracts.workflow import TEXT_ARTIFACT_FAMILIES as TEXT_FAMILIES
+from agentscope_blaiq.contracts.dispatch import validate_dispatch, validate_handoff, validate_tool_call
+from agentscope_blaiq.contracts.registry import HarnessRegistry
 from agentscope_blaiq.runtime.config import settings
 from agentscope_blaiq.runtime.registry import AgentRegistry
 from agentscope_blaiq.tools.artifacts import persist_artifact_files
@@ -182,6 +184,108 @@ class WorkflowEngine:
         self.state_store = state_store or RedisStateStore()
         self.session_factory = session_factory or get_session_local()
         self._cancellation_requests: set[str] = set()  # Track cancelled thread_ids
+        self._harness_registry: HarnessRegistry | None = None  # Phase 3: lazy harness registry
+
+    def _get_harness_registry(self) -> HarnessRegistry:
+        """Lazy-load the harness registry for dispatch validation."""
+        if self._harness_registry is None:
+            reg = HarnessRegistry()
+            reg.load_builtin_agents()
+            reg.load_builtin_tools()
+            reg.load_builtin_workflows()
+            self._harness_registry = reg
+        return self._harness_registry
+
+    def _pre_dispatch_check(
+        self,
+        agent_id: str,
+        input_data: dict[str, Any],
+        *,
+        workflow_id: str | None = None,
+        tools_requested: list[str] | None = None,
+    ) -> None:
+        """Validate an agent dispatch against harness contracts before execution.
+
+        Logs WARN on validation failures but does not raise — enforcement is
+        advisory in Phase 3 to avoid blocking production while contracts stabilise.
+        """
+        result = validate_dispatch(
+            agent_id=agent_id,
+            input_data=input_data,
+            registry=self._get_harness_registry(),
+            workflow_id=workflow_id,
+            tools_requested=tools_requested,
+        )
+        if not result.ok:
+            logger.warning(
+                "dispatch_contract_violation agent=%s workflow=%s errors=%s",
+                agent_id,
+                workflow_id,
+                result.errors,
+            )
+        elif result.warnings:
+            logger.info(
+                "dispatch_contract_warning agent=%s workflow=%s warnings=%s",
+                agent_id,
+                workflow_id,
+                result.warnings,
+            )
+
+    def _pre_handoff_check(
+        self,
+        from_agent_id: str,
+        to_agent_id: str,
+        output_data: dict[str, Any],
+        *,
+        workflow_id: str | None = None,
+    ) -> None:
+        """Validate a handoff between agents against harness contracts.
+
+        Advisory-only in Phase 3 — logs violations, does not raise.
+        """
+        result = validate_handoff(
+            from_agent_id=from_agent_id,
+            to_agent_id=to_agent_id,
+            output_data=output_data,
+            registry=self._get_harness_registry(),
+            workflow_id=workflow_id,
+        )
+        if not result.ok:
+            logger.warning(
+                "handoff_contract_violation from=%s to=%s workflow=%s errors=%s",
+                from_agent_id,
+                to_agent_id,
+                workflow_id,
+                result.errors,
+            )
+
+    def _pre_tool_call_check(
+        self,
+        agent_id: str,
+        tool_id: str,
+        tool_input: dict[str, Any],
+        *,
+        workflow_id: str | None = None,
+    ) -> None:
+        """Validate a tool call against harness contracts.
+
+        Advisory-only in Phase 3 — logs violations, does not raise.
+        """
+        result = validate_tool_call(
+            agent_id=agent_id,
+            tool_id=tool_id,
+            tool_input=tool_input,
+            registry=self._get_harness_registry(),
+            workflow_id=workflow_id,
+        )
+        if not result.ok:
+            logger.warning(
+                "tool_call_contract_violation agent=%s tool=%s workflow=%s errors=%s",
+                agent_id,
+                tool_id,
+                workflow_id,
+                result.errors,
+            )
 
     async def cancel(self, thread_id: str) -> None:
         """Request cancellation of a running workflow."""

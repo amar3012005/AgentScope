@@ -14,6 +14,20 @@ from .harness import (
     WorkflowTemplate,
 )
 from .dispatch import DispatchResult, validate_dispatch, validate_handoff, validate_tool_call
+from .hooks import (
+    HookAction,
+    HookContext,
+    HookDecision,
+    HookEvaluator,
+    HookRegistry,
+    HookResult,
+    HookType,
+    evaluate_governance_gate,
+    evaluate_missing_input,
+    evaluate_post_node,
+    evaluate_pre_node,
+    evaluate_retry_replan,
+)
 from .registry import HarnessRegistry, get_registry, reset_registry
 from .validation import (
     check_agent_tool_compatibility,
@@ -79,6 +93,19 @@ __all__ = [
     "validate_dispatch",
     "validate_handoff",
     "validate_tool_call",
+    # Hooks (Phase 3)
+    "HookAction",
+    "HookContext",
+    "HookDecision",
+    "HookEvaluator",
+    "HookRegistry",
+    "HookResult",
+    "HookType",
+    "evaluate_governance_gate",
+    "evaluate_missing_input",
+    "evaluate_post_node",
+    "evaluate_pre_node",
+    "evaluate_retry_replan",
     # Registry
     "HarnessRegistry",
     "get_registry",
