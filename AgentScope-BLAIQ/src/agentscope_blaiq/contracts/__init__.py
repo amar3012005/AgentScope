@@ -31,6 +31,23 @@ from .workflow import (
     WorkflowPlan,
     WorkflowStatus,
 )
+from .workflows import (
+    DIRECT_ANSWER_V1,
+    FINANCE_V1,
+    RESEARCH_V1,
+    TEXT_ARTIFACT_V1,
+    VISUAL_ARTIFACT_V1,
+    WORKFLOW_TEMPLATES,
+    EvidencePack,
+    GovernanceReview,
+    StrategicPlan,
+    TextArtifact,
+    UserRequest,
+    VisualArtifact,
+    VisualSpec,
+    get_workflow_template,
+    list_workflow_templates,
+)
 
 __all__ = [
     # Artifact
@@ -73,11 +90,27 @@ __all__ = [
     "validate_all_harnesses",
     "validate_tool_harness",
     "validate_workflow_template",
-    # Workflow
+    # Workflow (orchestration contracts)
     "AgentRunPayload",
     "AgentType",
     "SubmitWorkflowRequest",
     "WorkflowMode",
     "WorkflowPlan",
     "WorkflowStatus",
+    # Workflows (Phase 2: canonical templates)
+    "DIRECT_ANSWER_V1",
+    "FINANCE_V1",
+    "RESEARCH_V1",
+    "TEXT_ARTIFACT_V1",
+    "VISUAL_ARTIFACT_V1",
+    "WORKFLOW_TEMPLATES",
+    "EvidencePack",
+    "GovernanceReview",
+    "StrategicPlan",
+    "TextArtifact",
+    "UserRequest",
+    "VisualArtifact",
+    "VisualSpec",
+    "get_workflow_template",
+    "list_workflow_templates",
 ]
