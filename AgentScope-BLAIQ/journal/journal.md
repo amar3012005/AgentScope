@@ -15,6 +15,7 @@
 | 2026-04-22 | Phase 1: Production audit | ✅ DONE | Aligned tool IDs with runtime, added 3 missing agents, bidirectional refs verified, 40/40 tests |
 | 2026-04-22 | Phase 1.5: Dispatch validation | ✅ DONE | dispatch.py: validate_dispatch + validate_tool_call + validate_handoff. 28 new tests. 68/68 total |
 | 2026-04-22 | Phase 2: Canonical workflow templates | ✅ DONE | workflows.py: 5 templates (visual_artifact_v1, text_artifact_v1, direct_answer_v1, research_v1, finance_v1). Message contracts. 44 new tests. 110/110 total |
+| 2026-04-22 | Phase 3: Dispatch enforcement + hooks | ✅ DONE | hooks.py: 5 hook types, 6 actions, HookRegistry, 5 built-in evaluators. engine.py: advisory dispatch/handoff/tool guards. strategic.py: route metadata fields. registry.py: workflow helpers. 37 new tests (9 skipped: runtime deps). 147/147 passing |
 
 ---
 
