@@ -50,6 +50,7 @@ class LiteLLMModelResolver:
             return model_name
         return model_name.split("/", 1)[1]
 
+
     def _prefer_litellm_proxy(self) -> bool:
         return bool(self.settings.litellm_api_base_url)
 
@@ -236,7 +237,7 @@ class LiteLLMModelResolver:
         if resolved.api_base:
             client_kwargs["base_url"] = resolved.api_base
 
-        model_name = resolved.model_name if self._prefer_litellm_proxy() else self._strip_provider_prefix(resolved.model_name)
+        model_name = resolved.model_name if resolved.api_base else self._strip_provider_prefix(resolved.model_name)
         return OpenAIChatModel(
             model_name=model_name,
             api_key=resolved.api_key,
@@ -330,32 +331,48 @@ class LiteLLMModelResolver:
     @staticmethod
     def extract_json_text(text: str) -> str:
         """Extract JSON from text, removing markdown wrappers and noise."""
+        if not text:
+            return ""
+            
         cleaned = text.strip()
 
-        # Remove markdown code block wrappers
-        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-        cleaned = re.sub(r"\s*```$", "", cleaned)
-        cleaned = cleaned.strip()
+        # 1. Broad markdown code block removal (including mid-text blocks)
+        # Search for ```json ... ``` or just ``` ... ```
+        block_match = re.search(r"```(?:json)?\s*(.*?)\s*```", cleaned, re.DOTALL | re.IGNORECASE)
+        if block_match:
+            cleaned = block_match.group(1).strip()
+        else:
+            # Fallback: remove leading/trailing markers if they weren't matched as a pair
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
+            cleaned = cleaned.strip()
 
-        # If still empty after cleaning, try to find JSON-like patterns
-        if not cleaned:
-            # Try to find any JSON object in the original text
-            object_match = re.search(r"\{[^{}]*\"[^\"]*\"[^{}]*\}", text, re.DOTALL)
-            if object_match:
-                return object_match.group(0)
-            array_match = re.search(r"\[[^\[\]]*\]", text, re.DOTALL)
-            if array_match:
-                return array_match.group(0)
+        # 2. If valid content exists, return it
+        if cleaned:
+            return cleaned
 
-        return cleaned.strip()
+        # 3. If cleaning failed or resulted in empty string, look for any balanced JSON object structure
+        # (This is more robust for cases like "Here is the JSON: { ... }")
+        object_match = re.search(r"(\{.*\})", text, re.DOTALL)
+        if object_match:
+            return object_match.group(1).strip()
+            
+        array_match = re.search(r"(\[.*\])", text, re.DOTALL)
+        if array_match:
+            return array_match.group(1).strip()
+
+        return text.strip()
 
     @staticmethod
     def safe_json_loads(text: str) -> dict[str, Any]:
         """Parse JSON with multiple fallback strategies."""
+        if not text:
+            raise json.JSONDecodeError("Empty input text", "", 0)
+
         cleaned = LiteLLMModelResolver.extract_json_text(text)
 
         if not cleaned:
-            raise json.JSONDecodeError("Empty payload", cleaned, 0)
+            raise json.JSONDecodeError("No JSON content found in payload", text, 0)
 
         # First attempt: direct parse
         try:
@@ -363,27 +380,36 @@ class LiteLLMModelResolver:
         except json.JSONDecodeError:
             pass
 
-        # Second attempt: find JSON object with nested braces
-        object_match = re.search(r"\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}", cleaned, re.DOTALL)
+        # Second attempt: greedy outermost object (handles arbitrary nesting depth)
+        object_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
         if object_match:
             try:
                 return json.loads(object_match.group(0))
             except json.JSONDecodeError:
                 pass
 
-        # Third attempt: simple object pattern
-        simple_match = re.search(r"\{[^{}]*\}", cleaned, re.DOTALL)
-        if simple_match:
-            try:
-                return json.loads(simple_match.group(0))
-            except json.JSONDecodeError:
-                pass
+        # Third attempt: raw text as object (in case extract_json_text stripped too much)
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            pass
 
-        # Fourth attempt: find array and wrap
+        # Fourth attempt: find outermost array
         array_match = re.search(r"\[.*\]", cleaned, re.DOTALL)
         if array_match:
             try:
                 parsed = json.loads(array_match.group(0))
+                if isinstance(parsed, dict):
+                    return parsed
+                return {"items": parsed}
+            except json.JSONDecodeError:
+                pass
+
+        # Fifth attempt: array in raw text
+        array_match_raw = re.search(r"\[.*\]", text, re.DOTALL)
+        if array_match_raw:
+            try:
+                parsed = json.loads(array_match_raw.group(0))
                 if isinstance(parsed, dict):
                     return parsed
                 return {"items": parsed}

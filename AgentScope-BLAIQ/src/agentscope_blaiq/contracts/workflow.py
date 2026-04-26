@@ -50,7 +50,7 @@ class ArtifactFamily(str, Enum):
 # Canonical set of text-based artifact families handled by TextBuddy.
 TEXT_ARTIFACT_FAMILIES: frozenset[str] = frozenset({
     "email", "invoice", "letter", "memo",
-    "proposal", "social_post", "summary",
+    "proposal", "report", "social_post", "summary",
 })
 
 
@@ -185,11 +185,64 @@ class SubmitWorkflowRequest(BaseModel):
     re_run_from_planning: bool = False
 
 
+class ClarificationQuestion(BaseModel):
+    """Single typed clarification question surfaced to the user during HITL.
+
+    Extends the agent-layer ``ClarificationQuestion`` with validation metadata
+    so the frontend can render and validate answers without a round-trip.
+    """
+
+    requirement_id: str
+    question: str
+    why_it_matters: str | None = None
+    answer_hint: str | None = None
+    answer_options: list[str] = Field(default_factory=list)
+    input_type: str = "option"  # "option" | "text" | "multi_select"
+    validation_rules: dict[str, Any] = Field(default_factory=dict)
+    required: bool = True
+
+
+class ClarificationBundle(BaseModel):
+    """Typed pause payload emitted by the engine when a workflow is blocked.
+
+    Replaces the ad-hoc ``blocked_question`` string so the frontend can render
+    structured options and the resume path can validate answers precisely.
+    """
+
+    bundle_id: str = Field(default_factory=lambda: str(uuid4()))
+    headline: str
+    intro: str
+    blocking_stage: str = ""
+    questions: list[ClarificationQuestion] = Field(default_factory=list)
+    expected_answer_schema: dict[str, str] = Field(default_factory=dict)
+    pending_node: str | None = None
+    resume_from_node: str | None = None
+    plan_snapshot: dict[str, Any] | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class ClarificationAnswerSet(BaseModel):
+    """Typed answer payload posted by the frontend to resume a blocked workflow."""
+
+    bundle_id: str
+    answers: dict[str, str] = Field(
+        default_factory=dict,
+        description="requirement_id -> answer value",
+    )
+    validation_errors: dict[str, str] = Field(default_factory=dict)
+    completed: bool = False
+
+
 class ResumeWorkflowRequest(BaseModel):
     thread_id: str
     tenant_id: str | None = None
     resume_reason: str | None = None
+    # Legacy flat answers dict — kept for backwards compat.
     answers: dict[str, str] = Field(default_factory=dict)
+    # Typed resume path (Phase 4+): prefer these over bare ``answers``.
+    clarification_bundle_id: str | None = None
+    answer_set: ClarificationAnswerSet | None = None
+    resume_strategy: str = "continue"  # "continue" | "replan" | "restart_from_planning"
 
 
 class AgentRunPayload(WorkflowNode):
@@ -203,6 +256,7 @@ class WorkflowPlan(BaseModel):
     analysis_mode: AnalysisMode = AnalysisMode.standard
     summary: str
     direct_answer: bool = False
+    conversational: bool = False
     notes: list[str] = Field(default_factory=list)
     artifact_family: ArtifactFamily = ArtifactFamily.custom
     artifact_spec: ArtifactSpec | None = None
@@ -214,6 +268,12 @@ class WorkflowPlan(BaseModel):
     available_agents: list[LiveAgentProfile] = Field(default_factory=list)
     agent_assignments: list[AgentTaskAssignment] = Field(default_factory=list)
     topology_reason: str = ""
+    workflow_template_id: str | None = None
+    node_assignments: dict[str, str] = Field(default_factory=dict)
+    required_tools_per_node: dict[str, list[str]] = Field(default_factory=dict)
+    fallback_path: str | None = None
+    missing_requirements: list[str] = Field(default_factory=list)
     fan_in_required: bool = False
     fan_in_agent: AgentType = AgentType.strategist
+    planner_snapshot_json: str | None = None  # Phase 1: exported PlanNotebook snapshot
     created_at: datetime = Field(default_factory=utc_now)

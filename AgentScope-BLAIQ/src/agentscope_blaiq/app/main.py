@@ -2,21 +2,32 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
+import hashlib
+import json
 import logging
+from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
+import bcrypt
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentscope_blaiq.contracts.workflow import ResumeWorkflowRequest, SubmitWorkflowRequest, WorkflowStatus
+from agentscope_blaiq.contracts.custom_agents import CustomAgentSpec, validate_custom_agent_spec
+from agentscope_blaiq.contracts.user_agent_registry import UserAgentRegistry
 from agentscope_blaiq.persistence.database import get_db
 from agentscope_blaiq.persistence.migrations import bootstrap_database
-from agentscope_blaiq.persistence.repositories import ArtifactRepository, UploadRepository, WorkflowRepository
+from agentscope_blaiq.persistence.repositories import ArtifactRepository, UploadRepository, WorkflowRepository, UserRepository
+from agentscope_blaiq.app.bootstrap_service import BootstrapService
+from agentscope_blaiq.app.policy_service import PolicyService
+from agentscope_blaiq.app.admin_routes import router as admin_router
 from agentscope_blaiq.runtime.config import settings
 from agentscope_blaiq.runtime.hivemind_mcp import HivemindMCPError
 from agentscope_blaiq.runtime.registry import AgentRegistry
@@ -24,6 +35,12 @@ from agentscope_blaiq.tools.docs import validate_uploaded_document
 from agentscope_blaiq.streaming.sse import encode_sse
 from agentscope_blaiq.workflows.engine import WorkflowEngine
 from agentscope_blaiq.runtime.hivemind_client import _stored_credentials as hivemind_stored_creds
+from agentscope_blaiq.contracts.tool_telemetry import (
+    _EXECUTED_TOOL_EVENT_TYPES,
+    build_tool_drift,
+    normalize_executed_tool_event,
+    normalize_plan_nodes,
+)
 from .model_resolver import current_litellm_config
 from .runtime_checks import check_runtime_ready, check_storage_paths
 
@@ -32,12 +49,14 @@ from .runtime_checks import check_runtime_ready, check_storage_paths
 async def lifespan(app: FastAPI):
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     settings.artifact_dir.mkdir(parents=True, exist_ok=True)
+    settings.agent_profile_dir.mkdir(parents=True, exist_ok=True)
     settings.log_dir.mkdir(parents=True, exist_ok=True)
     await bootstrap_database()
     yield
 
 
 app = FastAPI(title="AgentScope-BLAIQ", version="0.1.0", lifespan=lifespan)
+app.include_router(admin_router)
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -63,11 +82,20 @@ app.add_middleware(
 registry = AgentRegistry()
 engine_runner = WorkflowEngine(registry)
 
+
+def _get_user_agent_registry() -> UserAgentRegistry:
+    return registry.user_agent_registry
+
 # In-memory OAuth token store (use Redis/encrypted DB in production)
 _hivemind_oauth_tokens: dict[str, str] = {}
 
 # In-memory HiveMind enterprise credentials store
 _hivemind_credentials: dict[str, str] = {}
+
+# In-memory compatibility stores for optional frontend persistence helpers.
+_frontend_tenants: dict[str, dict[str, str]] = {}
+_frontend_chat_sessions: dict[str, dict[str, str]] = {}
+_frontend_browser_cache: dict[tuple[str, str], dict[str, object]] = {}
 
 
 class HivemindCredentialsRequest(BaseModel):
@@ -83,6 +111,17 @@ class HivemindTestRequest(BaseModel):
     mode: str = "insight"
 
 
+class TenantUpsertRequest(BaseModel):
+    tenant_id: str = Field(min_length=1)
+    display_name: str | None = None
+
+
+class BrowserCacheRequest(BaseModel):
+    cache: dict[str, object] = Field(default_factory=dict)
+
+
+
+
 def _parse_hivemind_user_id(rpc_url: str | None) -> str | None:
     if not rpc_url:
         return None
@@ -96,6 +135,265 @@ def _parse_hivemind_user_id(rpc_url: str | None) -> str | None:
     except Exception:
         return None
     return None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/v1/auth/login")
+async def login(req: LoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    from agentscope_blaiq.persistence.models import UserRecord, SessionRecord
+
+    # 1. Look up UserRecord by email
+    result = await db.execute(select(UserRecord).where(UserRecord.email == req.email))
+    user = result.scalar_one_or_none()
+
+    if not user or not user.hashed_password:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # 2. Verify password
+    if not bcrypt.checkpw(req.password.encode(), user.hashed_password.encode()):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # 3. Create SessionRecord
+    token = uuid4().hex
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    session_rec = SessionRecord(
+        user_id=user.id,
+        token=token,
+        expires_at=expires_at
+    )
+    db.add(session_rec)
+    await db.commit()
+
+    # 4. Set cookie
+    response.set_cookie(
+        "hm_session", 
+        token, 
+        httponly=True, 
+        samesite="lax", 
+        max_age=86400, # 24 hours
+        secure=False
+    )
+
+    return {"ok": True, "user_id": user.id}
+
+
+@app.get("/api/v1/runs")
+async def list_runs(
+    workspace_id: str | None = None,
+    status: str | None = None,
+    user_id: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db)
+):
+    from agentscope_blaiq.persistence.models import WorkflowRecord
+    stmt = select(WorkflowRecord)
+    if workspace_id:
+        stmt = stmt.where(WorkflowRecord.workspace_id == workspace_id)
+    if status:
+        stmt = stmt.where(WorkflowRecord.status == status)
+    if user_id:
+        stmt = stmt.where(WorkflowRecord.user_id == user_id)
+    
+    stmt = stmt.order_by(WorkflowRecord.created_at.desc()).limit(limit).offset(offset)
+    result = await db.execute(stmt)
+    runs = result.scalars().all()
+    
+    return [
+        {
+            "thread_id": r.thread_id,
+            "status": r.status,
+            "user_query": r.user_query,
+            "workflow_mode": r.workflow_mode,
+            "created_at": r.created_at.isoformat(),
+            "updated_at": r.updated_at.isoformat()
+        } for r in runs
+    ]
+
+
+@app.get("/api/v1/runs/{thread_id}/replay")
+async def get_run_replay(thread_id: str, db: AsyncSession = Depends(get_db)):
+    from agentscope_blaiq.persistence.models import (
+        WorkflowRecord, WorkflowEventRecord, AgentRunRecord, ArtifactRecord
+    )
+    
+    # 1. Load WorkflowRecord
+    workflow = await db.get(WorkflowRecord, thread_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+        
+    # 2. Load Events
+    events_res = await db.execute(
+        select(WorkflowEventRecord)
+        .where(WorkflowEventRecord.thread_id == thread_id)
+        .order_by(WorkflowEventRecord.sequence.asc())
+    )
+    events = events_res.scalars().all()
+    
+    # 3. Load Agent Runs
+    runs_res = await db.execute(
+        select(AgentRunRecord).where(AgentRunRecord.thread_id == thread_id)
+    )
+    agent_runs = runs_res.scalars().all()
+    
+    # 4. Load Artifact
+    artifact_res = await db.execute(
+        select(ArtifactRecord).where(ArtifactRecord.thread_id == thread_id).limit(1)
+    )
+    artifact = artifact_res.scalar_one_or_none()
+    
+    return {
+        "workflow": {
+            "thread_id": workflow.thread_id,
+            "status": workflow.status,
+            "workflow_mode": workflow.workflow_mode,
+            "user_query": workflow.user_query,
+            "created_at": workflow.created_at.isoformat()
+        },
+        "events": [
+            {
+                "sequence": e.sequence,
+                "event_type": e.event_type,
+                "agent_name": e.agent_name,
+                "payload": json.loads(e.payload_json),
+                "created_at": e.created_at.isoformat()
+            } for e in events
+        ],
+        "agent_runs": [
+            {
+                "run_id": r.run_id,
+                "agent_name": r.agent_name,
+                "agent_type": r.agent_type,
+                "status": r.status,
+                "started_at": r.started_at.isoformat(),
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "input": json.loads(r.input_json),
+                "output": json.loads(r.output_json) if r.output_json else None
+            } for r in agent_runs
+        ],
+        "artifact": {
+            "artifact_id": artifact.artifact_id,
+            "title": artifact.title,
+            "artifact_type": artifact.artifact_type
+        } if artifact else None
+    }
+
+
+@app.get("/api/v1/runs/{thread_id}/tool-calls")
+async def get_run_tool_calls(thread_id: str, db: AsyncSession = Depends(get_db)):
+    from agentscope_blaiq.persistence.models import WorkflowEventRecord
+    
+    stmt = select(WorkflowEventRecord).where(
+        WorkflowEventRecord.thread_id == thread_id,
+        WorkflowEventRecord.event_type.in_(sorted(_EXECUTED_TOOL_EVENT_TYPES))
+    ).order_by(WorkflowEventRecord.sequence.asc())
+    
+    result = await db.execute(stmt)
+    events = [event for event in result.scalars().all() if event.event_type in _EXECUTED_TOOL_EVENT_TYPES]
+    tool_events = [normalize_executed_tool_event(e) for e in events]
+    return {
+        "thread_id": thread_id,
+        "run_id": tool_events[-1]["run_id"] if tool_events else None,
+        "source": "executed_only",
+        "count": len(tool_events),
+        "events": tool_events,
+    }
+
+
+@app.get("/api/v1/runs/{thread_id}/tool-plan")
+async def get_run_tool_plan(thread_id: str, db: AsyncSession = Depends(get_db)):
+    from agentscope_blaiq.persistence.models import WorkflowRecord, WorkflowEventRecord
+
+    workflow = await db.get(WorkflowRecord, thread_id)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    plan: dict[str, Any] = {}
+    if workflow.workflow_plan_json:
+        try:
+            parsed_plan = json.loads(workflow.workflow_plan_json)
+            if isinstance(parsed_plan, dict):
+                plan = parsed_plan
+        except Exception:
+            plan = {}
+
+    plan_nodes = normalize_plan_nodes(plan)
+    executed_res = await db.execute(
+        select(WorkflowEventRecord)
+        .where(
+            WorkflowEventRecord.thread_id == thread_id,
+            WorkflowEventRecord.event_type.in_(sorted(_EXECUTED_TOOL_EVENT_TYPES)),
+        )
+        .order_by(WorkflowEventRecord.sequence.asc())
+    )
+    executed_events = [
+        normalize_executed_tool_event(event)
+        for event in executed_res.scalars().all()
+        if event.event_type in _EXECUTED_TOOL_EVENT_TYPES
+    ]
+    drift = build_tool_drift(plan_nodes, executed_events)
+    summary = {
+        "planned_node_count": len(plan_nodes),
+        "planned_tool_count": drift["summary"]["planned_tool_count"],
+        "executed_tool_count": drift["summary"]["executed_tool_count"],
+        "matched_tool_count": drift["summary"]["matched_count"],
+        "plan_incomplete": drift["summary"]["plan_incomplete"],
+    }
+    return {
+        "thread_id": thread_id,
+        "run_id": workflow.run_id,
+        "workflow_id": plan.get("workflow_template_id"),
+        "workflow_mode": plan.get("workflow_mode"),
+        "artifact_family": plan.get("artifact_family"),
+        "source": "workflow_plan",
+        "summary": summary,
+        "nodes": plan_nodes,
+        "drift": drift,
+    }
+
+
+@app.post("/api/v1/auth/logout")
+async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    from agentscope_blaiq.persistence.models import SessionRecord
+    
+    token = request.cookies.get("hm_session")
+    if token:
+        from sqlalchemy import delete
+        await db.execute(delete(SessionRecord).where(SessionRecord.token == token))
+        await db.commit()
+    
+    response.delete_cookie("hm_session")
+    return {"ok": True}
+
+
+@app.post("/api/v1/auth/refresh")
+async def refresh_session(request: Request, db: AsyncSession = Depends(get_db)):
+    from agentscope_blaiq.persistence.models import SessionRecord
+    
+    token = request.cookies.get("hm_session")
+    if not token:
+        raise HTTPException(status_code=401, detail="No session found")
+        
+    result = await db.execute(
+        select(SessionRecord).where(
+            SessionRecord.token == token,
+            SessionRecord.expires_at > datetime.now(timezone.utc)
+        )
+    )
+    session_rec = result.scalar_one_or_none()
+    
+    if not session_rec:
+        raise HTTPException(status_code=401, detail="Session expired or invalid")
+        
+    # Extend session
+    session_rec.expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    await db.commit()
+    
+    return {"ok": True}
 
 
 @app.get("/")
@@ -116,6 +414,99 @@ async def readyz() -> JSONResponse:
     if not report.ok:
         return JSONResponse(status_code=503, content=payload)
     return JSONResponse(status_code=200, content=payload)
+
+
+@app.get("/api/v1/bootstrap")
+async def bootstrap(request: Request, db: AsyncSession = Depends(get_db)):
+    """Returns bootstrap data for the current user."""
+    from agentscope_blaiq.persistence.models import ApiKeyRecord, SessionRecord, UserRecord
+
+    user_id: str | None = None
+
+    # Method 1: Session cookie
+    session_token = request.cookies.get("hm_session") or request.cookies.get("hm_user_id")
+    if session_token:
+        result = await db.execute(
+            select(SessionRecord).where(
+                SessionRecord.token == session_token,
+                SessionRecord.expires_at > datetime.now(timezone.utc),
+            )
+        )
+        session_rec = result.scalar_one_or_none()
+        if session_rec:
+            user_id = session_rec.user_id
+
+    # Method 2: Bearer token (API key)
+    if not user_id:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            key_hash = hashlib.sha256(token.encode()).hexdigest()
+            result = await db.execute(
+                select(ApiKeyRecord).where(ApiKeyRecord.key_hash == key_hash)
+            )
+            api_key_rec = result.scalar_one_or_none()
+            if api_key_rec:
+                user_id = api_key_rec.user_id
+
+    # Method 3: Dev fallback — first admin user (only in development)
+    if not user_id and settings.app_env == "development":
+        result = await db.execute(
+            select(UserRecord).where(UserRecord.is_superuser == True).limit(1)
+        )
+        dev_user = result.scalar_one_or_none()
+        if dev_user:
+            user_id = dev_user.id
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Session expired or invalid")
+
+    service = BootstrapService(db)
+    data = await service.get_bootstrap_data(user_id)
+    if "error" in data:
+        raise HTTPException(status_code=404, detail=data["error"])
+    return data
+
+
+@app.get("/api/v1/policies")
+async def get_policies(workspace_id: str | None = None, db: AsyncSession = Depends(get_db)):
+    """Returns active policies for the specified workspace."""
+    service = PolicyService(db)
+    data = await service.get_active_policies(workspace_id)
+    return data
+
+
+@app.put("/api/v1/tenants")
+async def upsert_tenant(payload: TenantUpsertRequest):
+    tenant_id = payload.tenant_id.strip()
+    display_name = (payload.display_name or tenant_id).strip() or tenant_id
+    record = {"tenant_id": tenant_id, "display_name": display_name}
+    _frontend_tenants[tenant_id] = record
+    return {"ok": True, "tenant": record}
+
+
+@app.put("/api/v1/chat-sessions")
+async def upsert_chat_session(payload: dict):
+    session_id = str(payload.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    tenant_id = str(payload.get("tenant_id") or "default").strip() or "default"
+    title = str(payload.get("title") or f"Chat {session_id[:8]}").strip() or f"Chat {session_id[:8]}"
+    record = {"tenant_id": tenant_id, "session_id": session_id, "title": title}
+    _frontend_chat_sessions[session_id] = record
+    return {"ok": True, "session": record}
+
+
+@app.put("/api/v1/browser-cache/{tenant_id}/{session_id}")
+async def save_browser_cache(tenant_id: str, session_id: str, payload: BrowserCacheRequest):
+    _frontend_browser_cache[(tenant_id, session_id)] = payload.cache
+    return {"ok": True, "tenant_id": tenant_id, "session_id": session_id}
+
+
+@app.get("/api/v1/browser-cache/{tenant_id}/{session_id}")
+async def get_browser_cache(tenant_id: str, session_id: str):
+    cache = _frontend_browser_cache.get((tenant_id, session_id))
+    return {"ok": True, "tenant_id": tenant_id, "session_id": session_id, "cache": cache}
 
 
 @app.get("/api/v1/runtime/checks")
@@ -163,6 +554,14 @@ async def resume_workflow(request: ResumeWorkflowRequest, session: AsyncSession 
     if snapshot.status not in {WorkflowStatus.blocked, WorkflowStatus.error}:
         raise HTTPException(status_code=409, detail="Workflow can only be resumed from blocked or error status")
 
+    # Phase 4: validate typed answer_set before opening the SSE stream so the
+    # client gets a clean HTTP 422 rather than an error buried in SSE events.
+    if request.answer_set is not None:
+        redis_state = await engine_runner.state_store.get_workflow_state(request.thread_id)
+        validation_errors = engine_runner._validate_answer_set(request, redis_state)
+        if validation_errors:
+            raise HTTPException(status_code=422, detail={"errors": validation_errors})
+
     async def event_stream():
         async for payload in encode_sse(engine_runner.resume(session, request)):
             yield payload
@@ -200,6 +599,7 @@ async def cancel_workflow(thread_id: str, session: AsyncSession = Depends(get_db
     # Mark as cancelled
     snapshot = await repo.get_status(thread_id)
     if snapshot and snapshot.status not in {WorkflowStatus.complete, WorkflowStatus.error}:
+        await repo.state_store.mark_error(thread_id, "Workflow cancelled by user")
         await repo.update_status(thread_id, WorkflowStatus.error, error_message="Workflow cancelled by user")
 
     return {"ok": True, "thread_id": thread_id, "status": "cancelled"}
@@ -208,6 +608,193 @@ async def cancel_workflow(thread_id: str, session: AsyncSession = Depends(get_db
 @app.get("/api/v1/agents/live")
 async def live_agents():
     return {"agents": registry.list_live()}
+
+
+@app.get("/api/v1/agent-profiles")
+async def agent_profiles(
+    role: str | None = Query(default=None),
+    capability: str | None = Query(default=None),
+    skill: str | None = Query(default=None),
+    tool: str | None = Query(default=None),
+    transport: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    artifact_family: str | None = Query(default=None),
+):
+    return registry.profile_catalog_response(
+        role=role,
+        capability=capability,
+        skill=skill,
+        tool=tool,
+        transport=transport,
+        status=status,
+        artifact_family=artifact_family,
+    )
+
+
+@app.get("/api/v1/agent-profiles/{profile_id}")
+async def agent_profile(profile_id: str):
+    profile = registry.get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Agent profile not found")
+    return {
+        "profile": profile.model_dump(mode="json"),
+        "routing_index": profile.routing_index(),
+    }
+
+
+@app.post("/api/v1/agents/custom/register")
+async def register_custom_agent(spec: CustomAgentSpec):
+    """Register a custom agent spec. Validates against harness contracts before persisting."""
+    reg = _get_user_agent_registry()
+    registration = reg.register(spec)
+    if not registration.harness_valid:
+        raise HTTPException(
+            status_code=422,
+            detail={"agent_id": registration.agent_id, "errors": registration.validation_errors},
+        )
+    return {
+        "ok": True,
+        "agent_id": registration.agent_id,
+        "display_name": registration.display_name,
+        "registered_at": registration.registered_at.isoformat(),
+        "warnings": registration.warnings,
+    }
+
+
+@app.get("/api/v1/agents/custom/list")
+async def list_custom_agents():
+    """List all registered custom agents."""
+    reg = _get_user_agent_registry()
+    agents = reg.list_all()
+    return {
+        "count": len(agents),
+        "agents": [
+            {
+                "agent_id": s.agent_id,
+                "display_name": s.display_name,
+                "role": s.role,
+                "model_hint": s.model_hint,
+                "tags": s.tags,
+                "allowed_workflows": s.allowed_workflows,
+            }
+            for s in agents
+        ],
+    }
+
+
+class AgentDraftRequest(BaseModel):
+    description: str = Field(min_length=5, description="Natural language description of what the agent should do")
+
+
+class RemoteAgentCardRequest(BaseModel):
+    card: dict[str, Any]
+    source_ref: str | None = None
+
+
+@app.post("/api/v1/agent-profiles/remote-a2a")
+async def register_remote_agent_profile(req: RemoteAgentCardRequest):
+    try:
+        profile = registry.register_remote_agent_card(req.card, source_ref=req.source_ref)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "profile": profile.model_dump(mode="json"),
+        "routing_index": profile.routing_index(),
+    }
+
+
+@app.post("/api/v1/agents/custom/draft")
+async def draft_custom_agent(req: AgentDraftRequest):
+    """Use LLM to extract a custom agent spec from a natural language description.
+
+    Returns a pre-filled spec that can be reviewed and submitted to /register.
+    """
+    snapshot = registry.harness_registry.get_harness_snapshot()
+    available_roles = list(snapshot.get("agents", {}).keys())
+    available_tools = list(snapshot.get("tools", {}).keys())
+    available_workflows = list(snapshot.get("workflows", {}).keys())
+
+    prompt = (
+        f"User wants to create a custom AI agent. Their description:\n"
+        f"\"{req.description}\"\n\n"
+        f"Extract a structured agent specification from this description.\n\n"
+        f"Role selection guide:\n"
+        f"- text_buddy: writing text content (emails, social posts, LinkedIn posts, memos, letters, proposals, summaries)\n"
+        f"- content_director: planning content structure and sections (NOT writing final text)\n"
+        f"- vangogh: rendering visual artifacts (posters, pitch decks, HTML)\n"
+        f"- research: gathering evidence and information\n"
+        f"- governance: reviewing and approving content\n"
+        f"- strategist: planning workflows and routing\n\n"
+        f"Available base roles: {available_roles}\n"
+        f"Available tools: {available_tools}\n"
+        f"Available workflows: {available_workflows}\n\n"
+        f"Return ONLY valid JSON with these fields:\n"
+        f'{{\n'
+        f'  "agent_id": "snake_case_id (e.g. linkedin_writer)",\n'
+        f'  "display_name": "Human Readable Name",\n'
+        f'  "role": "closest matching role from the available roles list",\n'
+        f'  "prompt": "detailed system prompt for this agent (min 20 chars)",\n'
+        f'  "model_hint": "sonnet",\n'
+        f'  "allowed_tools": ["pick relevant tools from available list"],\n'
+        f'  "allowed_workflows": ["pick relevant workflows from available list"],\n'
+        f'  "tags": ["relevant", "tags"],\n'
+        f'  "artifact_family": "email|summary|social_post|memo|proposal|letter|invoice|null",\n'
+        f'  "missing_info": ["list any info you need from the user to complete the spec"]\n'
+        f'}}'
+    )
+
+    try:
+        response = await registry.resolver.acompletion(
+            "routing",
+            [
+                {"role": "system", "content": "You are an agent specification extractor. Return only valid JSON. No explanation."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=500,
+            temperature=0.1,
+        )
+        raw = registry.resolver.extract_text(response)
+        parsed = registry.resolver.safe_json_loads(raw)
+
+        # Ensure role is valid
+        if parsed.get("role") not in available_roles:
+            parsed["role"] = "text_buddy"
+
+        # Filter tools/workflows to only valid ones
+        parsed["allowed_tools"] = [t for t in (parsed.get("allowed_tools") or []) if t in available_tools]
+        parsed["allowed_workflows"] = [w for w in (parsed.get("allowed_workflows") or []) if w in available_workflows]
+
+        # Fill defaults
+        if not parsed.get("allowed_workflows"):
+            parsed["allowed_workflows"] = ["text_artifact_v1", "direct_answer_v1"]
+        if not parsed.get("allowed_tools"):
+            role_harness = snapshot.get("agents", {}).get(parsed["role"], {})
+            parsed["allowed_tools"] = list(role_harness.get("allowed_tools", []))
+
+        # Add schemas from base role
+        role_harness = snapshot.get("agents", {}).get(parsed["role"], {})
+        parsed["input_schema"] = role_harness.get("input_schema", {"type": "object", "properties": {}})
+        parsed["output_schema"] = role_harness.get("output_schema", {"type": "object", "properties": {}})
+
+        missing = parsed.pop("missing_info", [])
+        return {"ok": True, "spec": parsed, "missing_info": missing}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "spec": None, "missing_info": []}
+
+
+@app.post("/api/v1/contracts/validate")
+async def validate_agent_spec(spec: CustomAgentSpec):
+    """Dry-run validation of a custom agent spec without persisting."""
+    hr = registry.harness_registry
+    ok, errors = validate_custom_agent_spec(spec, hr)
+    return {"ok": ok, "agent_id": spec.agent_id, "errors": errors}
+
+
+@app.get("/api/v1/contracts/snapshot")
+async def contracts_snapshot():
+    """Return full harness snapshot: agents, tools, and workflow templates."""
+    return registry.harness_registry.get_harness_snapshot()
 
 
 @app.get("/api/v1/hivemind/config")
@@ -429,6 +1016,7 @@ async def hivemind_org_info():
 
 
 @app.post("/api/v1/hivemind/credentials/set")
+@app.put("/api/v1/hivemind/credentials/set")
 async def hivemind_set_credentials(request: HivemindCredentialsRequest):
     """Set HiveMind enterprise credentials for this session."""
     _hivemind_credentials["api_key"] = request.api_key

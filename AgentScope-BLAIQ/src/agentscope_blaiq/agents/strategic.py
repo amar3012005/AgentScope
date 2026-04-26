@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 from agentscope.tool import Toolkit
 from pydantic import BaseModel, Field
@@ -47,6 +48,73 @@ class StrategicDraft(BaseModel):
     fallback_path: str | None = None
     missing_requirements: list[str] = Field(default_factory=list)
 
+    @classmethod
+    def validate_routing(
+        cls,
+        draft: StrategicDraft,
+        user_registry: Any,
+    ) -> tuple[bool, list[str]]:
+        """
+        Validate that all ``node_assignments`` in *draft* are routable.
+
+        Checks both built-in and custom agents:
+
+        * **Custom agents** (those present in *user_registry*) are validated
+          via :meth:`~agentscope_blaiq.contracts.user_agent_registry.UserAgentRegistry.validate_draft_routing`.
+        * **Built-in agents** are checked for existence in the harness
+          registry exposed by ``user_registry._harness_registry``.
+
+        This is a lightweight static-style method that other code can call to
+        validate a draft before execution begins.
+
+        Args:
+            draft:         The :class:`StrategicDraft` whose assignments
+                           should be validated.
+            user_registry: A
+                :class:`~agentscope_blaiq.contracts.user_agent_registry.UserAgentRegistry`
+                instance (typed as ``Any`` to avoid circular imports).
+
+        Returns:
+            A ``(ok, errors)`` tuple.  ``ok`` is ``True`` only when every
+            assigned agent passes validation.
+        """
+        errors: list[str] = []
+
+        if not draft.node_assignments:
+            return True, []
+
+        workflow_id = draft.workflow_template_id or ""
+
+        # Separate custom vs built-in agent assignments.
+        custom_assignments: dict[str, str] = {}
+        builtin_assignments: dict[str, str] = {}
+
+        custom_ids: set[str] = set(user_registry.list_ids())
+        for node_id, agent_id in draft.node_assignments.items():
+            if agent_id in custom_ids:
+                custom_assignments[node_id] = agent_id
+            else:
+                builtin_assignments[node_id] = agent_id
+
+        # Validate custom agents via the user registry.
+        if custom_assignments:
+            custom_ok, custom_errors = user_registry.validate_draft_routing(
+                custom_assignments, workflow_id
+            )
+            if not custom_ok:
+                errors.extend(custom_errors)
+
+        # Validate built-in agents exist in the harness registry.
+        harness_registry = user_registry._harness_registry  # noqa: SLF001
+        for node_id, agent_id in builtin_assignments.items():
+            if harness_registry.get_agent(agent_id) is None:
+                errors.append(
+                    f"[node={node_id}] Built-in agent '{agent_id}' not found "
+                    "in the harness registry."
+                )
+
+        return len(errors) == 0, errors
+
 
 class DirectQueryIntent(BaseModel):
     route: str = Field(description="Either 'direct_answer' or 'artifact'")
@@ -56,12 +124,12 @@ class DirectQueryIntent(BaseModel):
 
 ARTIFACT_BLUEPRINTS: dict[ArtifactFamily, dict[str, object]] = {
     ArtifactFamily.pitch_deck: {
-        "required_sections": ["Hero", "Problem", "Solution", "Proof", "CTA"],
+        "required_sections": ["Hero", "Problem", "Solution", "Proof", "Differentiation", "CTA"],
         "blocking_fields": ["target_audience"],
         "evidence_informed_fields": ["must_have_sections"],
         "template": "pitch-deck-executive",
         "tone": "executive",
-        "content_distribution": ["hero", "problem", "solution", "proof", "cta"],
+        "content_distribution": ["hero", "problem", "solution", "proof", "differentiation", "cta"],
     },
     ArtifactFamily.keynote: {
         "required_sections": ["Opening", "Narrative", "Proof", "Closing"],
@@ -220,12 +288,15 @@ class StrategicAgent(BaseAgent):
             name="StrategicAgent",
             role="strategic",
             sys_prompt=(
-                "You are the BLAIQ strategist. Inspect the live agent catalog before choosing a workflow topology and task graph. "
-                "Be strategy-driven, not template-driven: decide the execution order from the request, the available agents, and the dependencies between outputs. "
-                "Default policy: research should happen before clarification when research can sharpen the questions. "
-                "Only ask humans early if a true blocker prevents meaningful research. "
-                "Prefer sequential for linear low-entropy tasks, parallel when multiple independent specialists are available, "
-                "and hybrid when research can fan out first before content direction, rendering, and governance converge."
+                "You are the Lead Strategist at BLAIQ. Your core responsibility is to route user requests "
+                "to the correct workflow and enforce strict role boundaries.\n\n"
+                "ROUTING RULES:\n"
+                "1. Choose a workflow template (visual_artifact_v1, text_artifact_v1, research_v1).\n"
+                "2. Choose execution_mode: 'staged' (high-quality visual/long-form) or 'single_go' (simple tasks).\n"
+                "3. STAGED is mandatory for Pitch Decks, Posters, Landing Pages, and Reports.\n"
+                "4. Assign nodes and define tool requirements for each stage.\n\n"
+                "Your goal is to build the optimal DAG (Directed Acyclic Graph) for the desired artifact family.\n"
+                "Inspect the live agent catalog before choosing a workflow topology and task graph."
             ),
             **kwargs,
         )
@@ -233,46 +304,14 @@ class StrategicAgent(BaseAgent):
 
     def build_toolkit(self) -> Toolkit:
         toolkit = Toolkit()
-        toolkit.register_tool_function(
-            self._tool_classify_artifact_family,
-            func_name="classify_artifact_family",
-            func_description="Classify the request into an artifact family.",
-        )
-        toolkit.register_tool_function(
-            self._tool_derive_artifact_requirements,
-            func_name="derive_artifact_requirements",
-            func_description="Derive the family-specific requirement checklist.",
-        )
-        toolkit.register_tool_function(
-            self._tool_compute_missing_requirements,
-            func_name="compute_missing_requirements",
-            func_description="Compute the missing required items for the current request.",
-        )
-        toolkit.register_tool_function(
-            self._tool_compose_task_graph,
-            func_name="compose_task_graph",
-            func_description="Compose a task graph from the live catalog and requirement checklist.",
-        )
-        toolkit.register_tool_function(
-            self._tool_match_agents_for_task_role,
-            func_name="match_agents_for_task_role",
-            func_description="Match live agents to a planner task role.",
-        )
-        toolkit.register_tool_function(
-            self._tool_list_live_agents,
-            func_name="list_live_agents",
-            func_description="Return the live agent catalog with status, capabilities, skills, tools, and model metadata.",
-        )
-        toolkit.register_tool_function(
-            self._tool_match_agent_capabilities,
-            func_name="match_agent_capabilities",
-            func_description="Match required task capabilities to live agents in the catalog.",
-        )
-        toolkit.register_tool_function(
-            self._tool_compose_execution_strategy,
-            func_name="compose_execution_strategy",
-            func_description="Compose the topology, task assignments, and fan-in strategy from the live catalog.",
-        )
+        self.register_tool(toolkit, tool_id="classify_artifact_family", fn=self._tool_classify_artifact_family, description="Classify the request into an artifact family.")
+        self.register_tool(toolkit, tool_id="derive_artifact_requirements", fn=self._tool_derive_artifact_requirements, description="Derive the family-specific requirement checklist.")
+        self.register_tool(toolkit, tool_id="compute_missing_requirements", fn=self._tool_compute_missing_requirements, description="Compute the missing required items for the current request.")
+        self.register_tool(toolkit, tool_id="compose_task_graph", fn=self._tool_compose_task_graph, description="Compose a task graph from the live catalog and requirement checklist.")
+        self.register_tool(toolkit, tool_id="match_agents_for_task_role", fn=self._tool_match_agents_for_task_role, description="Match live agents to a planner task role.")
+        self.register_tool(toolkit, tool_id="list_live_agents", fn=self._tool_list_live_agents, description="Return the live agent catalog with status, capabilities, skills, tools, and model metadata.")
+        self.register_tool(toolkit, tool_id="match_agent_capabilities", fn=self._tool_match_agent_capabilities, description="Match required task capabilities to live agents in the catalog.")
+        self.register_tool(toolkit, tool_id="compose_execution_strategy", fn=self._tool_compose_execution_strategy, description="Compose the topology, task assignments, and fan-in strategy from the live catalog.")
         return toolkit
 
     def _tool_classify_artifact_family(self, request_payload: dict | None = None):
@@ -300,7 +339,7 @@ class StrategicAgent(BaseAgent):
         return self.tool_response(matches)
 
     def _tool_list_live_agents(self):
-        return self.tool_response([agent.model_dump() for agent in self.catalog_provider()])
+        return self.tool_response([agent.model_dump(mode="json") for agent in self.catalog_provider()])
 
     def _tool_match_agent_capabilities(self, required_capabilities: list[str] | None = None):
         required = {cap.lower() for cap in (required_capabilities or []) if cap}
@@ -315,8 +354,10 @@ class StrategicAgent(BaseAgent):
                     "agent_name": agent.name,
                     "role": agent.role,
                     "status": agent.status.value,
+                    "transport": agent.transport.value,
+                    "runtime_kind": agent.runtime_kind.value,
                     "matched_capabilities": overlap,
-                    "skills": [skill.model_dump() for skill in agent.skills],
+                    "skills": [skill.model_dump(mode="json") for skill in agent.skills],
                     "tools": agent.tools,
                     "model": agent.model,
                     "current_load": agent.current_load,
@@ -332,7 +373,7 @@ class StrategicAgent(BaseAgent):
         return self.tool_response(
             {
                 "request_payload": request_payload or {},
-                "agent_catalog": agent_catalog or [agent.model_dump() for agent in self.catalog_provider()],
+                "agent_catalog": agent_catalog or [agent.model_dump(mode="json") for agent in self.catalog_provider()],
                 "rules": {
                     "sequential": "Use when the workflow is linear or when a required specialist is unavailable.",
                     "parallel": "Use when two or more branches can run independently against distinct live agents.",
@@ -424,19 +465,27 @@ class StrategicAgent(BaseAgent):
             return True
         return False
 
-    async def is_direct_knowledge_query_llm(self, request: SubmitWorkflowRequest) -> bool:
-        """Fast LLM route classifier — uses acompletion() directly, not ReActAgent."""
+    async def classify_route_llm(self, request: SubmitWorkflowRequest) -> str:
+        """Fast LLM three-way route classifier.
+
+        Returns one of: ``"conversational"``, ``"direct_answer"``, ``"artifact"``.
+        Falls back to heuristic on LLM failure.
+        """
         prompt = (
             f"User request: \"{request.user_query}\"\n\n"
-            "Is this a DIRECT KNOWLEDGE question or an ARTIFACT creation request?\n\n"
-            "- direct_answer: asking for facts, details, specs, explanation, summary, what we know\n"
-            "  Examples: \"what is X\", \"tell me about Y\", \"explain Z\", \"give me info on\"\n"
-            "- artifact: explicitly asks to PRODUCE a deliverable of any kind\n"
+            "Classify this request into ONE of three categories:\n\n"
+            "- conversational: greetings, chitchat, thanks, meta-questions about the system, "
+            "or anything that does NOT need research or evidence lookup.\n"
+            "  Examples: \"hello\", \"thanks\", \"what can you do?\", \"hi there\", \"good morning\", "
+            "\"who are you?\", \"how are you?\"\n\n"
+            "- direct_answer: asking for facts, details, specs, explanation, summary, what we know. "
+            "Requires looking up information from memory or the web.\n"
+            "  Examples: \"what is X\", \"tell me about Y\", \"explain Z\", \"give me info on\"\n\n"
+            "- artifact: explicitly asks to PRODUCE a deliverable of any kind.\n"
             "  Visual verbs: CREATE/BUILD/GENERATE/RENDER/DESIGN (pitch deck, poster, report)\n"
             "  Text verbs: WRITE/COMPOSE/DRAFT/SEND/PREPARE (email, letter, memo, proposal, social post, invoice)\n"
-            "  Examples: \"write an email to...\", \"draft a memo\", \"compose a letter\",\n"
-            "  \"prepare a proposal\", \"send invoice\", \"create a pitch deck\", \"design a poster\"\n\n"
-            "Return ONLY JSON: {\"route\": \"direct_answer\" or \"artifact\", \"confidence\": 0.0-1.0}"
+            "  Examples: \"write an email to...\", \"draft a memo\", \"create a pitch deck\"\n\n"
+            "Return ONLY JSON: {\"route\": \"conversational\" or \"direct_answer\" or \"artifact\", \"confidence\": 0.0-1.0}"
         )
         try:
             response = await self.resolver.acompletion(
@@ -452,21 +501,51 @@ class StrategicAgent(BaseAgent):
             parsed = self.resolver.safe_json_loads(raw)
             route = str(parsed.get("route", "")).strip().lower()
             confidence = float(parsed.get("confidence", 0.5))
-            if route in {"direct_answer", "artifact"}:
+            if route in {"conversational", "direct_answer", "artifact"}:
                 await self.log(
                     f"LLM routing decision: {route} (confidence {confidence:.2f}).",
                     kind="decision",
                     visibility="debug",
                     detail={"route": route, "confidence": confidence},
                 )
-                return route == "direct_answer"
+                return route
         except Exception as exc:
             await self.log(
                 f"LLM route classification failed, falling back to heuristic: {exc}",
                 kind="status",
                 visibility="debug",
             )
-        return self.is_direct_knowledge_query(request)
+        # Heuristic fallback
+        if self._is_conversational_heuristic(request.user_query):
+            return "conversational"
+        if self.is_direct_knowledge_query(request):
+            return "direct_answer"
+        return "artifact"
+
+    async def is_direct_knowledge_query_llm(self, request: SubmitWorkflowRequest) -> bool:
+        """Backward-compatible wrapper. Returns True for direct_answer route."""
+        route = await self.classify_route_llm(request)
+        return route == "direct_answer"
+
+    @staticmethod
+    def _is_conversational_heuristic(query: str) -> bool:
+        """Fast heuristic for greetings/chitchat — no LLM needed."""
+        q = query.strip().lower().rstrip("!?.,")
+        # Short greetings
+        if len(q.split()) <= 3 and any(g in q for g in (
+            "hello", "hi", "hey", "hola", "hallo", "good morning", "good evening",
+            "good afternoon", "thanks", "thank you", "bye", "goodbye", "cheers",
+            "what can you do", "who are you", "how are you", "whats up", "what's up",
+            "guten tag", "moin", "servus", "grüß gott",
+        )):
+            return True
+        # Very short messages (1-2 words) that aren't questions about topics
+        if len(q.split()) <= 2 and not any(kw in q for kw in (
+            "product", "price", "spec", "detail", "info", "data", "report",
+            "revenue", "market", "analysis", "create", "make", "write", "draft",
+        )):
+            return True
+        return False
 
     @staticmethod
     def classify_artifact_family(request_payload: dict[str, object] | SubmitWorkflowRequest) -> ArtifactFamily:
@@ -520,11 +599,86 @@ class StrategicAgent(BaseAgent):
             return ArtifactFamily.memo
         if any(token in signal for token in ("proposal", "business proposal", "project proposal", "rfp response")):
             return ArtifactFamily.proposal
-        if any(token in signal for token in ("social post", "tweet", "linkedin post", "instagram post", "social media")):
+        if any(token in signal for token in ("social post", "tweet", "linkedin post", "linked in post", "linked post", "linkedin", "instagram post", "social media")):
             return ArtifactFamily.social_post
         if any(token in signal for token in ("summary", "executive summary", "brief", "executive brief", "recap")):
             return ArtifactFamily.summary
         return ArtifactFamily.custom
+
+    async def _classify_artifact_family_llm(
+        self, request: SubmitWorkflowRequest, fallback: ArtifactFamily,
+    ) -> ArtifactFamily:
+        """LLM-primary artifact family classification.
+
+        Uses a fast LLM call to classify the user's request into an artifact
+        family. The heuristic result is passed as ``fallback`` and used only
+        when the LLM call fails or returns low confidence.
+        """
+        # If the request already has an explicit hint, trust it
+        if request.artifact_family_hint is not None:
+            return (
+                request.artifact_family_hint
+                if isinstance(request.artifact_family_hint, ArtifactFamily)
+                else ArtifactFamily(str(request.artifact_family_hint))
+            )
+
+        families = [f.value for f in ArtifactFamily if f != ArtifactFamily.custom]
+        prompt = (
+            f"User request: \"{request.user_query}\"\n\n"
+            f"What type of deliverable is the user asking for?\n\n"
+            f"Options:\n"
+            f"- pitch_deck: slide presentations, pitch decks, decks\n"
+            f"- poster: posters, event posters\n"
+            f"- report: reports, analysis documents\n"
+            f"- finance_analysis: financial analysis, investment research, equity\n"
+            f"- email: emails, cold emails, follow-up emails, newsletters\n"
+            f"- invoice: invoices, billing, receipts\n"
+            f"- letter: letters, formal letters, cover letters\n"
+            f"- memo: memos, internal memos\n"
+            f"- proposal: proposals, business proposals, RFP responses\n"
+            f"- social_post: social media posts, LinkedIn posts, tweets, Instagram posts\n"
+            f"- summary: summaries, executive summaries, briefs\n"
+            f"- keynote: keynotes, stage presentations\n"
+            f"- brochure: brochures, booklets\n"
+            f"- one_pager: one-pagers, brief documents\n"
+            f"- landing_page: landing pages, web pages\n\n"
+            f"Return ONLY JSON: {{\"family\": \"<option>\", \"confidence\": 0.0-1.0}}"
+        )
+        try:
+            response = await self.resolver.acompletion(
+                "routing",
+                [
+                    {"role": "system", "content": "You are an artifact type classifier. Return only JSON. No explanation."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=60,
+                temperature=0.0,
+            )
+            raw = self.resolver.extract_text(response)
+            parsed = self.resolver.safe_json_loads(raw)
+            family_str = str(parsed.get("family", "")).strip().lower()
+            confidence = float(parsed.get("confidence", 0.0))
+            if confidence >= 0.5:
+                try:
+                    result = ArtifactFamily(family_str)
+                    await self.log(
+                        f"LLM artifact classification: {result.value} (confidence {confidence:.2f})",
+                        kind="decision", visibility="debug",
+                    )
+                    return result
+                except ValueError:
+                    pass
+            # Low confidence — log and fall through
+            await self.log(
+                f"LLM artifact classification low confidence ({confidence:.2f}), using heuristic: {fallback.value}",
+                kind="decision", visibility="debug",
+            )
+        except Exception as exc:
+            await self.log(
+                f"LLM artifact classification failed ({exc}), using heuristic: {fallback.value}",
+                kind="status", visibility="debug",
+            )
+        return fallback
 
     @staticmethod
     def derive_artifact_requirements(family: ArtifactFamily, request_payload: dict[str, object] | SubmitWorkflowRequest) -> RequirementsChecklist:
@@ -815,7 +969,10 @@ class StrategicAgent(BaseAgent):
     ) -> TaskGraph:
         """Build a task graph for text-based artifacts: research → [hitl] → text_buddy → governance."""
         web_agent, docs_agent = self._assign_research_agents(agent_catalog)
-        text_buddy_agent = self._assign_role_agent(agent_catalog, "text_composition", "text_buddy")
+        text_buddy_agent = self._assign_role_agent(
+            agent_catalog, "text_composition", "text_buddy",
+            artifact_family=family.value,
+        )
         governance_agent = self._assign_role_agent(agent_catalog, "artifact_validation", "governance")
         needs_evidence_hitl = any(
             item.must_have and item.status != "filled" and item.blocking_stage in {RequirementStage.evidence_informed, RequirementStage.before_render}
@@ -985,11 +1142,28 @@ class StrategicAgent(BaseAgent):
         return web_agent, docs_agent
 
     @staticmethod
-    def _assign_role_agent(agent_catalog: list[LiveAgentProfile], capability_name: str, default_agent: str) -> str:
-        for agent in agent_catalog:
-            if any(cap.name == capability_name for cap in agent.capabilities):
-                return agent.name
-        return default_agent
+    def _assign_role_agent(
+        agent_catalog: list[LiveAgentProfile],
+        capability_name: str,
+        default_agent: str,
+        *,
+        artifact_family: str | None = None,
+    ) -> str:
+        """Assign the best agent for a role using the scored resolver.
+
+        Delegates to contracts.resolver.resolve_agent which scores by:
+        role match -> capabilities -> tools -> artifact affinity -> custom preference.
+        """
+        from agentscope_blaiq.contracts.resolver import resolve_agent
+
+        result = resolve_agent(
+            agent_catalog,
+            required_role=default_agent,  # default_agent IS the role for built-ins
+            required_capabilities=[capability_name] if capability_name else None,
+            artifact_family=artifact_family,
+            default_agent=default_agent,
+        )
+        return result.selected
 
     def _compose_assignments(self, mode: WorkflowMode, agent_catalog: list[LiveAgentProfile]) -> list[AgentTaskAssignment]:
         web_agent, docs_agent = self._assign_research_agents(agent_catalog)
@@ -1161,6 +1335,7 @@ class StrategicAgent(BaseAgent):
         *,
         agent_catalog: list[LiveAgentProfile],
         assignments: list[AgentTaskAssignment],
+        artifact_family: ArtifactFamily | None = None,
     ) -> StrategicDraft:
         # await self.log(f"Building execution strategy for {task_count} tasks in '{mode.value}' mode.", kind="thought")
         finance_mode = request.analysis_mode == AnalysisMode.finance
@@ -1171,8 +1346,8 @@ class StrategicAgent(BaseAgent):
         assignment_names = [assignment.agent_name for assignment in assignments]
 
         text_buddy_agents = [agent.name for agent in agent_catalog if any(cap.name in {"text_composition", "brand_voice_writing"} for cap in agent.capabilities)]
-        artifact_family = self.classify_artifact_family(request)
-        is_text_family = artifact_family in TEXT_FAMILIES
+        _family = artifact_family or self.classify_artifact_family(request)
+        is_text_family = _family in TEXT_FAMILIES
 
         if finance_mode:
             summary = (
@@ -1212,6 +1387,41 @@ class StrategicAgent(BaseAgent):
         await self.log(summary, kind="status")
         return draft
 
+    @staticmethod
+    def _workflow_template_id_for(
+        artifact_family: ArtifactFamily,
+        analysis_mode: AnalysisMode,
+        *,
+        direct_answer: bool = False,
+    ) -> str:
+        if direct_answer:
+            return "direct_answer_v1"
+        if analysis_mode == AnalysisMode.finance or artifact_family == ArtifactFamily.finance_analysis:
+            return "finance_v1"
+        if artifact_family in TEXT_FAMILIES:
+            return "text_artifact_v1"
+        return "visual_artifact_v1"
+
+    @staticmethod
+    def _node_assignments(task_graph: TaskGraph) -> dict[str, str]:
+        return {
+            node.node_id: node.assigned_to
+            for node in task_graph.nodes
+            if node.executor_kind == ExecutorKind.agent and node.assigned_to
+        }
+
+    @staticmethod
+    def _required_tools_per_node(
+        task_graph: TaskGraph,
+        agent_catalog: list[LiveAgentProfile],
+    ) -> dict[str, list[str]]:
+        tools_by_agent = {agent.name: list(agent.tools) for agent in agent_catalog}
+        return {
+            node.node_id: tools_by_agent.get(node.assigned_to or "", [])
+            for node in task_graph.nodes
+            if node.executor_kind == ExecutorKind.agent and node.assigned_to
+        }
+
     async def fan_in(self, evidence_packs: list[dict]) -> dict:
         # await self.log(f"Merging {len(evidence_packs)} evidence packs into a consolidated brief.", kind="status")
         result = {
@@ -1221,9 +1431,47 @@ class StrategicAgent(BaseAgent):
         # await self.log("Evidence merge complete. Ready for artifact generation.", kind="status")
         return result
 
-    async def build_plan(self, request: SubmitWorkflowRequest, agent_catalog: list[LiveAgentProfile] | None = None) -> WorkflowPlan:
+    async def build_plan(
+        self,
+        request: SubmitWorkflowRequest,
+        agent_catalog: list[LiveAgentProfile] | None = None,
+        user_registry: Any | None = None,
+    ) -> WorkflowPlan:
         catalog = agent_catalog if agent_catalog is not None else self.catalog_provider()
-        if await self.is_direct_knowledge_query_llm(request):
+        route = await self.classify_route_llm(request)
+
+        # ── Conversational: no research, no HITL, respond directly ──
+        if route == "conversational":
+            await self.log(
+                "Detected a conversational message. Responding directly without research.",
+                kind="decision",
+            )
+            return WorkflowPlan(
+                workflow_mode=WorkflowMode.sequential,
+                summary="Conversational response — no research or artifact workflow needed.",
+                direct_answer=True,
+                conversational=True,
+                notes=["Route chosen: conversational, skipping research and HITL."],
+                artifact_family=ArtifactFamily.custom,
+                artifact_spec=ArtifactSpec(
+                    family=ArtifactFamily.custom,
+                    title=request.user_query,
+                    audience=request.target_audience,
+                    deliverable_format="text_answer",
+                    required_sections=[],
+                    tone="friendly",
+                    constraints=[],
+                    success_criteria=["Friendly conversational response"],
+                ),
+                requirements_checklist=RequirementsChecklist(items=[], coverage_score=1.0, missing_required_ids=[]),
+                task_graph=TaskGraph(nodes=[], edges=[], entry_nodes=[], terminal_nodes=[]),
+                tasks=[],
+                available_agents=[p for p in catalog],
+                workflow_template_id="direct_answer_v1",
+            )
+
+        # ── Direct answer: research + synthesize, skip artifact pipeline ──
+        if route == "direct_answer":
             await self.log(
                 "Detected a direct knowledge question. Routing straight to memory-first research and a final synthesized answer.",
                 kind="decision",
@@ -1288,7 +1536,10 @@ class StrategicAgent(BaseAgent):
                 fan_in_required=False,
                 analysis_mode=request.analysis_mode,
             )
-        artifact_family = self.classify_artifact_family(request)
+        # LLM-first classification; heuristic only if LLM fails
+        artifact_family = await self._classify_artifact_family_llm(
+            request, self.classify_artifact_family(request),
+        )
         analysis_mode = request.analysis_mode
         finance_mode = analysis_mode == AnalysisMode.finance or artifact_family == ArtifactFamily.finance_analysis
         artifact_spec = ArtifactSpec(
@@ -1368,6 +1619,7 @@ class StrategicAgent(BaseAgent):
             len(tasks),
             agent_catalog=catalog,
             assignments=assignments,
+            artifact_family=artifact_family,
         )
         draft = draft.model_copy(
             update={
@@ -1379,8 +1631,23 @@ class StrategicAgent(BaseAgent):
                 "content_director_nodes": content_director_nodes,
                 "topology_reason": topology_reason,
                 "analysis_mode": analysis_mode,
+                "workflow_template_id": self._workflow_template_id_for(
+                    artifact_family,
+                    analysis_mode,
+                ),
+                "node_assignments": self._node_assignments(task_graph),
+                "required_tools_per_node": self._required_tools_per_node(task_graph, catalog),
+                "fallback_path": "replan_from_strategist",
+                "missing_requirements": list(requirements.missing_required_ids),
             }
         )
+        if user_registry is not None:
+            routing_ok, routing_errors = StrategicDraft.validate_routing(draft, user_registry)
+            if not routing_ok:
+                raise ValueError(
+                    "Strategic draft routing validation failed: "
+                    + "; ".join(routing_errors)
+                )
         await self.log(
             f"Plan ready: {artifact_family.value} uses {mode.value} execution with {len(hitl_nodes)} HITL node(s).",
             kind="decision",
@@ -1403,5 +1670,10 @@ class StrategicAgent(BaseAgent):
             available_agents=catalog,
             agent_assignments=assignments,
             topology_reason=draft.topology_reason or topology_reason,
+            workflow_template_id=draft.workflow_template_id,
+            node_assignments=draft.node_assignments,
+            required_tools_per_node=draft.required_tools_per_node,
+            fallback_path=draft.fallback_path,
+            missing_requirements=draft.missing_requirements,
             fan_in_required=fan_in_required,
         )

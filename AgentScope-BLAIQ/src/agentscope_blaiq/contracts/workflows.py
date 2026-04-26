@@ -96,6 +96,44 @@ class GovernanceReview:
     approval_metadata: dict[str, Any] | None = None
 
 
+# Canonical handoff contract map.
+# Keep names as strings to avoid import cycles with runtime-only validation layers.
+HANDOFF_CONTRACTS_BY_WORKFLOW: dict[str, dict[tuple[str, str], str]] = {
+    "visual_artifact_v1": {
+        ("strategist", "research"): "StrategicPlan",
+        ("research", "hitl_verification"): "EvidencePack",
+        ("hitl_verification", "research_final_recall"): "HitlAnswers",
+        ("research_final_recall", "content_director"): "EvidencePack",
+        ("content_director", "vangogh"): "ArtifactBrief",
+        ("vangogh", "governance"): "VisualArtifact",
+    },
+    "text_artifact_v1": {
+        ("strategist", "research"): "StrategicPlan",
+        ("research", "hitl_verification"): "EvidencePack",
+        ("hitl_verification", "research_final_recall"): "HitlAnswers",
+        ("research_final_recall", "content_director"): "EvidencePack",
+        ("content_director", "text_buddy"): "ArtifactBrief",
+        ("text_buddy", "governance"): "TextArtifact",
+    },
+    "direct_answer_v1": {
+        ("research", "text_buddy"): "EvidencePack",
+    },
+    "research_v1": {
+        ("research", "deep_research"): "EvidencePack",
+        ("deep_research", "text_buddy"): "EvidencePack",
+    },
+    "finance_v1": {
+        ("finance_research", "data_science"): "EvidencePack",
+        ("data_science", "text_buddy"): "AnalysisResult",
+        ("text_buddy", "governance"): "TextArtifact",
+    },
+}
+
+
+def get_handoff_contract(workflow_id: str, from_node: str, to_node: str) -> str | None:
+    return HANDOFF_CONTRACTS_BY_WORKFLOW.get(workflow_id, {}).get((from_node, to_node))
+
+
 # ============================================================================
 # Workflow 1: visual_artifact_v1
 # DAG: Strategist → Research → ContentDirector → Vangogh → Governance
@@ -103,9 +141,9 @@ class GovernanceReview:
 
 VISUAL_ARTIFACT_V1 = WorkflowTemplate(
     workflow_id="visual_artifact_v1",
-    purpose="Create visual artifacts (pitch decks, presentations, posters) through strategic planning, research, content direction, and visual rendering",
-    version="1.0",
-    description="Multi-stage visual artifact creation (pitch decks, presentations, posters)",
+    purpose="Create visual artifacts (pitch decks, presentations, posters) through strategic planning, deep research, HITL verification, final recall, content direction, and visual rendering",
+    version="2.0",
+    description="Multi-stage staged artifact creation with research_final_recall and HITL",
     entry_conditions={"artifact_type": "visual"},
     nodes=[
         Node(
@@ -120,17 +158,34 @@ VISUAL_ARTIFACT_V1 = WorkflowTemplate(
             node_id="research",
             agent_id="research",
             input_from=["strategist"],
-            output_to=["content_director"],
+            output_to=["hitl_verification"],
             required_tools=["hivemind_recall", "hivemind_web_search"],
-            timeout_seconds=90,
+            timeout_seconds=120,
+        ),
+        Node(
+            node_id="hitl_verification",
+            agent_id="human",
+            input_from=["research"],
+            output_to=["research_final_recall"],
+            required_tools=[],
+            approval_gate="human_review",
+            timeout_seconds=3600, # 1 hour
+        ),
+        Node(
+            node_id="research_final_recall",
+            agent_id="research",
+            input_from=["hitl_verification"],
+            output_to=["content_director"],
+            required_tools=["hivemind_recall"],
+            timeout_seconds=60,
         ),
         Node(
             node_id="content_director",
             agent_id="content_director",
-            input_from=["research"],
+            input_from=["research_final_recall"],
             output_to=["vangogh"],
             required_tools=[],
-            timeout_seconds=60,
+            timeout_seconds=90,
         ),
         Node(
             node_id="vangogh",
@@ -150,31 +205,33 @@ VISUAL_ARTIFACT_V1 = WorkflowTemplate(
             timeout_seconds=30,
         ),
     ],
-    allowed_agents=["strategist", "research", "content_director", "vangogh", "governance"],
+    allowed_agents=["strategist", "research", "content_director", "vangogh", "governance", "human"],
     required_handoffs=[
         ("strategist", "research"),
-        ("research", "content_director"),
+        ("research", "hitl_verification"),
+        ("hitl_verification", "research_final_recall"),
+        ("research_final_recall", "content_director"),
         ("content_director", "vangogh"),
         ("vangogh", "governance"),
     ],
-    approval_gates=["governance"],
+    approval_gates=["human_review", "governance"],
     fallback_branches={
-        "weak_evidence": "research",
-        "timeout": "governance",
+        "insufficient_findings": "research",
+        "human_rejected": "strategist",
     },
 )
 
 
 # ============================================================================
 # Workflow 2: text_artifact_v1
-# DAG: Strategist → Research → TextBuddy → Governance
+# DAG: Strategist → Research → HITL → ResearchFinalRecall → ContentDirector → TextBuddy → Governance
 # ============================================================================
 
 TEXT_ARTIFACT_V1 = WorkflowTemplate(
     workflow_id="text_artifact_v1",
-    purpose="Create text artifacts (emails, proposals, reports, social posts) through strategic planning, research, brand voice application, and governance approval",
-    version="1.0",
-    description="Text artifact creation (emails, proposals, reports, social posts)",
+    purpose="Create text artifacts (emails, proposals, reports, social posts) through staged planning, HITL verification, final recall, brief compilation, rendering, and governance approval",
+    version="2.0",
+    description="Staged text artifact creation with HITL and research_final_recall",
     entry_conditions={"artifact_type": "text"},
     nodes=[
         Node(
@@ -189,14 +246,39 @@ TEXT_ARTIFACT_V1 = WorkflowTemplate(
             node_id="research",
             agent_id="research",
             input_from=["strategist"],
-            output_to=["text_buddy"],
+            output_to=["hitl_verification"],
             required_tools=["hivemind_recall", "hivemind_web_search"],
+            timeout_seconds=90,
+        ),
+        Node(
+            node_id="hitl_verification",
+            agent_id="human",
+            input_from=["research"],
+            output_to=["research_final_recall"],
+            required_tools=[],
+            approval_gate="human_review",
+            timeout_seconds=3600,
+        ),
+        Node(
+            node_id="research_final_recall",
+            agent_id="research",
+            input_from=["hitl_verification"],
+            output_to=["content_director"],
+            required_tools=["hivemind_recall"],
+            timeout_seconds=60,
+        ),
+        Node(
+            node_id="content_director",
+            agent_id="content_director",
+            input_from=["research_final_recall"],
+            output_to=["text_buddy"],
+            required_tools=[],
             timeout_seconds=90,
         ),
         Node(
             node_id="text_buddy",
             agent_id="text_buddy",
-            input_from=["research"],
+            input_from=["content_director"],
             output_to=["governance"],
             required_tools=["apply_brand_voice"],
             timeout_seconds=60,
@@ -211,15 +293,19 @@ TEXT_ARTIFACT_V1 = WorkflowTemplate(
             timeout_seconds=30,
         ),
     ],
-    allowed_agents=["strategist", "research", "text_buddy", "governance"],
+    allowed_agents=["strategist", "research", "content_director", "text_buddy", "governance", "human"],
     required_handoffs=[
         ("strategist", "research"),
-        ("research", "text_buddy"),
+        ("research", "hitl_verification"),
+        ("hitl_verification", "research_final_recall"),
+        ("research_final_recall", "content_director"),
+        ("content_director", "text_buddy"),
         ("text_buddy", "governance"),
     ],
-    approval_gates=["governance"],
+    approval_gates=["human_review", "governance"],
     fallback_branches={
-        "weak_evidence": "research",
+        "weak_evidence": "research_final_recall",
+        "human_rejected": "strategist",
         "timeout": "governance",
     },
 )

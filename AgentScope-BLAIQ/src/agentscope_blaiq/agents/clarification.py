@@ -15,6 +15,10 @@ class ClarificationQuestion(BaseModel):
     why_it_matters: str | None = None
     answer_hint: str | None = None
     answer_options: list[str] = Field(default_factory=list)
+    # Phase 3: Typed validation metadata for frontend rendering.
+    input_type: str = "option"  # "option" | "text" | "multi_select"
+    validation_rules: dict = Field(default_factory=dict)
+    required: bool = True
 
 
 class ClarificationPrompt(BaseModel):

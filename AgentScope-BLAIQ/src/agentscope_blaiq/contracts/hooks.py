@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
 
-from .dispatch import validate_dispatch
+from .dispatch import validate_dispatch, validate_handoff
 from .registry import HarnessRegistry
 
 
@@ -58,6 +58,10 @@ class HookType(str, Enum):
     MISSING_INPUT = "missing_input"
     RETRY_REPLAN = "retry_replan"
     GOVERNANCE_GATE = "governance_gate"
+    # Phase 2: dispatch-boundary and planner-guard hooks
+    PRE_DISPATCH = "pre_dispatch"
+    POST_DISPATCH = "post_dispatch"
+    PLANNER_GUARD = "planner_guard"
 
 
 class HookAction(str, Enum):
@@ -442,6 +446,157 @@ def evaluate_governance_gate(ctx: HookContext) -> HookDecision:
     return HookDecision(
         action=HookAction.PROCEED,
         reason=f"No governance gate required for node '{ctx.node_id}'",
+    )
+
+
+# ============================================================================
+# Phase 2: Dispatch-boundary and planner-guard evaluators
+# ============================================================================
+
+
+def evaluate_pre_dispatch(
+    ctx: HookContext,
+    harness_registry: HarnessRegistry,
+) -> HookDecision:
+    """Validate an agent dispatch against harness contracts.
+
+    Replaces the inline ``validate_dispatch`` call in the engine's
+    ``_pre_dispatch_check``.  Advisory-only during Phase 2 rollout — WARN
+    rather than BLOCK so production execution is never halted by a missing
+    harness entry.
+
+    Args:
+        ctx: PRE_DISPATCH context; ``agent_id`` is the agent being dispatched.
+        harness_registry: Loaded harness registry.
+
+    Returns:
+        HookDecision — WARN on validation failure, PROCEED on success.
+    """
+    result = validate_dispatch(
+        agent_id=ctx.agent_id,
+        input_data=ctx.input_data,
+        registry=harness_registry,
+        workflow_id=ctx.workflow_id,
+    )
+    if not result.ok:
+        return HookDecision(
+            action=HookAction.WARN,
+            reason=f"Pre-dispatch check failed for agent '{ctx.agent_id}'",
+            errors=result.errors,
+            warnings=result.warnings,
+        )
+    if result.warnings:
+        return HookDecision(
+            action=HookAction.WARN,
+            reason=f"Pre-dispatch warnings for agent '{ctx.agent_id}'",
+            warnings=result.warnings,
+        )
+    return HookDecision(
+        action=HookAction.PROCEED,
+        reason=f"Pre-dispatch OK for agent '{ctx.agent_id}'",
+    )
+
+
+def evaluate_pre_handoff(
+    ctx: HookContext,
+    harness_registry: HarnessRegistry,
+) -> HookDecision:
+    """Validate an agent-to-agent handoff against harness contracts.
+
+    Replaces the inline ``validate_handoff`` call in the engine's
+    ``_pre_handoff_check``.  Advisory-only (WARN, never BLOCK).
+
+    ``ctx.metadata`` must contain:
+        ``to_agent_id`` (str): the receiving agent.
+
+    Args:
+        ctx: PRE_DISPATCH context; ``agent_id`` is the *sending* agent.
+        harness_registry: Loaded harness registry.
+
+    Returns:
+        HookDecision — WARN on validation failure, PROCEED on success.
+    """
+    to_agent_id: str = (ctx.metadata or {}).get("to_agent_id", "unknown")
+    result = validate_handoff(
+        from_agent_id=ctx.agent_id,
+        to_agent_id=to_agent_id,
+        output_data=ctx.output_data or {},
+        registry=harness_registry,
+        workflow_id=ctx.workflow_id,
+    )
+    if not result.ok:
+        return HookDecision(
+            action=HookAction.WARN,
+            reason=f"Handoff check failed {ctx.agent_id} → {to_agent_id}",
+            errors=result.errors,
+            warnings=result.warnings,
+        )
+    if result.warnings:
+        return HookDecision(
+            action=HookAction.WARN,
+            reason=f"Handoff warnings {ctx.agent_id} → {to_agent_id}",
+            warnings=result.warnings,
+        )
+    return HookDecision(
+        action=HookAction.PROCEED,
+        reason=f"Handoff OK {ctx.agent_id} → {to_agent_id}",
+    )
+
+
+def evaluate_planner_guard(ctx: HookContext) -> HookDecision:
+    """Validate a planner's routing intent before dispatch.
+
+    Moves route/assignment/tool-availability validation OUT of the strategist
+    so the planner produces intent and this hook decides if it is executable.
+
+    ``ctx.input_data`` must contain:
+        ``node_assignments`` (dict): node_id -> agent_id.
+        ``required_tools_per_node`` (dict, optional): node_id -> [tool_id].
+        ``route`` (str, optional): route string for sanity checks.
+
+    ``ctx.metadata`` may contain:
+        ``known_agent_ids`` (list[str]): agents currently reachable.
+
+    Returns:
+        HookDecision — BLOCK if assignments reference unknown agents,
+        WARN on missing tools, PROCEED when clean.
+    """
+    node_assignments: dict[str, str] = (ctx.input_data or {}).get("node_assignments", {})
+    required_tools: dict[str, list[str]] = (ctx.input_data or {}).get("required_tools_per_node", {})
+    known_ids: list[str] = list((ctx.metadata or {}).get("known_agent_ids", []))
+
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if known_ids:
+        for node_id, agent_id in node_assignments.items():
+            if agent_id and agent_id not in known_ids:
+                errors.append(
+                    f"Node '{node_id}' assigned to unknown agent '{agent_id}'"
+                )
+
+    for node_id, tools in required_tools.items():
+        if tools and not known_ids:
+            warnings.append(
+                f"Node '{node_id}' requires tools {tools!r} but catalog is empty"
+            )
+
+    if errors:
+        return HookDecision(
+            action=HookAction.BLOCK,
+            reason="Planner guard: routing references unknown agents",
+            errors=errors,
+            warnings=warnings,
+        )
+    if warnings:
+        return HookDecision(
+            action=HookAction.WARN,
+            reason="Planner guard: tool availability warnings",
+            warnings=warnings,
+        )
+    return HookDecision(
+        action=HookAction.PROCEED,
+        reason="Planner guard: routing is valid",
     )
 
 

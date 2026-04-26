@@ -53,19 +53,16 @@ export default function App() {
         <BlaiqWorkspaceProvider>
           <Routes>
             <Route path="/" element={<AppShell />}>
-              <Route index element={<Navigate to="/app/chat" replace />} />
-              <Route path="app">
-                <Route index element={<Navigate to="/app/chat" replace />} />
-                <Route path="overview" element={<Overview />} />
-                <Route path="chat" element={<Chat />} />
-                <Route path="agents" element={<AgentSwarm />} />
-                <Route path="preview" element={<Preview />} />
-                <Route path="knowledge" element={<KnowledgeBase />} />
-                <Route path="settings" element={<Settings />} />
-                <Route path="hivemind" element={<Hivemind />} />
-              </Route>
+              <Route index element={<Navigate to="/chat" replace />} />
+              <Route path="overview" element={<Overview />} />
+              <Route path="chat" element={<Chat />} />
+              <Route path="agents" element={<AgentSwarm />} />
+              <Route path="preview" element={<Preview />} />
+              <Route path="knowledge" element={<KnowledgeBase />} />
+              <Route path="settings" element={<Settings />} />
+              <Route path="hivemind" element={<Hivemind />} />
             </Route>
-            <Route path="*" element={<Navigate to="/app/chat" replace />} />
+            <Route path="*" element={<Navigate to="/chat" replace />} />
           </Routes>
         </BlaiqWorkspaceProvider>
       </BrowserRouter>

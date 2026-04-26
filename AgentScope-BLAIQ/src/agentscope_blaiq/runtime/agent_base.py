@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import inspect
 import json
+import time
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, TypeVar
+from uuid import uuid4
 
 from agentscope.agent import ReActAgent
 from agentscope.formatter import OpenAIChatFormatter
@@ -44,10 +49,89 @@ class BaseAgent:
         self.resolver = resolver or LiteLLMModelResolver.from_settings(settings)
         self._shared_toolkit = toolkit
         self._log_sink: AgentLogSink = _noop_sink
+        self._notebook: PlanNotebook | None = None
+        self._notebook_revision: int = 0
 
     def set_log_sink(self, sink: AgentLogSink) -> None:
         """Inject the live event sink. Called by the engine before each run."""
         self._log_sink = sink
+
+    # ── PlanNotebook lifecycle ────────────────────────────────────────────────
+
+    def create_notebook(self) -> PlanNotebook:
+        """Create a fresh PlanNotebook and store it on the agent.
+
+        The notebook is reused across calls to ``_create_runtime_agent`` so the
+        planner accumulates state within a single planning session rather than
+        starting from scratch on every ReAct iteration.
+        """
+        self._notebook = PlanNotebook()
+        self._notebook_revision = 0
+        return self._notebook
+
+    def reset_notebook(self) -> None:
+        """Discard the current notebook and its revision counter."""
+        self._notebook = None
+        self._notebook_revision = 0
+
+    def export_notebook_snapshot(self) -> dict[str, Any] | None:
+        """Export the current plan as a plain dict snapshot.
+
+        Raw PlanNotebook internals are NOT persisted — only the structured
+        ``current_plan`` model is included so the snapshot can be stored in
+        workflow state JSON safely.
+
+        Returns ``None`` when no notebook or plan exists yet.
+        """
+        if self._notebook is None or self._notebook.current_plan is None:
+            return None
+        plan = self._notebook.current_plan
+        return {
+            "current_plan": plan.model_dump(mode="json"),
+            "revision": self._notebook_revision,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "agent": self.name,
+        }
+
+    def restore_notebook_from_snapshot(self, snapshot: dict[str, Any]) -> None:
+        """Rebuild a PlanNotebook from an exported snapshot dict.
+
+        Creates a fresh notebook and seeds ``current_plan`` from the snapshot.
+        Falls back silently when the snapshot is malformed so resume paths
+        never hard-fail due to a missing or corrupt plan snapshot.
+        """
+        try:
+            from agentscope.plan._plan_notebook import Plan  # local import avoids circular
+            notebook = PlanNotebook()
+            plan_data = snapshot.get("current_plan")
+            if plan_data:
+                notebook.current_plan = Plan.model_validate(plan_data)
+            self._notebook = notebook
+            self._notebook_revision = int(snapshot.get("revision", 0))
+        except Exception:
+            self._notebook = PlanNotebook()
+            self._notebook_revision = 0
+
+    def revise_notebook(self) -> None:
+        """Increment the revision counter after a planning update."""
+        self._notebook_revision += 1
+
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def register_tool(
+        self,
+        toolkit: Any,
+        *,
+        tool_id: str,
+        fn: Callable[..., Any],
+        description: str = "",
+    ) -> None:
+        """Register a tool with runtime telemetry wrapping."""
+        toolkit.register_tool_function(
+            self.instrument_tool(tool_id, fn),
+            func_name=tool_id,
+            func_description=description,
+        )
 
     async def log(
         self,
@@ -67,10 +151,133 @@ class BaseAgent:
         """
         await self._log_sink(message, kind, visibility, detail)
 
+    @staticmethod
+    def _redact_tool_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+        def _preview(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {str(key): _preview(val) for key, val in list(value.items())[:8]}
+            if isinstance(value, list):
+                return [_preview(item) for item in value[:8]]
+            if isinstance(value, tuple):
+                return [_preview(item) for item in list(value[:8])]
+            text = str(value)
+            if len(text) > 180:
+                return text[:177] + "..."
+            return text
+
+        return {str(key): _preview(value) for key, value in kwargs.items()}
+
+    @staticmethod
+    def _summarize_tool_result(result: Any) -> Any:
+        if result is None:
+            return {"kind": "none"}
+        if isinstance(result, (str, int, float, bool)):
+            text = str(result)
+            return text[:300] + ("..." if len(text) > 300 else "")
+        if isinstance(result, dict):
+            return {
+                "kind": "dict",
+                "keys": list(result.keys())[:12],
+            }
+        if isinstance(result, (list, tuple)):
+            return {
+                "kind": "list",
+                "length": len(result),
+            }
+        metadata = getattr(result, "metadata", None)
+        if isinstance(metadata, dict):
+            return {
+                "kind": type(result).__name__,
+                "metadata_keys": list(metadata.keys())[:12],
+            }
+        text = str(result)
+        return {
+            "kind": type(result).__name__,
+            "text": text[:300] + ("..." if len(text) > 300 else ""),
+        }
+
+    def instrument_tool(
+        self,
+        tool_id: str,
+        fn: Callable[..., Any],
+    ) -> Callable[..., Awaitable[Any]]:
+        """Wrap a tool callable with structured runtime telemetry."""
+
+        async def _wrapped(**kwargs: Any) -> Any:
+            correlation_id = uuid4().hex
+            started_at = time.perf_counter()
+            input_preview = self._redact_tool_kwargs(kwargs)
+            input_hash = hashlib.sha256(
+                json.dumps(input_preview, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()
+            await self.log(
+                f"Tool {tool_id} started.",
+                kind="tool_call_started",
+                visibility="debug",
+                detail={
+                    "call_id": correlation_id,
+                    "tool_id": tool_id,
+                    "agent_name": self.name,
+                    "input_hash": input_hash,
+                    "input_preview": input_preview,
+                },
+            )
+            try:
+                result = fn(**kwargs)
+                if inspect.isawaitable(result):
+                    result = await result
+                duration_ms = int((time.perf_counter() - started_at) * 1000)
+                await self.log(
+                    f"Tool {tool_id} finished.",
+                    kind="tool_call_finished",
+                    visibility="debug",
+                    detail={
+                        "call_id": correlation_id,
+                        "tool_id": tool_id,
+                        "agent_name": self.name,
+                        "input_hash": input_hash,
+                        "input_preview": input_preview,
+                        "output_summary": self._summarize_tool_result(result),
+                        "duration_ms": duration_ms,
+                    },
+                )
+                return result
+            except Exception as exc:
+                duration_ms = int((time.perf_counter() - started_at) * 1000)
+                await self.log(
+                    f"Tool {tool_id} failed: {type(exc).__name__}.",
+                    kind="tool_call_failed",
+                    visibility="debug",
+                    detail={
+                        "call_id": correlation_id,
+                        "tool_id": tool_id,
+                        "agent_name": self.name,
+                        "input_hash": input_hash,
+                        "input_preview": input_preview,
+                        "duration_ms": duration_ms,
+                        "error_code": type(exc).__name__,
+                        "error_message": str(exc),
+                    },
+                )
+                raise
+
+        _wrapped.__name__ = tool_id
+        return _wrapped
+
     def build_toolkit(self) -> Toolkit:
         return self._shared_toolkit or Toolkit()
 
-    def _create_runtime_agent(self) -> ReActAgent:
+    def _create_runtime_agent(
+        self,
+        plan_notebook: PlanNotebook | None = None,
+    ) -> ReActAgent:
+        """Create a ReActAgent for one invocation.
+
+        ``plan_notebook`` — pass an existing notebook to continue a prior
+        planning session; pass ``None`` (default) to let the agent use
+        ``self._notebook`` when set, or create a fresh one otherwise.
+        """
+        notebook = plan_notebook or self._notebook or PlanNotebook()
         return ReActAgent(
             name=self.name,
             sys_prompt=self.sys_prompt,
@@ -78,7 +285,7 @@ class BaseAgent:
             formatter=OpenAIChatFormatter(),
             toolkit=self.build_toolkit(),
             memory=InMemoryMemory(),
-            plan_notebook=PlanNotebook(),
+            plan_notebook=notebook,
             max_iters=6,
             parallel_tool_calls=True,
         )

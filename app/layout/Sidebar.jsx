@@ -22,6 +22,7 @@ import {
   Cpu,
   BookOpen,
   Bot,
+  CheckCircle,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import apiClient from '../shared/api-client';
@@ -54,6 +55,13 @@ function buildNavSections({ showWebAdmin }) {
         { to: '/hivemind/app/web', icon: Globe, label: 'Web Intel' },
         { to: '/hivemind/app/swarm', icon: Bot, label: 'Agent Swarm' },
         { to: '/hivemind/app/profile', icon: User, label: 'Profile' },
+      ],
+    },
+    {
+      label: 'Governance',
+      items: [
+        { to: '/hivemind/app/policy', icon: ShieldCheck, label: 'Policy' },
+        { to: '/hivemind/app/approval-workflow', icon: CheckCircle, label: 'Approval' },
       ],
     },
     {

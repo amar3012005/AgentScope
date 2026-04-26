@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import shutil
 import tempfile
@@ -12,9 +13,14 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 from agentscope.tool import Toolkit
 
+from agentscope_blaiq.contracts.brief import ArtifactBrief
 from agentscope_blaiq.contracts.artifact import ArtifactSection, PreviewMetadata, VisualArtifact
+from agentscope_blaiq.contracts.enforcement import enforcement_check
 from agentscope_blaiq.contracts.evidence import EvidencePack
+from agentscope_blaiq.contracts.messages import make_agent_input, make_agent_output
 from agentscope_blaiq.runtime.agent_base import BaseAgent
+
+logger = logging.getLogger(__name__)
 
 
 class PlannedSection(BaseModel):
@@ -570,63 +576,20 @@ class VangoghAgent(BaseAgent):
             name="VangoghAgent",
             role="vangogh",
             sys_prompt=(
-                "You are Vangogh, an award-level frontend art director. You generate immersive, "
-                "single-canvas HTML artifacts that are architecturally precise and aesthetically exceptional.\n\n"
-
-                "## Brand DNA — NON-NEGOTIABLE\n"
-                "Read the Brand DNA tokens provided. Apply them EXACTLY:\n"
-                "- Background: var(--brand-bg) — the dark canvas, never override\n"
-                "- Primary text: var(--brand-primary) — high contrast on dark\n"
-                "- Muted text: var(--brand-muted) — labels, secondary copy\n"
-                "- Border: 1px solid var(--brand-border) — hairline, never thick\n"
-                "- Accent: var(--brand-accent) — sparingly on key words/CTAs only\n"
-                "- Headings font: 'Cormorant Garamond', serif — ALL display headlines\n"
-                "- Body font: 'Manrope', sans-serif — ALL body text, labels, stats\n"
-                "Never use Inter, Helvetica, or system-ui for headlines. Never hardcode hex colors.\n\n"
-
-                "## For POSTERS: Single-Canvas Architecture\n"
-                "html, body { width:100vw; height:100vh; overflow:hidden; }\n"
-                "Use CSS Grid to divide the viewport into editorial zones:\n"
-                "  - Zone A (top, full-width): eyebrow tag + horizontal hairline\n"
-                "  - Zone B (left, main): serif headline clamp(4rem,9vw,8rem) + subheadline + body\n"
-                "  - Zone C (right, top): stats panel — 3 metrics stacked, values in Cormorant Garamond\n"
-                "  - Zone D (right, bottom): 3–4 proof bullets in Manrope, dash markers\n"
-                "  - Zone E (bottom, full-width): CTA ghost button + source attribution\n"
-                "Background atmosphere: soft radial spotlight rgba(255,255,255,0.04) top-left "
-                "+ SVG fractalNoise grain layer at opacity 0.035 mix-blend-mode:overlay.\n\n"
-
-                "## Motion — GSAP from CDN\n"
-                "Include: <script src='https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js'></script>\n"
-                "Staggered timeline: tag(0.6s) → headline(0.9s) → subheadline(0.7s) → stats(0.6s stagger) "
-                "→ bullets(0.5s stagger) → cta(0.6s). Only animate opacity + transform. Never layout props.\n\n"
-
-                "## Typography Hierarchy\n"
-                "1. Poster headline: Cormorant Garamond 600, clamp(4rem,9vw,8rem), tracking -0.04em, leading 0.92\n"
-                "2. Stat values: Cormorant Garamond 600, clamp(2.5rem,5vw,5rem), tracking -0.05em\n"
-                "3. Subheadline: Manrope 400, clamp(0.9rem,1.6vw,1.15rem), color var(--brand-muted)\n"
-                "4. Labels/tags: Manrope 700, 0.65rem, tracking 0.22em, uppercase\n"
-                "5. Bullets: Manrope 400, clamp(0.72rem,1.1vw,0.88rem), color var(--brand-muted)\n\n"
-
-                "## Quality Rules\n"
-                "- Zero scrolling: every element within 100vh\n"
-                "- No colored card backgrounds (monochrome only; use var(--brand-surface) at most)\n"
-                "- No box-shadow glows — hairline borders only\n"
-                "- Grain texture overlay: mandatory for editorial depth\n"
-                "- Real content from brief only — no placeholders\n"
-                "- Google Fonts link in <head>: Cormorant Garamond + Manrope\n\n"
-
-                "Return ONLY the complete self-contained HTML document. No markdown. No explanation."
+                "You are the BLAIQ Visual Renderer (VanGogh). Your sole responsibility is to transform a "
+                "structured ArtifactBrief into high-quality HTML/CSS artifacts.\n\n"
+                "STRICT BOUNDARIES:\n"
+                "• You DO NOT plan strategy or content hierarchy. Follow the ArtifactBrief exactly.\n"
+                "• You DO NOT perform research. Use the evidence_refs provided.\n"
+                "• You MUST honor the brand_dna and layout_hints in the brief.\n"
+                "• Your output must be valid, production-ready HTML components."
             ),
             **kwargs,
         )
 
     def build_toolkit(self) -> Toolkit:
         toolkit = Toolkit()
-        toolkit.register_tool_function(
-            self._artifact_contract,
-            func_name="artifact_contract",
-            func_description="Return the required visual artifact contract for AgentScope-BLAIQ.",
-        )
+        self.register_tool(toolkit, tool_id="artifact_contract", fn=self._artifact_contract, description="Return the required visual artifact contract for AgentScope-BLAIQ.")
         return toolkit
 
     def _artifact_contract(self):
@@ -814,6 +777,15 @@ Utility: .z-top, .text-accent, .text-muted, .mt-sm, .mt-md, .mt-lg, .divider
         on_section_ready: Callable[[ArtifactSection], Awaitable[None]] | None = None,
         brand_dna: dict | None = None,
     ) -> VisualArtifact:
+        input_msg = make_agent_input(
+            workflow_id=None,
+            node_id="vangogh",
+            agent_id="vangogh",
+            payload={"user_query": user_query, "has_content_brief": bool(content_brief)},
+            schema_ref="VangoghInput",
+        )
+        logger.debug("vangogh input_msg=%s", input_msg.msg_id)
+
         await self.log(
             f"Designing the visual artifact. Working with {len(evidence.citations)} evidence sources.",
             kind="status",
@@ -889,6 +861,22 @@ Utility: .z-top, .text-accent, .text-muted, .mt-sm, .mt-md, .mt-lg, .divider
             if on_section_ready is not None:
                 await on_section_ready(section)
 
+        # Enforce 1:1 section mapping: output sections must match plan sections
+        plan_ids = [p.section_id for p in section_plans]
+        output_ids = [s.section_id for s in sections]
+        if plan_ids != output_ids:
+            logger.warning(
+                "vangogh section_map_mismatch: plan=%s output=%s",
+                plan_ids, output_ids,
+            )
+            # In enforced mode this would block; in advisory mode just log
+            enforcement_check(
+                ok=(set(plan_ids) == set(output_ids)),
+                errors=[f"Section map mismatch: plan has {plan_ids}, output has {output_ids}"]
+                if set(plan_ids) != set(output_ids) else [],
+                context="vangogh_section_map",
+            )
+
         html = "\n".join([
             "<!doctype html>",
             "<html lang='en'>",
@@ -911,6 +899,13 @@ Utility: .z-top, .text-accent, .text-muted, .mt-sm, .mt-md, .mt-lg, .divider
             kind="artifact",
             detail={"artifact_id": artifact_id, "section_count": len(sections)},
         )
+
+        output_msg = make_agent_output(
+            input_msg=input_msg,
+            payload={"artifact_id": artifact_id, "section_count": len(sections)},
+            schema_ref="VisualArtifact",
+        )
+        logger.debug("vangogh output_msg=%s parent=%s", output_msg.msg_id, output_msg.parent_msg_id)
 
         return VisualArtifact(
             artifact_id=artifact_id,

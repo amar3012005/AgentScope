@@ -21,10 +21,18 @@ class CheckReport:
     issues: list[str] = field(default_factory=list)
 
 
-def check_storage_paths(upload_dir: Path, artifact_dir: Path, log_dir: Path) -> CheckReport:
+def check_storage_paths(
+    upload_dir: Path,
+    artifact_dir: Path,
+    log_dir: Path,
+    agent_profile_dir: Path | None = None,
+) -> CheckReport:
     issues: list[str] = []
     details: dict[str, Any] = {}
-    for name, path in {"upload_dir": upload_dir, "artifact_dir": artifact_dir, "log_dir": log_dir}.items():
+    paths = {"upload_dir": upload_dir, "artifact_dir": artifact_dir, "log_dir": log_dir}
+    if agent_profile_dir is not None:
+        paths["agent_profile_dir"] = agent_profile_dir
+    for name, path in paths.items():
         path.mkdir(parents=True, exist_ok=True)
         writable = path.exists() and path.is_dir() and os_access_writable(path)
         details[name] = {"path": str(path), "writable": writable}
@@ -128,7 +136,12 @@ def check_model_env() -> CheckReport:
 
 
 async def check_runtime_ready() -> CheckReport:
-    storage = check_storage_paths(settings.upload_dir, settings.artifact_dir, settings.log_dir)
+    storage = check_storage_paths(
+        settings.upload_dir,
+        settings.artifact_dir,
+        settings.log_dir,
+        settings.agent_profile_dir,
+    )
     database = await check_database(settings.database_url)
     redis = await check_redis(settings.redis_url)
     model_env = check_model_env()

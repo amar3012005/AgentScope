@@ -20,10 +20,11 @@ from typing import Any, Optional
 
 import jsonschema
 
-from .harness import AgentHarness, ToolHarness
+from .harness import AgentHarness, ToolHarness, canonicalize_workflow_template_id
 from .registry import HarnessRegistry
 
 logger = logging.getLogger("agentscope_blaiq.contracts.dispatch")
+_RESEARCH_HANDOFF_AGENT_IDS = {"research", "deep_research", "finance_research"}
 
 
 @dataclass
@@ -77,9 +78,11 @@ def validate_dispatch(
     input_errors = _validate_input_schema(harness, input_data)
     errors.extend(input_errors)
 
+    canonical_workflow_id = canonicalize_workflow_template_id(workflow_id)
+
     # 3. Validate workflow compatibility (if workflow_id provided)
-    if workflow_id is not None:
-        workflow_errors = _validate_workflow_compatibility(harness, workflow_id, registry)
+    if canonical_workflow_id is not None:
+        workflow_errors = _validate_workflow_compatibility(harness, canonical_workflow_id, registry)
         errors.extend(workflow_errors)
 
     # 4. Validate tool access (if tools_requested provided)
@@ -165,11 +168,13 @@ def validate_tool_call(
             f"Tool '{tool_id}' does not allow agent '{agent_id}'"
         )
 
+    canonical_workflow_id = canonicalize_workflow_template_id(workflow_id)
+
     # 5. Workflow compatibility
-    if workflow_id is not None and tool_harness.allowed_workflows:
-        if workflow_id not in tool_harness.allowed_workflows:
+    if canonical_workflow_id is not None and tool_harness.allowed_workflows:
+        if canonical_workflow_id not in tool_harness.allowed_workflows:
             errors.append(
-                f"Tool '{tool_id}' not allowed in workflow '{workflow_id}'"
+                f"Tool '{tool_id}' not allowed in workflow '{canonical_workflow_id}'"
             )
 
     # 6. Validate tool input against schema
@@ -248,12 +253,25 @@ def validate_handoff(
         for err in schema_errors:
             warnings.append(f"Target '{to_agent_id}' input: {err}")
 
+    canonical_workflow_id = canonicalize_workflow_template_id(workflow_id)
+
     # 4. Workflow compatibility
-    if workflow_id is not None:
-        if from_harness.allowed_workflows and workflow_id not in from_harness.allowed_workflows:
-            errors.append(f"Source '{from_agent_id}' not allowed in workflow '{workflow_id}'")
-        if to_harness.allowed_workflows and workflow_id not in to_harness.allowed_workflows:
-            errors.append(f"Target '{to_agent_id}' not allowed in workflow '{workflow_id}'")
+    if canonical_workflow_id is not None:
+        if from_harness.allowed_workflows and canonical_workflow_id not in from_harness.allowed_workflows:
+            errors.append(f"Source '{from_agent_id}' not allowed in workflow '{canonical_workflow_id}'")
+        if to_harness.allowed_workflows and canonical_workflow_id not in to_harness.allowed_workflows:
+            errors.append(f"Target '{to_agent_id}' not allowed in workflow '{canonical_workflow_id}'")
+
+        workflow_template = registry.get_workflow(canonical_workflow_id)
+        if workflow_template is not None and workflow_template.required_handoffs:
+            handoff = (
+                _canonical_handoff_agent_id(from_agent_id),
+                _canonical_handoff_agent_id(to_agent_id),
+            )
+            if handoff not in workflow_template.required_handoffs:
+                errors.append(
+                    f"Handoff '{from_agent_id}' -> '{to_agent_id}' is not allowed in workflow '{canonical_workflow_id}'"
+                )
 
     ok = len(errors) == 0
     return DispatchResult(ok=ok, agent_id=to_agent_id, errors=errors, warnings=warnings)
@@ -268,6 +286,13 @@ def _validate_input_schema(harness: AgentHarness, input_data: dict[str, Any]) ->
     if not harness.input_schema:
         return []
     return _validate_json_schema(input_data, harness.input_schema)
+
+
+def _canonical_handoff_agent_id(agent_id: str) -> str:
+    """Map runtime research variants to the canonical workflow handoff node."""
+    if agent_id in _RESEARCH_HANDOFF_AGENT_IDS:
+        return "research"
+    return agent_id
 
 
 def _validate_json_schema(data: dict[str, Any], schema: dict[str, Any]) -> list[str]:
@@ -301,9 +326,14 @@ def _validate_workflow_compatibility(
     workflow = registry.get_workflow(workflow_id)
     if workflow is not None:
         if harness.agent_id not in workflow.allowed_agents:
-            errors.append(
-                f"Workflow '{workflow_id}' does not allow agent '{harness.agent_id}'"
-            )
+            # Role-based fallback: check if agent's role is accepted
+            agent_role = harness.role if harness.role else harness.agent_id
+            if hasattr(workflow, 'allowed_roles') and workflow.accepts_role(agent_role):
+                pass  # Role-based match — allowed
+            else:
+                errors.append(
+                    f"Workflow '{workflow_id}' does not allow agent '{harness.agent_id}'"
+                )
 
     return errors
 

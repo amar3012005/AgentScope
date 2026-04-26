@@ -14,7 +14,48 @@ from agentscope_blaiq.contracts.evidence import EvidencePack
 from agentscope_blaiq.contracts.workflow import AnalysisMode, ResumeWorkflowRequest, SubmitWorkflowRequest, WorkflowMode, WorkflowStatus
 from agentscope_blaiq.persistence.redis_state import BranchRedisState, RedisStateStore, WorkflowRedisState
 
-from .models import AgentRunRecord, ArtifactRecord, BrandDnaExtractionJobRecord, EvidencePackRecord, UploadRecord, WorkflowEventRecord, WorkflowRecord
+from .models import (
+    AgentRunRecord, ArtifactRecord, BrandDnaExtractionJobRecord, EvidencePackRecord, 
+    UploadRecord, WorkflowEventRecord, WorkflowRecord, UserRecord, OrgRecord, 
+    WorkspaceRecord, RoleRecord, SessionRecord, ApiKeyRecord, PolicySetRecord,
+    PolicyRuleRecord, ConversationRecord, ConversationMessageRecord
+)
+
+
+class UserRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_user(self, user_id: str) -> UserRecord | None:
+        return await self.session.get(UserRecord, user_id)
+
+    async def get_user_by_email(self, email: str) -> UserRecord | None:
+        result = await self.session.execute(select(UserRecord).where(UserRecord.email == email))
+        return result.scalar_one_or_none()
+
+
+class OrgRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create_org(self, name: str, slug: str) -> OrgRecord:
+        org = OrgRecord(name=name, slug=slug)
+        self.session.add(org)
+        await self.session.commit()
+        await self.session.refresh(org)
+        return org
+
+
+class WorkspaceRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create_workspace(self, org_id: str, name: str, slug: str) -> WorkspaceRecord:
+        ws = WorkspaceRecord(org_id=org_id, name=name, slug=slug)
+        self.session.add(ws)
+        await self.session.commit()
+        await self.session.refresh(ws)
+        return ws
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -163,20 +204,33 @@ class WorkflowRepository:
         if workflow is None:
             return
         state_payload = self._load_state_payload(workflow)
+        tool_event_types = {
+            "tool_call",
+            "tool_result",
+            "tool_error",
+            "tool_call_started",
+            "tool_call_finished",
+            "tool_call_failed",
+        }
         workflow.run_id = event.run_id or workflow.run_id
-        workflow.latest_event = event.type
-        workflow.current_agent = event.agent_name
-        workflow.current_node = event.data.get("branch") or event.data.get("section_id") or event.agent_name
-        workflow.current_phase = event.phase
-        if event.type == "workflow_resumed":
-            workflow.status = WorkflowStatus.queued.value
-        elif event.type not in {"workflow_complete", "workflow_error"}:
-            workflow.status = WorkflowStatus.running.value
-        if event.type == "workflow_complete":
-            workflow.status = WorkflowStatus.complete.value
-        if event.type == "workflow_error":
-            workflow.status = WorkflowStatus.error.value
-            workflow.error_message = event.data.get("error_message")
+        if event.type not in tool_event_types:
+            workflow.latest_event = event.type
+            workflow.current_agent = event.agent_name
+            workflow.current_node = event.data.get("branch") or event.data.get("section_id") or event.agent_name
+            workflow.current_phase = event.phase
+            if event.type == "workflow_resumed":
+                workflow.status = WorkflowStatus.queued.value
+            elif event.type not in {"workflow_complete", "workflow_error"}:
+                workflow.status = WorkflowStatus.running.value
+            if event.type == "workflow_complete":
+                workflow.status = WorkflowStatus.complete.value
+            if event.type == "workflow_error":
+                workflow.status = WorkflowStatus.error.value
+                workflow.error_message = event.data.get("error_message")
+        else:
+            state_payload["last_tool_event"] = event.type
+            state_payload["last_tool_event_agent"] = event.agent_name
+            state_payload["last_tool_event_node"] = event.data.get("node_id")
         state_payload.update(
             {
                 "thread_id": event.thread_id,
@@ -233,6 +287,7 @@ class WorkflowRepository:
         final_artifact_json: str | None = None,
         artifact_family: str | None = None,
         blocked_question: str | None = None,
+        blocked_bundle_json: str | None = None,
         expected_answer_schema: dict[str, Any] | None = None,
         requirements_checklist_json: str | None = None,
         task_graph_json: str | None = None,
@@ -273,6 +328,7 @@ class WorkflowRepository:
         state_payload_updates = {
             "artifact_family": artifact_family,
             "blocked_question": blocked_question,
+            "blocked_bundle_json": blocked_bundle_json,
             "expected_answer_schema": expected_answer_schema,
             "requirements_checklist_json": requirements_checklist_json,
             "task_graph_json": task_graph_json,
@@ -307,6 +363,20 @@ class WorkflowRepository:
         workflow.workflow_state_json = self._dump_state_payload(workflow, state_payload)
         await self.session.commit()
 
+    async def update_status(
+        self,
+        thread_id: str,
+        status: WorkflowStatus,
+        *,
+        error_message: str | None = None,
+    ) -> None:
+        await self.update_workflow_snapshot(
+            thread_id,
+            status=status,
+            latest_event="workflow_error" if status == WorkflowStatus.error else None,
+            error_message=error_message,
+        )
+
     async def build_submit_request(self, thread_id: str) -> SubmitWorkflowRequest | None:
         workflow = await self.get_workflow_record(thread_id)
         if workflow is None:
@@ -338,6 +408,11 @@ class WorkflowRepository:
                     requirements_checklist = RequirementsChecklist.model_validate_json(redis_state.requirements_checklist_json).model_dump()
                 except Exception:
                     requirements_checklist = None
+            latest_event = (
+                workflow.latest_event
+                if redis_state.status in {WorkflowStatus.error, WorkflowStatus.complete}
+                else (redis_state.recent_events[-1]["type"] if redis_state.recent_events else workflow.latest_event)
+            )
             return WorkflowStatusSnapshot(
                 thread_id=redis_state.thread_id,
                 session_id=redis_state.session_id,
@@ -345,7 +420,7 @@ class WorkflowRepository:
                 status=redis_state.status,
                 current_node=redis_state.current_node,
                 current_agent=redis_state.current_agent,
-                latest_event=redis_state.recent_events[-1]["type"] if redis_state.recent_events else workflow.latest_event,
+                latest_event=latest_event,
                 final_artifact=final_artifact,
                 error_message=redis_state.error_message,
                 artifact_family=redis_state.artifact_family or state_payload.get("artifact_family"),

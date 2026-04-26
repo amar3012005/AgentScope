@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_env: str = "development"
+    contract_enforcement: str = "advisory"  # "advisory" or "enforced"
     log_level: str = "INFO"
     app_host: str = "0.0.0.0"
     app_port: int = 8090
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     upload_dir: Path = Field(default=Path("./data/uploads"))
     artifact_dir: Path = Field(default=Path("./data/artifacts"))
+    agent_profile_dir: Path = Field(default=Path("./data/agent_profiles"))
     brand_voice_dir: Path = Field(default=Path("./brand_voice"))
     log_dir: Path = Field(default=Path("./logs"))
     default_tenant: str = "default"
@@ -28,10 +30,10 @@ class Settings(BaseSettings):
     routing_model: str = "gemini-2.5-flash-lite"  # fast model for binary routing decisions
     research_model: str = "gemini-2.5-pro"
     content_director_model: str = "gemini-2.5-pro"
-    hitl_model: str = "vertex_ai/claude-sonnet-4-6@default"
-    vangogh_model: str = "vertex_ai/claude-sonnet-4-6@default"
+    hitl_model: str = "vertex_ai/claude-sonnet-4-5@20250929"
+    vangogh_model: str = "vertex_ai/claude-sonnet-4-5@20250929"
     governance_model: str = "gemini-2.5-pro"
-    text_buddy_model: str = "vertex_ai/claude-sonnet-4-6@default"
+    text_buddy_model: str = "vertex_ai/claude-sonnet-4-5@20250929"
     llm_fallback_model: str | None = "gemini-2.5-flash-lite"
     llm_timeout_seconds: int = 60
     llm_max_output_tokens: int = 1200

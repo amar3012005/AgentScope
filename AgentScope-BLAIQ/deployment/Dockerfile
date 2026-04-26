@@ -22,11 +22,14 @@ COPY deployment /app/deployment
 RUN --mount=type=cache,target=/root/.cache/pip pip install --no-deps -e .
 
 # Pre-install React template dependencies for faster artifact generation
+# Timeout at 30s per request, 2 retries max — prevents 6min hangs on registry issues
 RUN if [ -d /app/src/agentscope_blaiq/artifacts/template ]; then \
-      cd /app/src/agentscope_blaiq/artifacts/template && pnpm install --no-frozen-lockfile; \
+      cd /app/src/agentscope_blaiq/artifacts/template && \
+      timeout 120s pnpm install || \
+      echo "WARN: pnpm install failed — template deps will install at first artifact generation"; \
     fi
 
-RUN mkdir -p /app/data/uploads /app/data/artifacts /app/logs
+RUN mkdir -p /app/data/uploads /app/data/artifacts /app/data/agent_profiles /app/logs
 
 EXPOSE 8090
 

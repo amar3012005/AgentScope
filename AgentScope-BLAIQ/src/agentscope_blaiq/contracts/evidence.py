@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from .brief import ArtifactBrief, BriefSection
+from .workflow import ArtifactFamily
 
 
 class Citation(BaseModel):
@@ -145,6 +148,87 @@ class ContentBriefHandoff(BaseModel):
     avoid_claims: list[str] = Field(default_factory=list)
     visual_opportunities: list[dict] = Field(default_factory=list)  # [{value, label, visual_type}]
 
+    def to_artifact_brief(
+        self,
+        *,
+        thread_id: str,
+        brief_id: str,
+        artifact_family: ArtifactFamily | str = ArtifactFamily.custom,
+        title: str = "Generated Artifact",
+        evidence_pack_id: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> ArtifactBrief:
+        return content_brief_to_artifact_brief(
+            self,
+            thread_id=thread_id,
+            brief_id=brief_id,
+            artifact_family=artifact_family,
+            title=title,
+            evidence_pack_id=evidence_pack_id,
+            metadata=metadata,
+        )
+
+
+def content_brief_to_artifact_brief(
+    content_brief: ContentBriefHandoff,
+    *,
+    thread_id: str,
+    brief_id: str,
+    artifact_family: ArtifactFamily | str = ArtifactFamily.custom,
+    title: str = "Generated Artifact",
+    evidence_pack_id: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> ArtifactBrief:
+    """Compatibility bridge from legacy ContentBriefHandoff to canonical ArtifactBrief."""
+
+    if isinstance(artifact_family, ArtifactFamily):
+        family = artifact_family
+    else:
+        try:
+            family = ArtifactFamily(str(artifact_family))
+        except ValueError:
+            family = ArtifactFamily.custom
+    ordered_sections = content_brief.recommended_structure or [
+        "problem",
+        "solution",
+        "proof",
+        "cta",
+    ]
+    sections: list[BriefSection] = []
+    for index, section_name in enumerate(ordered_sections):
+        pillar = (
+            content_brief.supporting_pillars[index]
+            if index < len(content_brief.supporting_pillars)
+            else content_brief.key_message
+        )
+        visual_hint = None
+        if index < len(content_brief.visual_opportunities):
+            visual_hint = content_brief.visual_opportunities[index].get("visual_type")
+        sections.append(
+            BriefSection(
+                section_id=f"section_{index + 1}",
+                title=section_name.replace("_", " ").title(),
+                objective=pillar or content_brief.key_message,
+                key_points=[pillar] if pillar else [],
+                visual_hint=visual_hint,
+                constraints=content_brief.avoid_claims[:3],
+            )
+        )
+
+    return ArtifactBrief(
+        brief_id=brief_id,
+        thread_id=thread_id,
+        artifact_family=family,
+        title=title,
+        core_narrative=content_brief.key_message,
+        target_audience=", ".join(content_brief.audience_angles.keys()) or "general",
+        sections=sections,
+        style_preference="executive",
+        evidence_pack_id=evidence_pack_id,
+        required_disclaimers=content_brief.avoid_claims,
+        metadata=metadata or {"compat_source": "ContentBriefHandoff"},
+    )
+
 
 # =============================================================================
 # Data Science Agent Extensions
@@ -280,8 +364,36 @@ class EvidencePack(BaseModel):
     structured_insights: list[StructuredInsight] = Field(default_factory=list)
     content_hooks: list[ContentHook] = Field(default_factory=list)
     risk_flags: list[RiskFlag] = Field(default_factory=list)
+    artifact_brief: ArtifactBrief | None = None
+    # Deprecated compatibility path: producers may still set this legacy handoff.
     content_brief: ContentBriefHandoff | None = None
     cache_entry: ResearchCacheEntry | None = None
     # Data Science Agent specific fields
     analysis_result: AnalysisResult | None = None
     data_uploads: list[str] = Field(default_factory=list)  # upload IDs
+
+    @model_validator(mode="after")
+    def _upgrade_legacy_content_brief(self) -> EvidencePack:
+        """Ensure ArtifactBrief is the canonical boundary while keeping legacy support."""
+        if self.artifact_brief is not None:
+            return self
+        if self.content_brief is None:
+            return self
+        thread_id = str(self.metadata.get("thread_id", "legacy-thread"))
+        brief_id = str(self.metadata.get("brief_id", "legacy-brief"))
+        artifact_family_hint = str(self.metadata.get("artifact_family", "custom"))
+        title_hint = str(self.metadata.get("title", "Generated Artifact"))
+        evidence_pack_id = str(self.metadata.get("evidence_pack_id", ""))
+        try:
+            family = ArtifactFamily(artifact_family_hint)
+        except ValueError:
+            family = ArtifactFamily.custom
+        self.artifact_brief = self.content_brief.to_artifact_brief(
+            thread_id=thread_id,
+            brief_id=brief_id,
+            artifact_family=family,
+            title=title_hint,
+            evidence_pack_id=evidence_pack_id,
+            metadata={"compat_source": "ContentBriefHandoff", **self.metadata},
+        )
+        return self

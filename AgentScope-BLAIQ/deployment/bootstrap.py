@@ -15,6 +15,7 @@ def ensure_runtime_paths() -> dict[str, dict[str, Any]]:
     for label, path in {
         "upload_dir": settings.upload_dir,
         "artifact_dir": settings.artifact_dir,
+        "agent_profile_dir": settings.agent_profile_dir,
         "log_dir": settings.log_dir,
     }.items():
         path.mkdir(parents=True, exist_ok=True)

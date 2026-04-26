@@ -21,6 +21,8 @@ const MemoryGraph = React.lazy(() => import('./pages/MemoryGraph'));
 const Engine = React.lazy(() => import('./pages/Engine'));
 const KnowledgeBase = React.lazy(() => import('./pages/KnowledgeBase'));
 const AgentSwarm = React.lazy(() => import('./pages/AgentSwarm'));
+const Policy = React.lazy(() => import('./pages/Policy'));
+const ApprovalWorkflow = React.lazy(() => import('./pages/ApprovalWorkflow'));
 
 function PageSuspense({ children }) {
   return (
@@ -69,6 +71,9 @@ export default function HiveMindApp() {
           <Route path="mcp" element={<PageSuspense><McpServer /></PageSuspense>} />
           <Route path="graph" element={<PageSuspense><MemoryGraph /></PageSuspense>} />
           <Route path="engine" element={<PageSuspense><Engine /></PageSuspense>} />
+          <Route path="knowledge" element={<PageSuspense><KnowledgeBase /></PageSuspense>} />
+          <Route path="policy" element={<PageSuspense><Policy /></PageSuspense>} />
+          <Route path="approval-workflow" element={<PageSuspense><ApprovalWorkflow /></PageSuspense>} />
           <Route path="knowledge" element={<PageSuspense><KnowledgeBase /></PageSuspense>} />
           <Route path="swarm" element={<PageSuspense><AgentSwarm /></PageSuspense>} />
         </Route>

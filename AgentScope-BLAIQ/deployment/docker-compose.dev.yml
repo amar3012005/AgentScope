@@ -3,15 +3,19 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile
+    env_file:
+      - .env
     environment:
-      APP_ENV: ${APP_ENV:-production}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      CONTRACT_ENFORCEMENT: ${CONTRACT_ENFORCEMENT:-advisory}
       APP_HOST: ${APP_HOST:-0.0.0.0}
       APP_PORT: ${APP_PORT:-8090}
       DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
       REDIS_URL: ${APP_REDIS_URL:-redis://redis:6379/0}
       UPLOAD_DIR: /app/data/uploads
       ARTIFACT_DIR: /app/data/artifacts
+      AGENT_PROFILE_DIR: /app/data/agent_profiles
       LOG_DIR: /app/logs
       DEFAULT_TENANT: ${DEFAULT_TENANT:-default}
       DEFAULT_SOURCE_SCOPE: ${DEFAULT_SOURCE_SCOPE:-web}
@@ -31,7 +35,7 @@ services:
       STRATEGIC_MODEL: ${STRATEGIC_MODEL:-gemini-2.5-pro}
       ROUTING_MODEL: ${ROUTING_MODEL:-gemini-2.5-flash-lite}
       RESEARCH_MODEL: ${RESEARCH_MODEL:-gemini-2.5-pro}
-      VANGOGH_MODEL: ${VANGOGH_MODEL:-vertex_ai/claude-sonnet-4-6@default}
+      VANGOGH_MODEL: ${VANGOGH_MODEL:-vertex_ai/claude-sonnet-4-5@20250929}
       GOVERNANCE_MODEL: ${GOVERNANCE_MODEL:-gemini-2.5-pro}
       OPENAI_FALLBACK_MODEL: ${OPENAI_FALLBACK_MODEL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -49,7 +53,9 @@ services:
       sh -c "python /app/deployment/bootstrap.py --migrate &&
       exec python -m uvicorn agentscope_blaiq.app.main:app
       --host ${APP_HOST:-0.0.0.0}
-      --port ${APP_PORT:-8090}"
+      --port ${APP_PORT:-8090}
+      --reload
+      --reload-dir /app/src"
     ports:
       - "${HOST_PORT:-8090}:8090"
     depends_on:
@@ -60,6 +66,7 @@ services:
     volumes:
       - agentscope_blaiq_uploads:/app/data/uploads
       - agentscope_blaiq_artifacts:/app/data/artifacts
+      - agentscope_blaiq_agent_profiles:/app/data/agent_profiles
       - agentscope_blaiq_logs:/app/logs
       - ../src:/app/src
       - ../deployment:/app/deployment
@@ -103,4 +110,5 @@ volumes:
   agentscope_blaiq_redis:
   agentscope_blaiq_uploads:
   agentscope_blaiq_artifacts:
+  agentscope_blaiq_agent_profiles:
   agentscope_blaiq_logs:

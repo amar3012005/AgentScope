@@ -17,7 +17,20 @@ from agentscope_blaiq.contracts.events import StreamEvent
 from agentscope_blaiq.contracts.evidence import EvidencePack, EvidenceFinding, SourceRecord, Citation
 from agentscope_blaiq.agents.clarification import ClarificationPrompt
 from agentscope_blaiq.persistence.database import get_session_local
-from agentscope_blaiq.contracts.workflow import AgentType, AnalysisMode, ArtifactSpec, RequirementStage, ResumeWorkflowRequest, SubmitWorkflowRequest, WorkflowMode, WorkflowPlan, WorkflowStatus
+from agentscope_blaiq.contracts.workflow import (
+    AgentType,
+    AnalysisMode,
+    ArtifactSpec,
+    ClarificationAnswerSet,
+    ClarificationBundle,
+    ClarificationQuestion as ContractClarificationQuestion,
+    RequirementStage,
+    ResumeWorkflowRequest,
+    SubmitWorkflowRequest,
+    WorkflowMode,
+    WorkflowPlan,
+    WorkflowStatus,
+)
 from agentscope_blaiq.persistence.redis_state import BranchRedisState, RedisStateStore, WorkflowRedisState
 from agentscope_blaiq.persistence.repositories import (
     AgentRunRepository,
@@ -28,6 +41,20 @@ from agentscope_blaiq.persistence.repositories import (
 from agentscope_blaiq.agents.skills import load_brand_voice
 from agentscope_blaiq.contracts.workflow import TEXT_ARTIFACT_FAMILIES as TEXT_FAMILIES
 from agentscope_blaiq.contracts.dispatch import validate_dispatch, validate_handoff, validate_tool_call
+from agentscope_blaiq.contracts.hooks import (
+    HookAction,
+    HookContext,
+    HookType,
+    evaluate_planner_guard,
+    evaluate_pre_dispatch,
+    evaluate_pre_handoff,
+)
+from agentscope_blaiq.contracts.enforcement import enforcement_check
+from agentscope_blaiq.contracts.recovery import (
+    classify_failure, resolve_recovery, RetryBudget, RecoveryEvent, FailureClass,
+)
+from agentscope_blaiq.contracts.messages import make_agent_input, make_agent_output, RuntimeMsg
+from agentscope_blaiq.contracts.harness import canonicalize_workflow_template_id
 from agentscope_blaiq.contracts.registry import HarnessRegistry
 from agentscope_blaiq.runtime.config import settings
 from agentscope_blaiq.runtime.registry import AgentRegistry
@@ -53,7 +80,13 @@ def _parse_hivemind_user_id(rpc_url: str | None) -> str | None:
     return None
 
 
-def _make_agent_log_sink(events: "EventFactory", publish: EventPublisher, agent_name: str, phase: str):
+def _make_agent_log_sink(
+    events: "EventFactory",
+    publish: EventPublisher,
+    agent_name: str,
+    phase: str,
+    node_id: str | None = None,
+):
     """Create a log sink bound to a specific agent and phase.
 
     The sink emits agent_log events through the SSE stream so the
@@ -66,17 +99,24 @@ def _make_agent_log_sink(events: "EventFactory", publish: EventPublisher, agent_
         visibility: str = "user",
         detail: dict[str, Any] | None = None,
     ) -> None:
+        event_type = "agent_log"
+        if message_kind in {"tool_call", "tool_result", "tool_error", "tool_call_started", "tool_call_finished", "tool_call_failed"}:
+            event_type = message_kind
+        data = {
+            "message": message,
+            "message_kind": message_kind,
+            "visibility": visibility,
+        }
+        if node_id is not None:
+            data["node_id"] = node_id
+        if detail:
+            data["detail"] = detail
         await publish(
             events.build(
-                "agent_log",
+                event_type,
                 agent_name=agent_name,
                 phase=phase,
-                data={
-                    "message": message,
-                    "message_kind": message_kind,
-                    "visibility": visibility,
-                    **({"detail": detail} if detail else {}),
-                },
+                data=data,
             )
         )
 
@@ -189,12 +229,195 @@ class WorkflowEngine:
     def _get_harness_registry(self) -> HarnessRegistry:
         """Lazy-load the harness registry for dispatch validation."""
         if self._harness_registry is None:
-            reg = HarnessRegistry()
-            reg.load_builtin_agents()
-            reg.load_builtin_tools()
-            reg.load_builtin_workflows()
-            self._harness_registry = reg
+            self._harness_registry = self.registry.harness_registry
         return self._harness_registry
+
+    @staticmethod
+    def _assigned_agent_name(
+        ctx: WorkflowRunContext,
+        node_id: str,
+        default_agent: str,
+    ) -> str:
+        for node in ctx.plan.task_graph.nodes:
+            if node.node_id == node_id and node.assigned_to:
+                return node.assigned_to
+        return default_agent
+
+    def _resolve_runtime_agent(
+        self,
+        ctx: WorkflowRunContext,
+        node_id: str,
+        default_agent: str,
+    ) -> tuple[str, Any]:
+        agent_name = self._assigned_agent_name(ctx, node_id, default_agent)
+        agent = self.registry.get_agent(agent_name)
+        if agent is None:
+            agent_name = default_agent
+            agent = self.registry.get_agent(default_agent)
+        if agent is None:
+            raise RuntimeError(f"Agent '{agent_name}' is not available in the runtime registry.")
+        return agent_name, agent
+
+    @staticmethod
+    def _contract_workflow_id_for_request(request: SubmitWorkflowRequest) -> str | None:
+        if request.analysis_mode == AnalysisMode.finance:
+            return "finance_v1"
+        if request.analysis_mode == AnalysisMode.data_science:
+            return "data_science_v1"
+        if request.artifact_family_hint is not None:
+            if request.artifact_family_hint.value in TEXT_FAMILIES:
+                return "text_artifact_v1"
+            return "visual_artifact_v1"
+        return None
+
+    def _contract_workflow_id(self, ctx: WorkflowRunContext) -> str | None:
+        workflow_id = getattr(ctx.plan, "workflow_template_id", None)
+        if workflow_id:
+            return canonicalize_workflow_template_id(workflow_id)
+        return canonicalize_workflow_template_id(self._contract_workflow_id_for_request(ctx.request))
+
+    def _default_research_agent_name(self, ctx: WorkflowRunContext) -> str:
+        mode = ctx.request.analysis_mode
+        if mode == AnalysisMode.finance:
+            return "finance_research"
+        if mode == AnalysisMode.data_science:
+            return "data_science"
+        return "deep_research"
+
+    def _resolve_research_runtime_agent(self, ctx: WorkflowRunContext) -> tuple[str, Any]:
+        default_name = self._default_research_agent_name(ctx)
+        assigned_name = self._assigned_agent_name(ctx, "research", default_name)
+        agent = self.registry.get_agent(assigned_name)
+        if agent is None:
+            agent = self.registry.get_agent(default_name)
+            assigned_name = default_name
+        if agent is None:
+            agent = self.registry.get_agent("research")
+            assigned_name = "research"
+        if agent is None:
+            raise RuntimeError("No research-capable agent is available in the runtime registry.")
+        return assigned_name, agent
+
+    @staticmethod
+    async def _call_research_gather(
+        agent: Any,
+        session: Any,
+        tenant_id: str,
+        query: str,
+        source_scope: str,
+        *,
+        quick_recall: bool,
+    ) -> EvidencePack:
+        signature = inspect.signature(agent.gather)
+        kwargs: dict[str, Any] = {}
+        if "session" in signature.parameters:
+            kwargs["session"] = session
+        if "tenant_id" in signature.parameters:
+            kwargs["tenant_id"] = tenant_id
+        if "query" in signature.parameters:
+            kwargs["query"] = query
+        elif "user_query" in signature.parameters:
+            kwargs["user_query"] = query
+        if "source_scope" in signature.parameters:
+            kwargs["source_scope"] = source_scope
+        elif "scope" in signature.parameters:
+            kwargs["scope"] = source_scope
+        if "quick_recall" in signature.parameters:
+            kwargs["quick_recall"] = quick_recall
+        return await agent.gather(**kwargs)
+
+    @staticmethod
+    def _extract_followup_research_requests(slides_data: dict[str, Any] | None) -> list[dict[str, Any]]:
+        if not isinstance(slides_data, dict):
+            return []
+        metadata = slides_data.get("metadata")
+        if not isinstance(metadata, dict):
+            return []
+        requests = metadata.get("followup_research_requests")
+        if not isinstance(requests, list):
+            return []
+        return [item for item in requests if isinstance(item, dict) and item.get("request")]
+
+    @staticmethod
+    def _extract_slide_followup_requests(slides_data: dict[str, Any] | None) -> list[dict[str, Any]]:
+        if not isinstance(slides_data, dict):
+            return []
+        slides = slides_data.get("slides")
+        if not isinstance(slides, list):
+            return []
+
+        requests: list[dict[str, Any]] = []
+        for index, slide in enumerate(slides):
+            if not isinstance(slide, dict):
+                continue
+            slide_requests = slide.get("research_requests")
+            if not isinstance(slide_requests, list) or not slide_requests:
+                continue
+            request_text = next((str(item).strip() for item in slide_requests if str(item).strip()), "")
+            if not request_text:
+                continue
+            slide_title = str(
+                slide.get("headline")
+                or slide.get("title")
+                or slide.get("subtitle")
+                or f"Slide {index + 1}"
+            ).strip()
+            requests.append(
+                {
+                    "slide_index": index,
+                    "slide_title": slide_title or f"Slide {index + 1}",
+                    "request": request_text,
+                }
+            )
+        return requests
+
+    @staticmethod
+    def _format_followup_research_query(user_query: str, group: dict[str, Any]) -> str:
+        slide_titles = group.get("slide_titles") or []
+        if not slide_titles and group.get("slide_title"):
+            slide_titles = [group.get("slide_title")]
+        titles = ", ".join(str(title) for title in slide_titles if title)
+        request = str(group.get("request") or "").strip()
+        return (
+            f"User request: {user_query}\n"
+            f"Slide group: {titles or 'n/a'}\n"
+            f"Follow-up research request: {request}\n"
+            "Return only compact evidence that helps the content director sharpen those slides."
+        )
+
+    async def _emit_step_summary(
+        self,
+        events: EventFactory,
+        publish: EventPublisher,
+        *,
+        step: str,
+        phase: str,
+        summary: dict[str, Any],
+    ) -> None:
+        logger.info(
+            "[workflow] step_summary step=%s phase=%s summary=%s",
+            step,
+            phase,
+            json.dumps(summary, ensure_ascii=False, default=str),
+        )
+        await publish(
+            events.build(
+                "workflow_step_summary",
+                agent_name="system",
+                phase=phase,
+                data={"step": step, "summary": summary},
+            )
+        )
+
+    def _strategist_research_handoff(self, ctx: WorkflowRunContext) -> dict[str, Any]:
+        return {
+            "workflow_id": self._contract_workflow_id(ctx) or "",
+            "query": ctx.request.user_query,
+            "source_scope": ctx.request.source_scope,
+            "workflow_plan": ctx.plan.model_dump(mode="json"),
+            "task_graph": ctx.plan.task_graph.model_dump(mode="json"),
+            "missing_requirements": list(getattr(ctx.plan, "missing_requirements", [])),
+        }
 
     def _pre_dispatch_check(
         self,
@@ -204,31 +427,25 @@ class WorkflowEngine:
         workflow_id: str | None = None,
         tools_requested: list[str] | None = None,
     ) -> None:
-        """Validate an agent dispatch against harness contracts before execution.
+        """Validate an agent dispatch via the PRE_DISPATCH hook evaluator.
 
-        Logs WARN on validation failures but does not raise — enforcement is
-        advisory in Phase 3 to avoid blocking production while contracts stabilise.
+        Advisory-only — logs WARN on failure, never raises.
         """
-        result = validate_dispatch(
+        ctx = HookContext(
+            hook_type=HookType.PRE_DISPATCH,
+            node_id=agent_id,
             agent_id=agent_id,
             input_data=input_data,
-            registry=self._get_harness_registry(),
             workflow_id=workflow_id,
-            tools_requested=tools_requested,
+            metadata={"tools_requested": tools_requested or []},
         )
-        if not result.ok:
-            logger.warning(
-                "dispatch_contract_violation agent=%s workflow=%s errors=%s",
-                agent_id,
-                workflow_id,
-                result.errors,
-            )
-        elif result.warnings:
-            logger.info(
-                "dispatch_contract_warning agent=%s workflow=%s warnings=%s",
-                agent_id,
-                workflow_id,
-                result.warnings,
+        decision = evaluate_pre_dispatch(ctx, self._get_harness_registry())
+        if decision.action != HookAction.PROCEED:
+            enforcement_check(
+                ok=decision.action not in {HookAction.BLOCK},
+                errors=decision.errors,
+                context=f"dispatch agent={agent_id} workflow={workflow_id}",
+                warnings=decision.warnings,
             )
 
     def _pre_handoff_check(
@@ -239,24 +456,26 @@ class WorkflowEngine:
         *,
         workflow_id: str | None = None,
     ) -> None:
-        """Validate a handoff between agents against harness contracts.
+        """Validate a handoff via the PRE_DISPATCH hook evaluator (handoff variant).
 
-        Advisory-only in Phase 3 — logs violations, does not raise.
+        Advisory-only — logs WARN on failure, never raises.
         """
-        result = validate_handoff(
-            from_agent_id=from_agent_id,
-            to_agent_id=to_agent_id,
+        ctx = HookContext(
+            hook_type=HookType.PRE_DISPATCH,
+            node_id=from_agent_id,
+            agent_id=from_agent_id,
+            input_data={},
             output_data=output_data,
-            registry=self._get_harness_registry(),
             workflow_id=workflow_id,
+            metadata={"to_agent_id": to_agent_id},
         )
-        if not result.ok:
-            logger.warning(
-                "handoff_contract_violation from=%s to=%s workflow=%s errors=%s",
-                from_agent_id,
-                to_agent_id,
-                workflow_id,
-                result.errors,
+        decision = evaluate_pre_handoff(ctx, self._get_harness_registry())
+        if decision.action != HookAction.PROCEED:
+            enforcement_check(
+                ok=decision.action not in {HookAction.BLOCK},
+                errors=decision.errors,
+                context=f"handoff from={from_agent_id} to={to_agent_id} workflow={workflow_id}",
+                warnings=decision.warnings,
             )
 
     def _pre_tool_call_check(
@@ -278,14 +497,127 @@ class WorkflowEngine:
             registry=self._get_harness_registry(),
             workflow_id=workflow_id,
         )
-        if not result.ok:
-            logger.warning(
-                "tool_call_contract_violation agent=%s tool=%s workflow=%s errors=%s",
-                agent_id,
-                tool_id,
-                workflow_id,
-                result.errors,
-            )
+        enforcement_check(
+            ok=result.ok,
+            errors=result.errors,
+            context=f"tool_call agent={agent_id} tool={tool_id} workflow={workflow_id}",
+            warnings=result.warnings,
+        )
+
+    async def _execute_with_recovery(
+        self,
+        agent_id: str,
+        run_fn: Callable[[], Awaitable[Any]],
+        input_data: dict[str, Any],
+        *,
+        workflow_id: str | None = None,
+        node_id: str | None = None,
+        max_attempts: int = 3,
+        retry_budget: RetryBudget | None = None,
+    ) -> Any:
+        """Execute run_fn with failure classification and policy-driven recovery.
+
+        Enhanced from Phase 4 blind retry to Phase 8 contract-aware recovery:
+        1. Wraps input/output in RuntimeMsg envelopes for traceability.
+        2. Classifies failures via contracts.recovery.classify_failure().
+        3. Consults resolve_recovery() for deterministic recovery action.
+        4. Respects per-workflow RetryBudget when provided.
+        5. Logs RecoveryEvent for each failure.
+
+        Args:
+            agent_id: Agent being executed.
+            run_fn: Zero-argument async callable that performs the agent work.
+            input_data: Data being sent to the agent.
+            workflow_id: Current workflow instance identifier.
+            node_id: Current node identifier (defaults to agent_id).
+            max_attempts: Maximum execution attempts (default 3).
+            retry_budget: Optional per-workflow retry budget tracker.
+
+        Returns:
+            Whatever run_fn returns on success.
+
+        Raises:
+            Exception: Re-raises the last exception if recovery says BLOCK
+                or all attempts exhausted.
+        """
+        effective_node_id = node_id or agent_id
+        budget = retry_budget or RetryBudget(workflow_id=workflow_id or "anonymous")
+
+        # Create input envelope for traceability
+        input_msg = make_agent_input(
+            workflow_id=workflow_id,
+            node_id=effective_node_id,
+            agent_id=agent_id,
+            payload=input_data,
+        )
+        logger.debug(
+            "execute_with_recovery: input_msg=%s agent=%s node=%s",
+            input_msg.msg_id, agent_id, effective_node_id,
+        )
+
+        last_exc: Exception | None = None
+        for attempt in range(max_attempts):
+            self._pre_dispatch_check(agent_id, input_data, workflow_id=workflow_id)
+            try:
+                result = await run_fn()
+
+                # Wrap output in envelope
+                output_msg = make_agent_output(
+                    input_msg=input_msg,
+                    payload=result if isinstance(result, dict) else {"result": result},
+                )
+                logger.debug(
+                    "execute_with_recovery: output_msg=%s parent=%s",
+                    output_msg.msg_id, output_msg.parent_msg_id,
+                )
+                return result
+            except Exception as exc:  # noqa: BLE001 — intentional catch-all for recovery loop
+                last_exc = exc
+                # Classify the failure
+                context = {"agent_id": agent_id, "node_id": effective_node_id}
+                failure_class = classify_failure(exc, context)
+
+                # Check budget
+                if not budget.can_retry(effective_node_id):
+                    failure_class = FailureClass.UNKNOWN  # budget exhausted overrides
+
+                # Get recovery decision
+                recovery = resolve_recovery(
+                    failure_class=failure_class,
+                    budget=budget,
+                    node_id=effective_node_id,
+                )
+
+                # Log structured recovery event
+                event = RecoveryEvent.create(
+                    workflow_id=workflow_id,
+                    node_id=effective_node_id,
+                    agent_id=agent_id,
+                    failure_class=failure_class,
+                    recovery_action=recovery,
+                    attempt_number=attempt,
+                    budget_remaining=budget.remaining(effective_node_id),
+                    error_message=str(exc),
+                )
+                logger.warning(
+                    "recovery_event: %s failure=%s action=%s attempt=%d/%d budget_remaining=%d",
+                    event.event_id,
+                    failure_class.value,
+                    recovery.action.value,
+                    attempt + 1,
+                    max_attempts,
+                    event.budget_remaining,
+                )
+
+                budget.record_attempt(effective_node_id)
+
+                # Act on recovery decision
+                if recovery.block_workflow:
+                    raise
+                if attempt == max_attempts - 1:
+                    raise
+
+        raise last_exc  # type: ignore[misc]
 
     async def cancel(self, thread_id: str) -> None:
         """Request cancellation of a running workflow."""
@@ -406,6 +738,52 @@ class WorkflowEngine:
         async for event in self._run_workflow(session=session, request=request, resume_request=None):
                 yield event
 
+    @staticmethod
+    def _resolve_resume_answers(request: ResumeWorkflowRequest) -> dict[str, str]:
+        """Extract the canonical answers dict from a resume request.
+
+        Prefers the typed ``answer_set`` (Phase 4+) over the legacy flat
+        ``answers`` dict so both paths keep working during the rollout.
+        """
+        if request.answer_set is not None and request.answer_set.answers:
+            return dict(request.answer_set.answers)
+        return dict(request.answers)
+
+    @staticmethod
+    def _validate_answer_set(
+        request: ResumeWorkflowRequest,
+        redis_state: Any | None,
+    ) -> list[str]:
+        """Validate a typed ``ClarificationAnswerSet`` against the stored bundle.
+
+        Returns a list of error strings (empty = valid).  Skips validation when
+        no typed ``answer_set`` is present so legacy resume paths are unaffected.
+        """
+        if request.answer_set is None:
+            return []
+        if redis_state is None:
+            return []
+        bundle_json: str | None = getattr(redis_state, "blocked_bundle_json", None)
+        if not bundle_json:
+            return []
+        try:
+            bundle = ClarificationBundle.model_validate_json(bundle_json)
+        except Exception:
+            return []
+
+        errors: list[str] = []
+        provided = {
+            k.strip(): str(v).strip()
+            for k, v in request.answer_set.answers.items()
+            if str(v).strip()
+        }
+        for q in bundle.questions:
+            if q.required and q.requirement_id not in provided:
+                errors.append(
+                    f"Required question '{q.requirement_id}' has no answer."
+                )
+        return errors
+
     async def resume(self, session: AsyncSession, request: ResumeWorkflowRequest):
         repo = WorkflowRepository(session, self.state_store)
         workflow = await repo.get_workflow_record(request.thread_id)
@@ -424,6 +802,17 @@ class WorkflowEngine:
             raise ValueError("tenant_id does not match the stored workflow")
 
         resume_reason = request.resume_reason or f"retry from {snapshot.status.value}"
+
+        # Phase 4: validate typed answer_set when provided.
+        if request.answer_set is not None:
+            redis_state = await self.state_store.get_workflow_state(request.thread_id)
+            validation_errors = self._validate_answer_set(request, redis_state)
+            if validation_errors:
+                raise ValueError(
+                    "Resume blocked — answer validation failed: "
+                    + "; ".join(validation_errors)
+                )
+
         if isinstance(session, AsyncSession):
             async with self.session_factory() as workflow_session:
                 async for event in self._run_workflow(
@@ -485,8 +874,8 @@ class WorkflowEngine:
             await queue.put(event)
             return event
 
-        def make_agent_log_sink(agent_name: str, phase: str):
-            return _make_agent_log_sink(events, publish, agent_name, phase)
+        def make_agent_log_sink(agent_name: str, phase: str, node_id: str | None = None):
+            return _make_agent_log_sink(events, publish, agent_name, phase, node_id=node_id or phase)
 
         if not is_resume:
             await repo.create_workflow(request, run_id=run_id, workflow_plan_json=None)
@@ -621,12 +1010,18 @@ class WorkflowEngine:
                     )
                 )
                 if is_resume:
+                    _resolved = self._resolve_resume_answers(resume_request) if resume_request is not None else {}
                     await publish(
                         events.build(
                             "resume_accepted",
                             agent_name="strategist",
                             phase="planning",
-                            data={"answers": resume_request.answers if resume_request is not None else {}, "resume_reason": resume_reason},
+                            data={
+                                "answers": _resolved,
+                                "resume_reason": resume_reason,
+                                "resume_strategy": getattr(resume_request, "resume_strategy", "continue") if resume_request else "continue",
+                                "clarification_bundle_id": getattr(resume_request, "clarification_bundle_id", None) if resume_request else None,
+                            },
                         )
                     )
                 await publish(
@@ -637,7 +1032,7 @@ class WorkflowEngine:
                         data={"workflow_mode": workflow_mode.value},
                     )
                 )
-                self._maybe_set_log_sink(self.registry.strategist, make_agent_log_sink("strategist", "planning"))
+                self._maybe_set_log_sink(self.registry.strategist, make_agent_log_sink("strategist", "planning", "planning"))
                 plan = await self._resolve_plan(request, repo, is_resume=is_resume)
                 workflow_mode = plan.workflow_mode
                 await self._update_workflow_snapshot(
@@ -683,7 +1078,7 @@ class WorkflowEngine:
                     persistence_lock=persistence_lock,
                     request=request,
                     plan=plan,
-                    resume_answers=resume_request.answers if resume_request is not None else {},
+                    resume_answers=self._resolve_resume_answers(resume_request) if resume_request is not None else {},
                     run_id=run_id,
                     workflow_mode=workflow_mode,
                     registry=self.registry,
@@ -722,6 +1117,18 @@ class WorkflowEngine:
                     if result.governance_report is not None and not result.governance_report.get("approved", False):
                         governance_status = "revision_required"
                     persisted_artifact = persisted_artifact.model_copy(update={"governance_status": governance_status})
+                    self._pre_tool_call_check(
+                        "vangogh",
+                        "persist_artifact_files",
+                        {
+                            "thread_id": request.thread_id,
+                            "artifact": persisted_artifact.model_dump(mode="json"),
+                        },
+                        workflow_id=canonicalize_workflow_template_id(
+                            getattr(plan, "workflow_template_id", None)
+                            or self._contract_workflow_id_for_request(request)
+                        ),
+                    )
                     html_path, css_path = persist_artifact_files(request.thread_id, persisted_artifact)
                     await artifact_repo.save(request.thread_id, request.tenant_id, persisted_artifact, html_path, css_path)
                     await repo.set_final_artifact(request.thread_id, persisted_artifact)
@@ -837,9 +1244,22 @@ class WorkflowEngine:
         # Log sink is injected by the caller's publish closure via make_agent_log_sink.
         strategist = self.registry.strategist
         build_plan = getattr(strategist, "build_plan")
+        self._pre_dispatch_check(
+            "strategist",
+            {
+                "user_request": request.user_query,
+                "agent_catalog": [agent.model_dump(mode="json") for agent in self.registry.list_live_profiles()],
+            },
+            workflow_id=self._contract_workflow_id_for_request(request),
+        )
         signature = inspect.signature(build_plan)
+        kwargs: dict[str, Any] = {}
         if "agent_catalog" in signature.parameters:
-            return await build_plan(request, agent_catalog=self.registry.list_live_profiles())
+            kwargs["agent_catalog"] = self.registry.list_live_profiles()
+        if "user_registry" in signature.parameters:
+            kwargs["user_registry"] = self.registry.user_agent_registry
+        if kwargs:
+            return await build_plan(request, **kwargs)
         return await build_plan(request)
 
     @staticmethod
@@ -851,10 +1271,10 @@ class WorkflowEngine:
     def _get_research_agent(self, ctx: WorkflowRunContext) -> Any:
         """Return the appropriate research agent based on analysis_mode.
 
-        - finance mode -> finance_research (hypothesis-driven)
-        - data_science mode -> data_science (data analysis with code execution)
-        - all other modes -> deep_research (tree-search)
-        - falls back to legacy research if the new agent is unavailable
+        - finance         → finance_research  (hypothesis-driven)
+        - data_science    → data_science       (code execution + analysis)
+        - standard/all    → deep_research      (tree-search, depth-capped at 2)
+        - fallback        → research           (flat recall)
         """
         mode = ctx.request.analysis_mode
         if mode == AnalysisMode.finance:
@@ -931,9 +1351,10 @@ class WorkflowEngine:
         evidence: EvidencePack,
         make_agent_log_sink: Callable[[str, str], Any],
     ) -> ClarificationPrompt:
-        hitl = self.registry.hitl
-        self._maybe_set_log_sink(hitl, make_agent_log_sink("hitl", "clarification"))
-        self.registry.mark_agent_busy("hitl", "clarification")
+        hitl_name = self._assigned_agent_name(ctx, "hitl", "hitl")
+        _, hitl = self._resolve_runtime_agent(ctx, "hitl", "hitl")
+        self._maybe_set_log_sink(hitl, make_agent_log_sink(hitl_name, "clarification"))
+        self.registry.mark_agent_busy(hitl_name, "clarification")
         try:
             generate_prompt = getattr(hitl, "generate_prompt")
             signature = inspect.signature(generate_prompt)
@@ -949,9 +1370,23 @@ class WorkflowEngine:
             }
             if "evidence" in signature.parameters:
                 kwargs["evidence"] = evidence
+            self._pre_handoff_check(
+                "research",
+                hitl_name,
+                {
+                    "evidence_pack": evidence.model_dump(mode="json"),
+                    "missing_requirement_ids": missing_ids,
+                },
+                workflow_id=self._contract_workflow_id(ctx),
+            )
+            self._pre_dispatch_check(
+                hitl_name,
+                kwargs,
+                workflow_id=self._contract_workflow_id(ctx),
+            )
             return await generate_prompt(**kwargs)
         finally:
-            self.registry.mark_agent_ready("hitl", "idle")
+            self.registry.mark_agent_ready(hitl_name, "idle")
 
     async def _load_latest_evidence(self, evidence_repo: EvidenceRepository, thread_id: str) -> EvidencePack | None:
         records = await evidence_repo.list_for_thread(thread_id)
@@ -969,7 +1404,7 @@ class WorkflowEngine:
                 "agent_catalog_snapshot",
                 agent_name="strategist",
                 phase="planning",
-                data={"agents": [agent.model_dump() for agent in self.registry.list_live_profiles()]},
+                data={"agents": [agent.model_dump(mode="json") for agent in self.registry.list_live_profiles()]},
             )
         )
 
@@ -996,10 +1431,11 @@ class WorkflowEngine:
         evidence: EvidencePack,
     ) -> dict[str, Any]:
         node_id = "content_director"
+        content_director_name = self._assigned_agent_name(ctx, node_id, "content_director")
         await self._set_branch(
             ctx,
             branch_id=node_id,
-            agent_name="content_director",
+            agent_name=content_director_name,
             branch_kind="content_director",
             status="running",
             current_phase="content_director",
@@ -1012,52 +1448,126 @@ class WorkflowEngine:
         await publish(
             events.build(
                 "content_director_started",
-                agent_name="content_director",
+                agent_name=content_director_name,
                 phase="content_director",
                 data={"artifact_family": ctx.plan.artifact_family.value, "node_id": node_id},
             )
         )
-        self.registry.mark_agent_busy("content_director", "content_director")
-        brief = await self.registry.content_director.plan_content(
-            user_query=ctx.request.user_query,
-            evidence_summary=evidence.summary,
-            artifact_spec=ctx.plan.artifact_spec or ArtifactSpec(family=ctx.plan.artifact_family),
-            requirements=ctx.plan.requirements_checklist,
-            hitl_answers=ctx.resume_answers,
-            evidence_pack=evidence,
+        content_director_name, content_director = self._resolve_runtime_agent(ctx, node_id, "content_director")
+        self._maybe_set_log_sink(content_director, _make_agent_log_sink(events, publish, content_director_name, "content_director", node_id))
+        self.registry.mark_agent_busy(content_director_name, "content_director")
+        self._pre_handoff_check(
+            "research",
+            content_director_name,
+            {"evidence_pack": evidence.model_dump(mode="json")},
+            workflow_id=self._contract_workflow_id(ctx),
         )
-        content_brief = brief.model_dump()
+        self._pre_dispatch_check(
+            content_director_name,
+            {
+                "user_query": ctx.request.user_query,
+                "evidence_summary": evidence.summary,
+                "artifact_spec": (ctx.plan.artifact_spec or ArtifactSpec(family=ctx.plan.artifact_family)).model_dump(mode="json"),
+                "requirements": ctx.plan.requirements_checklist.model_dump(mode="json"),
+                "hitl_answers": ctx.resume_answers,
+                "evidence_pack": evidence.model_dump(mode="json"),
+            },
+            workflow_id=self._contract_workflow_id(ctx),
+        )
+        artifact_spec = ctx.plan.artifact_spec or ArtifactSpec(family=ctx.plan.artifact_family)
+        
+        # New ReAct-based execution path
+        try:
+            react_msg = await content_director.reply(
+                ctx.request.user_query,
+                extra_context={
+                    "artifact_family": ctx.plan.artifact_family.value,
+                    "requirements": ctx.plan.requirements_checklist.model_dump_json(),
+                    "evidence_summary": evidence.summary,
+                    "hitl_answers": ctx.resume_answers,
+                    "evidence_pack": evidence.model_dump(mode="json"),
+                }
+            )
+            extracted = self._extract_brief_from_react(react_msg)
+            if extracted:
+                brief = ArtifactBrief.model_validate(extracted)
+                artifact_brief = brief.model_dump(mode="json")
+                if hasattr(content_director, "_artifact_brief_to_content_brief"):
+                    legacy_brief = content_director._artifact_brief_to_content_brief(
+                        artifact_brief=brief,
+                        artifact_spec=artifact_spec,
+                        hitl_answers=ctx.resume_answers,
+                    )
+                    content_brief = legacy_brief.model_dump(mode="json")
+                else:
+                    content_brief = artifact_brief
+            else:
+                raise ValueError("No structured brief in ReAct response")
+                
+        except Exception as react_exc:
+            logger.warning("ReAct execution failed (%s); falling back to legacy direct planning.", react_exc)
+            if hasattr(content_director, "plan_artifact_brief"):
+                brief = await content_director.plan_artifact_brief(
+                    user_query=ctx.request.user_query,
+                    evidence_summary=evidence.summary,
+                    artifact_spec=artifact_spec,
+                    requirements=ctx.plan.requirements_checklist,
+                    hitl_answers=ctx.resume_answers,
+                    evidence_pack=evidence,
+                )
+                artifact_brief = brief.model_dump(mode="json")
+                if hasattr(content_director, "_artifact_brief_to_content_brief"):
+                    legacy_brief = content_director._artifact_brief_to_content_brief(
+                        artifact_brief=brief,
+                        artifact_spec=artifact_spec,
+                        hitl_answers=ctx.resume_answers,
+                    )
+                    content_brief = legacy_brief.model_dump(mode="json")
+                else:
+                    content_brief = artifact_brief
+            else:
+                legacy_brief = await content_director.plan_content(
+                    user_query=ctx.request.user_query,
+                    evidence_summary=evidence.summary,
+                    artifact_spec=artifact_spec,
+                    requirements=ctx.plan.requirements_checklist,
+                    hitl_answers=ctx.resume_answers,
+                    evidence_pack=evidence,
+                )
+                content_brief = legacy_brief.model_dump(mode="json")
+                artifact_brief = content_brief
+
         await self._update_workflow_snapshot(
             ctx.repo,
             ctx.request.thread_id,
             run_id=ctx.run_id,
             current_node="content_director",
             current_phase="content_director",
-            current_agent="content_director",
+            current_agent=content_director_name,
             latest_event="content_director_completed",
-            content_director_output_json=json.dumps(content_brief, default=str),
+            content_director_output_json=json.dumps(artifact_brief, default=str),
             last_completed_node="content_director",
         )
         workflow_state = await self.state_store.get_workflow_state(ctx.request.thread_id)
         if workflow_state is not None:
             workflow_state.current_node = "content_director"
             workflow_state.current_phase = "content_director"
-            workflow_state.current_agent = "content_director"
-            workflow_state.content_director_output_json = json.dumps(content_brief, default=str)
+            workflow_state.current_agent = content_director_name
+            workflow_state.content_director_output_json = json.dumps(artifact_brief, default=str)
             workflow_state.last_completed_node = "content_director"
             workflow_state.updated_at = utc_now()
             await self.state_store.set_workflow_state(workflow_state)
         await publish(
             events.build(
                 "content_director_completed",
-                agent_name="content_director",
+                agent_name=content_director_name,
                 phase="content_director",
-                data={"content_brief": content_brief},
+                data={"artifact_brief": artifact_brief, "content_brief": content_brief},
             )
         )
-        self.registry.mark_agent_ready("content_director", "idle")
-        await self._complete_branch(ctx, branch_id=node_id, output_json=content_brief)
-        return content_brief
+        self.registry.mark_agent_ready(content_director_name, "idle")
+        await self._complete_branch(ctx, branch_id=node_id, output_json=artifact_brief)
+        return artifact_brief
 
     async def _run_text_buddy_pipeline(
         self,
@@ -1067,7 +1577,7 @@ class WorkflowEngine:
         *,
         evidence: EvidencePack,
     ) -> WorkflowExecutionResult:
-        """Run the text artifact pipeline: text_buddy → governance."""
+        """Run the text artifact pipeline: research_final_recall → text_buddy → governance."""
         # Check for cancellation at pipeline entry
         if self._is_cancelled(ctx.request.thread_id):
             logger.info("Workflow cancelled by user (text_buddy_pipeline start)")
@@ -1075,26 +1585,112 @@ class WorkflowEngine:
             await publish(events.build("workflow_cancelled", phase="text_buddy", data={"reason": "User requested cancellation"}))
             return WorkflowExecutionResult()
 
+        effective_evidence = evidence
+
+        # ── Phase 2: Research Final Recall (only on resume/HITL) ──
+        if ctx.resume_answers:
+            node_id = "research_final_recall"
+            research_name, research_agent = self._resolve_research_runtime_agent(ctx)
+            await self._set_branch(
+                ctx,
+                branch_id=node_id,
+                agent_name=research_name,
+                branch_kind="research",
+                status="running",
+                current_phase="research",
+                input_json={
+                    "original_query": ctx.request.user_query,
+                    "hitl_answers": ctx.resume_answers,
+                },
+            )
+            await publish(
+                events.build(
+                    "agent_started",
+                    agent_name=research_name,
+                    phase="research",
+                    data={"node_id": node_id, "purpose": "Refining research with user feedback"},
+                )
+            )
+            # Visible user-facing log so the frontend shows this phase.
+            answer_summary = "; ".join(
+                f"{k.split(':')[-1].replace('_', ' ')}: {v}"
+                for k, v in list(ctx.resume_answers.items())[:3]
+                if str(v).strip()
+            )
+            await publish(
+                events.build(
+                    "agent_log",
+                    agent_name=research_name,
+                    phase="research",
+                    status="running",
+                    data={
+                        "message": f"Re-researching with your answers: {answer_summary or 'HITL context applied'}",
+                        "message_kind": "status",
+                        "visibility": "user",
+                        "node_id": node_id,
+                    },
+                )
+            )
+
+            # Combine original query with HITL answers for an optimized recall request
+            hitl_context = " ".join([f"{k}: {v}" for k, v in ctx.resume_answers.items()])
+            combined_query = f"{ctx.request.user_query} | Additional context: {hitl_context}"
+
+            try:
+                # Perform the second research pass
+                new_evidence = await self._call_research_gather(
+                    research_agent,
+                    ctx.session,
+                    ctx.request.tenant_id,
+                    combined_query,
+                    ctx.request.source_scope or "all",
+                    quick_recall=True,  # HITL re-research = fast recall with enriched query
+                )
+                # Merge with initial evidence packs
+                effective_evidence = self._merge_evidence(evidence, new_evidence)
+                merged_count = len(effective_evidence.findings) if hasattr(effective_evidence, "findings") else "?"
+                await publish(
+                    events.build(
+                        "agent_log",
+                        agent_name=research_name,
+                        phase="research",
+                        status="running",
+                        data={
+                            "message": f"Research refinement complete — {merged_count} findings ready for composition.",
+                            "message_kind": "status",
+                            "visibility": "user",
+                            "node_id": node_id,
+                        },
+                    )
+                )
+                await publish(events.build("agent_completed", agent_name=research_name, phase="research", data={"evidence_pack": effective_evidence.model_dump()}))
+            except Exception as exc:
+                logger.warning("Research final recall failed, proceeding with prior evidence: %s", exc)
+            finally:
+                await self._complete_branch(ctx, branch_id=node_id, output_json=effective_evidence.model_dump())
+
         brand_voice = self._load_brand_voice_text(ctx.request.tenant_id)
 
         # ── Text Buddy composition ──
         node_id = "text_buddy"
+        text_buddy_name = self._assigned_agent_name(ctx, node_id, "text_buddy")
         await self._set_branch(
             ctx,
             branch_id=node_id,
-            agent_name="text_buddy",
+            agent_name=text_buddy_name,
             branch_kind="text_buddy",
             status="running",
             current_phase="text_buddy",
             input_json={
                 "artifact_family": ctx.plan.artifact_family.value,
+                "node_id": node_id,
                 "pipeline": "text_buddy",
             },
         )
         text_buddy_run = await ctx.agent_run_repo.create_run(
             thread_id=ctx.request.thread_id,
             tenant_id=ctx.request.tenant_id,
-            agent_name="text_buddy",
+            agent_name=text_buddy_name,
             agent_type=AgentType.text_buddy.value,
             branch_id=node_id,
             input_json={"query": ctx.request.user_query, "artifact_family": ctx.plan.artifact_family.value},
@@ -1102,17 +1698,39 @@ class WorkflowEngine:
         await publish(
             events.build(
                 "agent_started",
-                agent_name="text_buddy",
+                agent_name=text_buddy_name,
                 phase="text_buddy",
                 data={"artifact_family": ctx.plan.artifact_family.value, "node_id": node_id, "pipeline": "text_buddy"},
             )
         )
 
-        text_buddy = self.registry.text_buddy
-        self._maybe_set_log_sink(text_buddy, _make_agent_log_sink(events, publish, "text_buddy", "text_buddy"))
-        self.registry.mark_agent_busy("text_buddy", "text_buddy")
+        text_buddy_name, text_buddy = self._resolve_runtime_agent(ctx, node_id, "text_buddy")
+        self._maybe_set_log_sink(text_buddy, _make_agent_log_sink(events, publish, text_buddy_name, "text_buddy", "text_buddy"))
+        self.registry.mark_agent_busy(text_buddy_name, "text_buddy")
         prior_context = format_prior_context(ctx.prior_turns)
+        self._pre_handoff_check(
+            "research",
+            text_buddy_name,
+            {
+                "artifact_family": ctx.plan.artifact_family.value,
+                "evidence_pack": effective_evidence.model_dump(mode="json"),
+            },
+            workflow_id=self._contract_workflow_id(ctx),
+        )
         try:
+            self._pre_dispatch_check(
+                text_buddy_name,
+                {
+                    "user_query": ctx.request.user_query,
+                    "artifact_family": ctx.plan.artifact_family.value,
+                    "evidence_pack": evidence.model_dump(mode="json"),
+                    "hitl_answers": ctx.resume_answers,
+                    "brand_voice": brand_voice,
+                    "tenant_id": ctx.request.tenant_id,
+                    "prior_context": prior_context,
+                },
+                workflow_id=self._contract_workflow_id(ctx),
+            )
             text_artifact = await text_buddy.compose(
                 user_query=ctx.request.user_query,
                 artifact_family=ctx.plan.artifact_family.value,
@@ -1123,7 +1741,7 @@ class WorkflowEngine:
                 prior_context=prior_context,
             )
         finally:
-            self.registry.mark_agent_ready("text_buddy", "idle")
+            self.registry.mark_agent_ready(text_buddy_name, "idle")
 
         text_artifact_dict = text_artifact.model_dump()
         await ctx.agent_run_repo.mark_complete(text_buddy_run.run_id, text_artifact_dict)
@@ -1134,7 +1752,7 @@ class WorkflowEngine:
             run_id=ctx.run_id,
             current_node="text_buddy",
             current_phase="text_buddy",
-            current_agent="text_buddy",
+            current_agent=text_buddy_name,
             latest_event="agent_completed",
             last_completed_node="text_buddy",
         )
@@ -1142,7 +1760,7 @@ class WorkflowEngine:
         if workflow_state is not None:
             workflow_state.current_node = "text_buddy"
             workflow_state.current_phase = "text_buddy"
-            workflow_state.current_agent = "text_buddy"
+            workflow_state.current_agent = text_buddy_name
             workflow_state.last_completed_node = "text_buddy"
             workflow_state.updated_at = utc_now()
             await self.state_store.set_workflow_state(workflow_state)
@@ -1150,19 +1768,35 @@ class WorkflowEngine:
         await publish(
             events.build(
                 "agent_completed",
-                agent_name="text_buddy",
+                agent_name=text_buddy_name,
                 phase="text_buddy",
                 data={"text_artifact": text_artifact_dict},
             )
         )
         await self._complete_branch(ctx, branch_id=node_id, output_json=text_artifact_dict)
 
+        # ── Emit answer preview before governance so frontend streams immediately ──
+        await publish(
+            events.build(
+                "answer_preview",
+                agent_name=text_buddy_name,
+                phase="text_buddy",
+                status="running",
+                data={
+                    "content": text_artifact.content,
+                    "artifact_family": ctx.plan.artifact_family.value,
+                    "governance_pending": True,
+                },
+            )
+        )
+
         # ── Governance review of the text artifact ──
         governance_branch_id = "governance"
+        governance_name = self._assigned_agent_name(ctx, governance_branch_id, "governance")
         await self._set_branch(
             ctx,
             branch_id=governance_branch_id,
-            agent_name="governance",
+            agent_name=governance_name,
             branch_kind="governance",
             status="running",
             current_phase="governance",
@@ -1171,24 +1805,39 @@ class WorkflowEngine:
         governance_run = await ctx.agent_run_repo.create_run(
             thread_id=ctx.request.thread_id,
             tenant_id=ctx.request.tenant_id,
-            agent_name="governance",
+            agent_name=governance_name,
             agent_type=AgentType.governance.value,
             branch_id=governance_branch_id,
             input_json={"artifact_id": text_artifact.artifact_id, "evidence_refs": text_artifact.evidence_refs},
         )
-        await publish(events.build("governance_started", agent_name="governance", phase="governance"))
-        self._maybe_set_log_sink(self.registry.governance, _make_agent_log_sink(events, publish, "governance", "governance"))
+        await publish(events.build("governance_started", agent_name=governance_name, phase="governance"))
+        _, governance_agent = self._resolve_runtime_agent(ctx, governance_branch_id, "governance")
+        self._maybe_set_log_sink(governance_agent, _make_agent_log_sink(events, publish, governance_name, "governance", "governance"))
 
-        self.registry.mark_agent_busy("governance", "governance")
+        self.registry.mark_agent_busy(governance_name, "governance")
+        self._pre_handoff_check(
+            text_buddy_name,
+            governance_name,
+            text_artifact.model_dump(mode="json"),
+            workflow_id=self._contract_workflow_id(ctx),
+        )
         try:
-            governance_report = (await self.registry.governance.review_text(text_artifact, evidence)).model_dump()
+            self._pre_dispatch_check(
+                governance_name,
+                {
+                    "text_artifact": text_artifact.model_dump(mode="json"),
+                    "evidence_pack": evidence.model_dump(mode="json"),
+                },
+                workflow_id=self._contract_workflow_id(ctx),
+            )
+            governance_report = (await governance_agent.review_text(text_artifact, evidence)).model_dump()
         except Exception as exc:
             logger.warning("Governance review failed for text artifact: %s", exc)
             governance_report = {"approved": True, "issues": [], "readiness_score": 0.5, "notes": [f"Governance review error: {exc}"]}
         finally:
-            self.registry.mark_agent_ready("governance", "idle")
+            self.registry.mark_agent_ready(governance_name, "idle")
 
-        await publish(events.build("governance_complete", agent_name="governance", phase="governance", data={"governance_report": governance_report}))
+        await publish(events.build("governance_complete", agent_name=governance_name, phase="governance", data={"governance_report": governance_report}))
         await ctx.agent_run_repo.mark_complete(governance_run.run_id, governance_report)
         await self._complete_branch(ctx, branch_id=governance_branch_id, output_json=governance_report)
 
@@ -1214,32 +1863,43 @@ class WorkflowEngine:
             return None
         stage_label = self._event_stage_label(stages)
         try:
-            clarification = await self._build_clarification_prompt(ctx, missing, evidence, lambda agent_name, phase: _make_agent_log_sink(events, publish, agent_name, phase))
+            clarification = await self._build_clarification_prompt(
+                ctx,
+                missing,
+                evidence,
+                lambda agent_name, phase: _make_agent_log_sink(events, publish, agent_name, phase, node_id=pending_node),
+            )
         except Exception:
             clarification = None
+        # ── Build typed ClarificationBundle (Phase 3) ──────────────────────
         if clarification is not None:
             blocked_question = clarification.blocked_question or self._blocked_question(ctx.plan, missing)
-            questions = [
-                {
-                    "requirement_id": question.requirement_id,
-                    "question": question.question,
-                    "why_it_matters": question.why_it_matters,
-                    "answer_hint": question.answer_hint,
-                }
-                for question in clarification.questions
+            contract_questions = [
+                ContractClarificationQuestion(
+                    requirement_id=q.requirement_id,
+                    question=q.question,
+                    why_it_matters=q.why_it_matters,
+                    answer_hint=q.answer_hint,
+                    answer_options=list(q.answer_options) if hasattr(q, "answer_options") else [],
+                    input_type=getattr(q, "input_type", "option"),
+                    required=getattr(q, "required", True),
+                )
+                for q in clarification.questions
             ]
             expected_answer_schema = clarification.expected_answer_schema or {
-                question["requirement_id"]: question["question"] for question in questions
+                q.requirement_id: q.question for q in contract_questions
             }
         else:
             blocked_question = self._blocked_question(ctx.plan, missing)
-            questions = [
-                {
-                    "requirement_id": item.requirement_id,
-                    "question": item.text,
-                    "why_it_matters": None,
-                    "answer_hint": item.text,
-                }
+            contract_questions = [
+                ContractClarificationQuestion(
+                    requirement_id=item.requirement_id,
+                    question=item.text,
+                    why_it_matters=None,
+                    answer_hint=item.text,
+                    input_type="text",
+                    required=item.must_have,
+                )
                 for item in ctx.plan.requirements_checklist.items
                 if item.requirement_id in missing
             ]
@@ -1248,6 +1908,34 @@ class WorkflowEngine:
                 for item in ctx.plan.requirements_checklist.items
                 if item.requirement_id in missing
             }
+
+        # Typed bundle — replaces the ad-hoc blocked_question string.
+        # Kept alongside legacy fields for backward compat during rollout.
+        bundle = ClarificationBundle(
+            headline=clarification.headline if clarification is not None else "Clarification needed",
+            intro=clarification.intro if clarification is not None else "Please help fill the remaining requirements.",
+            blocking_stage=stage_label,
+            questions=contract_questions,
+            expected_answer_schema=expected_answer_schema,
+            pending_node=pending_node,
+            resume_from_node=pending_node,
+        )
+        bundle_json = bundle.model_dump_json()
+
+        # Legacy flat questions list — kept for existing frontend consumers.
+        questions = [
+            {
+                "requirement_id": q.requirement_id,
+                "question": q.question,
+                "why_it_matters": q.why_it_matters,
+                "answer_hint": q.answer_hint,
+                "answer_options": q.answer_options,
+                "input_type": q.input_type,
+                "required": q.required,
+            }
+            for q in contract_questions
+        ]
+
         await self._set_branch(
             ctx,
             branch_id=pending_node,
@@ -1266,15 +1954,16 @@ class WorkflowEngine:
                 data={
                     "artifact_family": ctx.plan.artifact_family.value,
                     "clarification_stage": stage_label,
-                    "prompt_headline": clarification.headline if clarification is not None else "Clarification needed",
-                    "prompt_intro": clarification.intro if clarification is not None else "Please help me fill the remaining requirements.",
+                    "prompt_headline": bundle.headline,
+                    "prompt_intro": bundle.intro,
                     "blocked_question": blocked_question,
                     "questions": questions,
-                    "expected_answer_schema": {
-                        "answers": expected_answer_schema,
-                    },
+                    "expected_answer_schema": {"answers": expected_answer_schema},
                     "pending_node": pending_node,
                     "missing_requirements": missing,
+                    # Phase 3: typed bundle for structured frontend rendering
+                    "clarification_bundle": bundle.model_dump(mode="json"),
+                    "clarification_bundle_id": bundle.bundle_id,
                 },
             )
         )
@@ -1294,6 +1983,7 @@ class WorkflowEngine:
             resume_cursor=pending_node,
             last_completed_node="research" if stage_label == "evidence_informed" else "planning",
             requirements_checklist_json=ctx.plan.requirements_checklist.model_dump_json(),
+            blocked_bundle_json=bundle_json,
         )
         await self.state_store.mark_blocked(
             ctx.request.thread_id,
@@ -1305,6 +1995,7 @@ class WorkflowEngine:
             last_completed_node="research" if stage_label == "evidence_informed" else "planning",
             requirements_checklist_json=ctx.plan.requirements_checklist.model_dump_json(),
             artifact_family=ctx.plan.artifact_family.value,
+            blocked_bundle_json=bundle_json,
         )
         workflow_state = await self.state_store.get_workflow_state(ctx.request.thread_id)
         if workflow_state is not None:
@@ -1348,6 +2039,29 @@ class WorkflowEngine:
                 },
                 ensure_ascii=False,
             )
+        return json.dumps(list(data.keys()), ensure_ascii=False)
+
+    def _extract_brief_from_react(self, msg: Any) -> dict | None:
+        """Try to extract a JSON ArtifactBrief from a ReActAgent response Msg."""
+        from agentscope_blaiq.runtime.model_resolver import LiteLLMModelResolver
+        # Note: LiteLLMModelResolver context should be available here
+        resolver = LiteLLMModelResolver.from_settings(settings)
+        
+        # 1. Check metadata (if structured_output_capable was used)
+        if hasattr(msg, "metadata") and msg.metadata and "artifact_brief" in msg.metadata:
+            return msg.metadata["artifact_brief"]
+            
+        # 2. Extract from raw text
+        text = msg.content if hasattr(msg, "content") else str(msg)
+        try:
+            raw_json = resolver.safe_json_loads(text)
+            if isinstance(raw_json, dict):
+                # Look for nested artifact_brief or return the whole dict if it fits
+                return raw_json.get("artifact_brief") or raw_json
+        except Exception:
+            pass
+        return None
+
         if event.type == "workflow_error":
             return json.dumps({"error_message": data.get("error_message")}, ensure_ascii=False)
         if event.type == "workflow_complete":
@@ -1379,9 +2093,33 @@ class WorkflowEngine:
         emit_planning_replay = not ctx.resume_from_post_research_hitl
         if emit_initial_events:
             await publish(events.build(entry_event_type, phase="workflow", data=entry_data or {"workflow_mode": ctx.workflow_mode.value}))
+            logger.info(
+                "[workflow] planning_started thread_id=%s workflow_mode=%s artifact_family=%s",
+                ctx.request.thread_id,
+                ctx.workflow_mode.value,
+                ctx.plan.artifact_family.value,
+            )
             await publish(events.build("planning_started", agent_name="strategist", phase="planning", data={"workflow_mode": ctx.workflow_mode.value}))
         if emit_planning_replay:
             await publish(events.build("planning_complete", agent_name="strategist", phase="planning", data={"plan": ctx.plan.model_dump()}))
+            logger.info(
+                "[workflow] planning_complete required_sections=%s coverage_score=%.3f missing_required_ids=%s",
+                list(ctx.plan.artifact_spec.required_sections) if ctx.plan.artifact_spec else [],
+                ctx.plan.requirements_checklist.coverage_score,
+                ctx.plan.requirements_checklist.missing_required_ids,
+            )
+            await self._emit_step_summary(
+                events,
+                publish,
+                step="planning",
+                phase="planning",
+                summary={
+                    "artifact_family": ctx.plan.artifact_family.value,
+                    "required_sections": list(ctx.plan.artifact_spec.required_sections) if ctx.plan.artifact_spec else [],
+                    "coverage_score": ctx.plan.requirements_checklist.coverage_score,
+                    "missing_required_ids": ctx.plan.requirements_checklist.missing_required_ids,
+                },
+            )
             await publish(
                 events.build(
                     "artifact_family_selected",
@@ -1443,16 +2181,19 @@ class WorkflowEngine:
             await publish(events.build("workflow_cancelled", phase="research", data={"reason": "User requested cancellation"}))
             return WorkflowExecutionResult()
 
+        if getattr(ctx.plan, "conversational", False):
+            return await self._run_conversational(ctx, events, publish)
         if ctx.plan.direct_answer:
             return await self._run_direct_answer(ctx, events, publish)
         branch_id = "sequential-research"
+        research_name, _ = self._resolve_research_runtime_agent(ctx)
         skip_research = ctx.resume_answers or ctx.re_run_from_planning
         evidence = await self._load_latest_evidence(ctx.evidence_repo, ctx.request.thread_id) if skip_research else None
         if evidence is None:
             await self._set_branch(
                 ctx,
                 branch_id=branch_id,
-                agent_name="research",
+                agent_name=research_name,
                 branch_kind="research",
                 status="running",
                 current_phase="research",
@@ -1461,24 +2202,47 @@ class WorkflowEngine:
             research_run = await ctx.agent_run_repo.create_run(
                 thread_id=ctx.request.thread_id,
                 tenant_id=ctx.request.tenant_id,
-                agent_name="research",
+                agent_name=research_name,
                 agent_type=AgentType.research.value,
                 branch_id=branch_id,
                 input_json={"query": ctx.request.user_query, "scope": ctx.request.source_scope},
             )
 
-            await publish(events.build("agent_started", agent_name="research", phase="research", data={"branch_id": branch_id}))
-            self.registry.mark_agent_busy("research", "research")
-            research_agent = self._get_research_agent(ctx)
-            self._maybe_set_log_sink(research_agent, _make_agent_log_sink(events, publish, "research", "research"))
+            await publish(events.build("agent_started", agent_name=research_name, phase="research", data={"branch_id": branch_id}))
+            self.registry.mark_agent_busy(research_name, "research")
+            research_name, research_agent = self._resolve_research_runtime_agent(ctx)
+            self._maybe_set_log_sink(research_agent, _make_agent_log_sink(events, publish, research_name, "research", "research"))
             # Quick recall for standard mode; full tree for deep_research/finance
             quick_recall = ctx.request.analysis_mode == AnalysisMode.standard
-            evidence = await research_agent.gather(ctx.session, ctx.request.tenant_id, ctx.request.user_query, ctx.request.source_scope, quick_recall=quick_recall)
-            self.registry.mark_agent_ready("research", "idle")
+            self._pre_handoff_check(
+                "strategist",
+                research_name,
+                self._strategist_research_handoff(ctx),
+                workflow_id=self._contract_workflow_id(ctx),
+            )
+            self._pre_dispatch_check(
+                research_name,
+                {
+                    "tenant_id": ctx.request.tenant_id,
+                    "query": ctx.request.user_query,
+                    "source_scope": ctx.request.source_scope,
+                    "quick_recall": quick_recall,
+                },
+                workflow_id=self._contract_workflow_id(ctx),
+            )
+            evidence = await self._call_research_gather(
+                research_agent,
+                ctx.session,
+                ctx.request.tenant_id,
+                ctx.request.user_query,
+                ctx.request.source_scope,
+                quick_recall=quick_recall,
+            )
+            self.registry.mark_agent_ready(research_name, "idle")
             await publish(
                 events.build(
                     "agent_completed",
-                    agent_name="research",
+                    agent_name=research_name,
                     phase="research",
                     data={"branch_id": branch_id, "evidence_pack": evidence.model_dump()},
                 )
@@ -1577,9 +2341,54 @@ class WorkflowEngine:
             f"{chr(10).join(source_lines)}\n"
         )
 
+    async def _run_conversational(self, ctx: WorkflowRunContext, events: EventFactory, publish: EventPublisher) -> WorkflowExecutionResult:
+        """Handle conversational messages (greetings, chitchat, meta-questions).
+
+        No research, no HITL, no artifact pipeline. Uses a single fast LLM call
+        to produce a friendly response.
+        """
+        await publish(events.build("agent_started", agent_name="text_buddy", phase="conversational"))
+
+        prior_context_text = format_prior_context(ctx.prior_turns, max_total_chars=1500)
+        prior_prefix = f"=== PRIOR CONTEXT ===\n{prior_context_text}\n\n" if prior_context_text else ""
+
+        try:
+            response = await self.registry.resolver.acompletion(
+                "text_buddy",
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are BLAIQ, a friendly and helpful AI assistant. "
+                            "Respond naturally to greetings and conversational messages. "
+                            "Keep responses concise (2-4 sentences). "
+                            "If the user asks what you can do, briefly explain you can: "
+                            "research topics from enterprise memory, create visual artifacts "
+                            "(pitch decks, posters, reports), write text documents "
+                            "(emails, memos, proposals), and answer knowledge questions. "
+                            "Respond in the same language the user writes in."
+                        ),
+                    },
+                    {"role": "user", "content": f"{prior_prefix}{ctx.request.user_query}"},
+                ],
+                max_tokens=300,
+                temperature=0.7,
+            )
+            answer = self.registry.resolver.extract_text(response)
+        except Exception as exc:
+            logger.warning("Conversational LLM call failed: %s", exc)
+            answer = "Hello! I'm BLAIQ — your AI research and content assistant. How can I help you today?"
+
+        await publish(events.build("agent_completed", agent_name="text_buddy", phase="conversational"))
+
+        return WorkflowExecutionResult(
+            final_answer=answer,
+            final_answer_display=answer,
+        )
+
     async def _run_direct_answer(self, ctx: WorkflowRunContext, events: EventFactory, publish: EventPublisher) -> WorkflowExecutionResult:
         branch_id = "research-answer"
-        direct_research_agent = self._get_research_agent(ctx)
+        research_name, direct_research_agent = self._resolve_research_runtime_agent(ctx)
 
         # On resume (user answered depth question), load saved evidence — don't re-research
         evidence = None
@@ -1590,7 +2399,7 @@ class WorkflowEngine:
             await self._set_branch(
                 ctx,
                 branch_id=branch_id,
-                agent_name="research",
+                agent_name=research_name,
                 branch_kind="research",
                 status="running",
                 current_phase="research",
@@ -1599,30 +2408,63 @@ class WorkflowEngine:
             research_run = await ctx.agent_run_repo.create_run(
                 thread_id=ctx.request.thread_id,
                 tenant_id=ctx.request.tenant_id,
-                agent_name="research",
+                agent_name=research_name,
                 agent_type=AgentType.research.value,
                 branch_id=branch_id,
                 input_json={"query": ctx.request.user_query, "scope": ctx.request.source_scope, "response_mode": "direct_answer"},
             )
-            await publish(events.build("agent_started", agent_name="research", phase="research", data={"branch_id": branch_id}))
-            self.registry.mark_agent_busy("research", "research")
-            self._maybe_set_log_sink(direct_research_agent, _make_agent_log_sink(events, publish, "research", "research"))
+            await publish(events.build("agent_started", agent_name=research_name, phase="research", data={"branch_id": branch_id}))
+            self.registry.mark_agent_busy(research_name, "research")
+            self._maybe_set_log_sink(direct_research_agent, _make_agent_log_sink(events, publish, research_name, "research", "research"))
             # Quick recall for standard mode; full tree for deep_research/finance
             quick_recall = ctx.request.analysis_mode == AnalysisMode.standard
-            evidence = await direct_research_agent.gather(ctx.session, ctx.request.tenant_id, ctx.request.user_query, ctx.request.source_scope, quick_recall=quick_recall)
+            self._pre_handoff_check(
+                "strategist",
+                research_name,
+                self._strategist_research_handoff(ctx),
+                workflow_id=self._contract_workflow_id(ctx),
+            )
+            self._pre_dispatch_check(
+                research_name,
+                {
+                    "tenant_id": ctx.request.tenant_id,
+                    "query": ctx.request.user_query,
+                    "source_scope": ctx.request.source_scope,
+                    "quick_recall": quick_recall,
+                    "response_mode": "direct_answer",
+                },
+                workflow_id=self._contract_workflow_id(ctx),
+            )
+            evidence = await self._call_research_gather(
+                direct_research_agent,
+                ctx.session,
+                ctx.request.tenant_id,
+                ctx.request.user_query,
+                ctx.request.source_scope,
+                quick_recall=quick_recall,
+            )
             await publish(
                 events.build(
                     "agent_completed",
-                    agent_name="research",
+                    agent_name=research_name,
                     phase="research",
                     data={"branch_id": branch_id, "evidence_pack": evidence.model_dump()},
                 )
             )
             await self._emit_evidence_signals(publish, events, evidence)
-            self.registry.mark_agent_ready("research", "idle")
+            self.registry.mark_agent_ready(research_name, "idle")
             await ctx.agent_run_repo.mark_complete(research_run.run_id, evidence.model_dump())
 
         source_count = len(evidence.memory_findings) + len(evidence.web_findings) + len(evidence.doc_findings)
+        # Skip HITL depth question for direct_answer — auto-select depth based on source count
+        skip_hitl_depth = getattr(ctx.plan, "direct_answer", False)
+        if skip_hitl_depth and not ctx.resume_answers:
+            # Auto-set depth: brief for ≤3 sources, detailed for more
+            if source_count <= 3:
+                ctx.resume_answers = {"field:response_depth": "Brief executive answer"}
+            else:
+                ctx.resume_answers = {"field:response_depth": f"Detailed product summary — cover all {source_count} sources"}
+            logger.info("direct_answer: auto-selected depth for %d sources, skipping HITL", source_count)
         if not ctx.resume_answers and source_count > 0:
             from agentscope_blaiq.agents.clarification import ClarificationPrompt, ClarificationQuestion
 
@@ -1703,93 +2545,58 @@ class WorkflowEngine:
             )
             return WorkflowExecutionResult(evidence=evidence)
 
+        # ── Final text synthesis uses text_buddy (deep_research stays evidence-only) ──
         depth_answer = (ctx.resume_answers or {}).get("field:response_depth", "")
-        depth_lower = depth_answer.lower() if depth_answer else ""
-        if "brief" in depth_lower:
-            max_tokens = 800
-            depth_instruction = "Write a brief executive summary (1-2 paragraphs). Focus on the single most important finding."
-        elif "medium" in depth_lower:
-            max_tokens = 2048
-            depth_instruction = "Write a medium-depth response (3-5 paragraphs). Cover key findings with important details."
-        else:
-            max_tokens = 6000
-            depth_instruction = (
-                f"Write a comprehensive, detailed response covering all {source_count} sources. "
-                "Include the most relevant product names, metrics, categories, and any exact counts that can be supported. "
-                "If the exact count cannot be determined, say so clearly and then summarize the evidence-backed product families."
-            )
-
-        # ── Generate final answer using the deep research agent ──
-        format_findings = getattr(direct_research_agent, "_format_findings_for_synthesis", None)
-        if callable(format_findings):
-            findings_text = format_findings(
-                evidence.memory_findings,
-                evidence.web_findings,
-            )
-        else:
-            findings_text = "\n".join(
-                [
-                    *[f"- {finding.title}: {finding.summary}" for finding in evidence.memory_findings[:10]],
-                    *[f"- {finding.title}: {finding.summary}" for finding in evidence.web_findings[:10]],
-                    *[f"- {finding.title}: {finding.summary}" for finding in evidence.doc_findings[:10]],
-                ]
-        ) or evidence.summary or "No findings available."
-        ai_synthesis = evidence.summary if evidence.summary and len(evidence.summary) > 50 else None
-
         prior_context_text = format_prior_context(ctx.prior_turns, max_total_chars=1500)
-        answer_question = getattr(direct_research_agent, "answer_question", None)
-        if callable(answer_question):
-            query_for_answer = ctx.request.user_query
-            if prior_context_text:
-                query_for_answer = (
-                    f"=== PRIOR CONVERSATION CONTEXT (Reference Only) ===\n{prior_context_text}\n"
-                    f"=== END PRIOR CONTEXT ===\n\n"
-                    f"Current request: {ctx.request.user_query}"
-                )
-            final_answer = await answer_question(
-                query_for_answer,
-                evidence,
-                response_depth=depth_answer or None,
+        text_buddy_name, text_buddy = self._resolve_runtime_agent(ctx, "text_buddy", "text_buddy")
+        self._maybe_set_log_sink(
+            text_buddy,
+            _make_agent_log_sink(events, publish, text_buddy_name, "conversational", "text_buddy"),
+        )
+        await publish(events.build("agent_started", agent_name=text_buddy_name, phase="conversational"))
+        self.registry.mark_agent_busy(text_buddy_name, "text_buddy")
+        try:
+            self._pre_handoff_check(
+                research_name,
+                text_buddy_name,
+                {
+                    "artifact_family": "summary",
+                    "evidence_pack": evidence.model_dump(mode="json"),
+                },
+                workflow_id=self._contract_workflow_id(ctx),
             )
-        else:
-            prior_prefix = f"=== PRIOR CONTEXT ===\n{prior_context_text}\n\n" if prior_context_text else ""
-            try:
-                response = await self.registry.resolver.acompletion(
-                    "research",
-                    [
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are a technical research synthesizer for enterprise knowledge.\n\n"
-                                "RULES:\n"
-                                "1. Extract and highlight SPECIFIC technical details: product names, model numbers, "
-                                "specifications, metrics, pricing, architecture components.\n"
-                                "2. Cite sources using [memory:ID] format.\n"
-                                "3. Preserve exact names, numbers, and technical terms — do NOT paraphrase.\n"
-                                "4. Interpret acronyms based on the evidence, NOT your training data.\n"
-                                "5. Structure with clear headings and sections.\n"
-                                f"6. {depth_instruction}"
-                            ),
-                        },
-                        {
-                            "role": "user",
-                            "content": (
-                                f"{prior_prefix}"
-                                f"=== EVIDENCE ({source_count} sources) ===\n{findings_text}\n\n"
-                                f"=== AI SYNTHESIS ===\n{ai_synthesis or 'See findings above.'}\n\n"
-                                f"=== QUESTION ===\n{ctx.request.user_query}\n\n"
-                                f"Generate the response. {depth_instruction}"
-                            ),
-                        },
-                    ],
-                    max_tokens=max_tokens,
-                    temperature=0.3,
-                )
-                final_answer = self.registry.resolver.extract_text(response)
-            except Exception as exc:
-                logger.exception("Direct-answer fallback synthesis failed: %s", exc)
-                # Fallback to basic synthesis
+            self._pre_dispatch_check(
+                text_buddy_name,
+                {
+                    "user_query": ctx.request.user_query,
+                    "artifact_family": "summary",
+                    "evidence_pack": evidence.model_dump(mode="json"),
+                    "hitl_answers": ctx.resume_answers,
+                    "brand_voice": self._load_brand_voice_text(ctx.request.tenant_id),
+                    "tenant_id": ctx.request.tenant_id,
+                    "prior_context": prior_context_text,
+                    "response_depth": depth_answer or None,
+                },
+                workflow_id=self._contract_workflow_id(ctx),
+            )
+            text_artifact = await text_buddy.compose(
+                user_query=ctx.request.user_query,
+                artifact_family="summary",
+                evidence_pack=evidence,
+                hitl_answers=ctx.resume_answers,
+                brand_voice=self._load_brand_voice_text(ctx.request.tenant_id),
+                tenant_id=ctx.request.tenant_id,
+                prior_context=prior_context_text,
+            )
+            final_answer = (text_artifact.content or "").strip()
+            if not final_answer:
                 final_answer = evidence.summary or "; ".join(f.summary for f in evidence.memory_findings[:5])
+        except Exception as exc:
+            logger.exception("Direct-answer text_buddy synthesis failed: %s", exc)
+            final_answer = evidence.summary or "; ".join(f.summary for f in evidence.memory_findings[:5])
+        finally:
+            self.registry.mark_agent_ready(text_buddy_name, "idle")
+            await publish(events.build("agent_completed", agent_name=text_buddy_name, phase="conversational"))
 
         final_answer_display = self._format_streamable_direct_answer(final_answer, evidence, ctx.request.user_query)
 
@@ -1969,10 +2776,11 @@ class WorkflowEngine:
 
     async def _research_branch(self, ctx: WorkflowRunContext, events: EventFactory, publish: EventPublisher, branch_kind: str) -> BranchResult:
         branch_id = f"research-{branch_kind}"
+        research_name = self._assigned_agent_name(ctx, "research", "research")
         await self._set_branch(
             ctx,
             branch_id=branch_id,
-            agent_name="research",
+            agent_name=research_name,
             branch_kind=branch_kind,
             status="running",
             current_phase="research",
@@ -1990,7 +2798,7 @@ class WorkflowEngine:
                 agent_run = await branch_agent_run_repo.create_run(
                     thread_id=ctx.request.thread_id,
                     tenant_id=ctx.request.tenant_id,
-                    agent_name="research",
+                    agent_name=research_name,
                     agent_type=AgentType.research.value,
                     branch_id=branch_id,
                     input_json={"query": ctx.request.user_query, "scope": branch_kind},
@@ -1999,22 +2807,45 @@ class WorkflowEngine:
                 await publish(
                     events.build(
                         "parallel_branch_started",
-                        agent_name="research",
+                        agent_name=research_name,
                         phase="research",
                         data={"branch": branch_id, "branch_kind": branch_kind},
                     )
                 )
                 scope = "web" if branch_kind == "web" else "docs"
-                branch_research_agent = self._get_research_agent(ctx)
-                self._maybe_set_log_sink(branch_research_agent, _make_agent_log_sink(events, publish, "research", "research"))
+                research_name, branch_research_agent = self._resolve_research_runtime_agent(ctx)
+                self._maybe_set_log_sink(branch_research_agent, _make_agent_log_sink(events, publish, research_name, "research", "research"))
                 # Quick recall for standard mode; full tree for deep_research/finance
                 quick_recall = ctx.request.analysis_mode == AnalysisMode.standard
-                evidence = await branch_research_agent.gather(branch_session, ctx.request.tenant_id, ctx.request.user_query, scope, quick_recall=quick_recall)
+                self._pre_handoff_check(
+                    "strategist",
+                    research_name,
+                    self._strategist_research_handoff(ctx),
+                    workflow_id=self._contract_workflow_id(ctx),
+                )
+                self._pre_dispatch_check(
+                    research_name,
+                    {
+                        "tenant_id": ctx.request.tenant_id,
+                        "query": ctx.request.user_query,
+                        "source_scope": scope,
+                        "quick_recall": quick_recall,
+                    },
+                    workflow_id=self._contract_workflow_id(ctx),
+                )
+                evidence = await self._call_research_gather(
+                    branch_research_agent,
+                    branch_session,
+                    ctx.request.tenant_id,
+                    ctx.request.user_query,
+                    scope,
+                    quick_recall=quick_recall,
+                )
                 result.evidence = evidence
                 await publish(
                     events.build(
                         "parallel_branch_completed",
-                        agent_name="research",
+                        agent_name=research_name,
                         phase="research",
                         data={"branch": branch_id, "branch_kind": branch_kind, "evidence_pack": evidence.model_dump()},
                     )
@@ -2051,10 +2882,11 @@ class WorkflowEngine:
 
         # 2. Content Director: plan_slides (fallback to plan_content for older interfaces/tests)
         node_id = "content_director"
+        content_director_name = self._assigned_agent_name(ctx, node_id, "content_director")
         await self._set_branch(
             ctx,
             branch_id=node_id,
-            agent_name="content_director",
+            agent_name=content_director_name,
             branch_kind="content_director",
             status="running",
             current_phase="content_director",
@@ -2066,13 +2898,20 @@ class WorkflowEngine:
         await publish(
             events.build(
                 "content_director_started",
-                agent_name="content_director",
+                agent_name=content_director_name,
                 phase="content_director",
                 data={"artifact_family": ctx.plan.artifact_family.value, "node_id": node_id, "pipeline": "react_slides"},
             )
         )
-        self.registry.mark_agent_busy("content_director", "content_director")
-        content_director = self.registry.content_director
+        logger.info(
+            "[workflow] content_director_started artifact_family=%s node_id=%s pipeline=%s",
+            ctx.plan.artifact_family.value,
+            node_id,
+            "react_slides",
+        )
+        content_director_name, content_director = self._resolve_runtime_agent(ctx, node_id, "content_director")
+        self._maybe_set_log_sink(content_director, _make_agent_log_sink(events, publish, content_director_name, "content_director", node_id))
+        self.registry.mark_agent_busy(content_director_name, "content_director")
         user_query_with_context = ctx.request.user_query
         if ctx.prior_turns:
             prior_summary = format_prior_context(ctx.prior_turns, max_total_chars=1000)
@@ -2082,7 +2921,25 @@ class WorkflowEngine:
                     f"=== END PRIOR CONTEXT ===\n\n"
                     f"Current request: {ctx.request.user_query}"
                 )
+        self._pre_handoff_check(
+            "research",
+            content_director_name,
+            {"evidence_pack": evidence.model_dump(mode="json")},
+            workflow_id=self._contract_workflow_id(ctx),
+        )
         if hasattr(content_director, "plan_slides"):
+            self._pre_dispatch_check(
+                content_director_name,
+                {
+                    "user_query": user_query_with_context,
+                    "artifact_family": ctx.plan.artifact_family.value,
+                    "evidence_pack": evidence.model_dump(mode="json"),
+                    "hitl_answers": ctx.resume_answers,
+                    "brand_dna": brand_dna,
+                    "tenant_id": ctx.request.tenant_id,
+                },
+                workflow_id=self._contract_workflow_id(ctx),
+            )
             slides_data = await content_director.plan_slides(
                 user_query=user_query_with_context,
                 artifact_family=ctx.plan.artifact_family.value,
@@ -2090,9 +2947,22 @@ class WorkflowEngine:
                 hitl_answers=ctx.resume_answers,
                 brand_dna=brand_dna,
                 tenant_id=ctx.request.tenant_id,
+                required_sections=(ctx.plan.artifact_spec.required_sections if ctx.plan.artifact_spec else None),
             )
             slides_dict = slides_data.model_dump()
         else:
+            self._pre_dispatch_check(
+                content_director_name,
+                {
+                    "user_query": ctx.request.user_query,
+                    "evidence_summary": evidence.summary,
+                    "artifact_spec": ctx.plan.artifact_spec.model_dump(mode="json") if ctx.plan.artifact_spec else None,
+                    "requirements": ctx.plan.requirements_checklist.model_dump(mode="json"),
+                    "hitl_answers": ctx.resume_answers,
+                    "evidence_pack": evidence.model_dump(mode="json"),
+                },
+                workflow_id=self._contract_workflow_id(ctx),
+            )
             slides_data = await content_director.plan_content(
                 user_query=ctx.request.user_query,
                 evidence_summary=evidence.summary,
@@ -2108,7 +2978,7 @@ class WorkflowEngine:
             run_id=ctx.run_id,
             current_node="content_director",
             current_phase="content_director",
-            current_agent="content_director",
+            current_agent=content_director_name,
             latest_event="content_director_completed",
             content_director_output_json=json.dumps(slides_dict, default=str),
             last_completed_node="content_director",
@@ -2117,7 +2987,7 @@ class WorkflowEngine:
         if workflow_state is not None:
             workflow_state.current_node = "content_director"
             workflow_state.current_phase = "content_director"
-            workflow_state.current_agent = "content_director"
+            workflow_state.current_agent = content_director_name
             workflow_state.content_director_output_json = json.dumps(slides_dict, default=str)
             workflow_state.last_completed_node = "content_director"
             workflow_state.updated_at = utc_now()
@@ -2125,20 +2995,154 @@ class WorkflowEngine:
         await publish(
             events.build(
                 "content_director_completed",
-                agent_name="content_director",
+                agent_name=content_director_name,
                 phase="content_director",
                 data={"slides_data": slides_dict},
             )
         )
-        self.registry.mark_agent_ready("content_director", "idle")
+        logger.info(
+            "[workflow] content_director_completed slide_count=%d slide_titles=%s has_followup_research=%s",
+            len(slides_dict.get("slides", [])) if isinstance(slides_dict, dict) else 0,
+            [
+                str(slide.get("headline") or slide.get("title") or f"Slide {index + 1}")
+                for index, slide in enumerate(slides_dict.get("slides", []))
+                if isinstance(slide, dict)
+            ] if isinstance(slides_dict, dict) else [],
+            bool(self._extract_slide_followup_requests(slides_dict)),
+        )
+        await self._emit_step_summary(
+            events,
+            publish,
+            step="content_director",
+            phase="content_director",
+            summary={
+                "slide_count": len(slides_dict.get("slides", [])) if isinstance(slides_dict, dict) else 0,
+                "slide_titles": [
+                    str(slide.get("headline") or slide.get("title") or f"Slide {index + 1}")
+                    for index, slide in enumerate(slides_dict.get("slides", []))
+                    if isinstance(slide, dict)
+                ] if isinstance(slides_dict, dict) else [],
+                "has_followup_research": bool(self._extract_slide_followup_requests(slides_dict)),
+            },
+        )
+        await publish(
+            events.build(
+                "artifact_blueprint_ready",
+                agent_name=content_director_name,
+                phase="content_director",
+                data={
+                    "artifact_family": ctx.plan.artifact_family.value,
+                    "slide_count": len(slides_dict.get("slides", []) if isinstance(slides_dict, dict) else []),
+                    "slide_titles": [
+                        str(slide.get("headline") or slide.get("title") or f"Slide {index + 1}")
+                        for index, slide in enumerate(slides_dict.get("slides", []))
+                        if isinstance(slide, dict)
+                    ],
+                },
+            )
+        )
+        self.registry.mark_agent_ready(content_director_name, "idle")
         await self._complete_branch(ctx, branch_id=node_id, output_json=slides_dict)
+
+        followup_requests = self._extract_slide_followup_requests(slides_dict)
+        if followup_requests:
+            followup_name, followup_agent = self._resolve_research_runtime_agent(ctx)
+            self.registry.mark_agent_busy(followup_name, "research")
+            await publish(
+                events.build(
+                    "content_director_followup_research_started",
+                    agent_name=followup_name,
+                    phase="research",
+                    data={
+                        "group_count": len(followup_requests),
+                        "slide_titles": [item.get("slide_title") for item in followup_requests],
+                        "mode": "per_slide_parallel",
+                    },
+                )
+            )
+            logger.info(
+                "[workflow] followup_research_started group_count=%d slide_titles=%s mode=%s",
+                len(followup_requests),
+                [item.get("slide_title") for item in followup_requests],
+                "per_slide_parallel",
+            )
+            followup_evidences: list[EvidencePack] = []
+            try:
+                async def _run_slide_recall(item: dict[str, Any]) -> tuple[str, EvidencePack]:
+                    query = self._format_followup_research_query(ctx.request.user_query, item)
+                    async with ctx.session_factory() as followup_session:
+                        evidence_pack = await self._call_research_gather(
+                            followup_agent,
+                            followup_session,
+                            ctx.request.tenant_id,
+                            query,
+                            ctx.request.source_scope,
+                            quick_recall=True,
+                        )
+                    return str(item.get("slide_title") or "Slide"), evidence_pack
+
+                tasks = [
+                    asyncio.create_task(_run_slide_recall(item))
+                    for item in followup_requests[:6]
+                ]
+                for task in asyncio.as_completed(tasks):
+                    slide_title, evidence_pack = await task
+                    followup_evidences.append(evidence_pack)
+                    logger.info(
+                        "[workflow] followup_research_slide_completed slide_title=%s evidence_confidence=%.3f",
+                        slide_title,
+                        evidence_pack.confidence,
+                    )
+                    await publish(
+                        events.build(
+                            "content_director_slide_research_completed",
+                            agent_name=followup_name,
+                            phase="research",
+                            data={
+                                "slide_title": slide_title,
+                                "evidence_confidence": evidence_pack.confidence,
+                            },
+                        )
+                    )
+            finally:
+                self.registry.mark_agent_ready(followup_name, "idle")
+            if followup_evidences:
+                evidence = self._merge_evidence(evidence, *followup_evidences)
+                await publish(
+                    events.build(
+                        "content_director_followup_research_completed",
+                        agent_name=followup_name,
+                        phase="research",
+                        data={
+                            "group_count": len(followup_requests),
+                            "merged_evidence": evidence.model_dump(),
+                        },
+                    )
+                )
+                logger.info(
+                    "[workflow] followup_research_completed group_count=%d merged_confidence=%.3f",
+                    len(followup_requests),
+                    evidence.confidence,
+                )
+                await self._emit_step_summary(
+                    events,
+                    publish,
+                    step="followup_research",
+                    phase="research",
+                    summary={
+                        "group_count": len(followup_requests),
+                        "slide_titles": [item.get("slide_title") for item in followup_requests],
+                        "confidence": evidence.confidence,
+                    },
+                )
 
         # 3. Vangogh: generate_from_slides (React bundle pipeline)
         branch_id = "artifact"
+        vangogh_name = self._assigned_agent_name(ctx, "vangogh", "vangogh")
         await self._set_branch(
             ctx,
             branch_id=branch_id,
-            agent_name="vangogh",
+            agent_name=vangogh_name,
             branch_kind="artifact",
             status="running",
             current_phase="artifact",
@@ -2147,17 +3151,41 @@ class WorkflowEngine:
         agent_run = await ctx.agent_run_repo.create_run(
             thread_id=ctx.request.thread_id,
             tenant_id=ctx.request.tenant_id,
-            agent_name="vangogh",
+            agent_name=vangogh_name,
             agent_type=AgentType.vangogh.value,
             branch_id=branch_id,
             input_json={"user_query": ctx.request.user_query, "pipeline": "react_bundle"},
         )
-        await publish(events.build("artifact_started", agent_name="vangogh", phase="artifact", data={"branch": branch_id, "pipeline": "react_bundle"}))
-        self.registry.mark_agent_busy("vangogh", "artifact")
-        self._maybe_set_log_sink(self.registry.vangogh, _make_agent_log_sink(events, publish, "vangogh", "artifact"))
+        await publish(events.build("artifact_started", agent_name=vangogh_name, phase="artifact", data={"branch": branch_id, "pipeline": "react_bundle"}))
+        logger.info(
+            "[workflow] artifact_render_started branch=%s pipeline=%s",
+            branch_id,
+            "react_bundle",
+        )
+        vangogh_name, vangogh_agent = self._resolve_runtime_agent(ctx, "vangogh", "vangogh")
+        self.registry.mark_agent_busy(vangogh_name, "artifact")
+        self._maybe_set_log_sink(vangogh_agent, _make_agent_log_sink(events, publish, vangogh_name, "artifact", "vangogh"))
 
-        if hasattr(self.registry.vangogh, "generate_from_slides"):
-            artifact = await self.registry.vangogh.generate_from_slides(
+        self._pre_handoff_check(
+            "content_director",
+            vangogh_name,
+            slides_dict,
+            workflow_id=self._contract_workflow_id(ctx),
+        )
+        if hasattr(vangogh_agent, "generate_from_slides"):
+            self._pre_dispatch_check(
+                vangogh_name,
+                {
+                    "slides_data": slides_dict,
+                    "user_query": ctx.request.user_query,
+                    "evidence_pack": evidence.model_dump(mode="json"),
+                    "brand_dna": brand_dna,
+                    "artifact_family": ctx.plan.artifact_family.value,
+                    "tenant_id": ctx.request.tenant_id,
+                },
+                workflow_id=self._contract_workflow_id(ctx),
+            )
+            artifact = await vangogh_agent.generate_from_slides(
                 slides_data=slides_dict,
                 user_query=ctx.request.user_query,
                 evidence=evidence,
@@ -2166,20 +3194,47 @@ class WorkflowEngine:
                 tenant_id=ctx.request.tenant_id,
             )
         else:
-            artifact = await self.registry.vangogh.generate(
+            self._pre_dispatch_check(
+                vangogh_name,
+                {
+                    "user_query": ctx.request.user_query,
+                    "evidence_pack": evidence.model_dump(mode="json"),
+                    "content_brief": slides_dict,
+                    "brand_dna": brand_dna,
+                },
+                workflow_id=self._contract_workflow_id(ctx),
+            )
+            artifact = await vangogh_agent.generate(
                 user_query=ctx.request.user_query,
                 evidence=evidence,
                 content_brief=slides_dict,
                 brand_dna=brand_dna,
             )
-        self.registry.mark_agent_ready("vangogh", "idle")
+        self.registry.mark_agent_ready(vangogh_name, "idle")
         await publish(
             events.build(
                 "artifact_ready",
-                agent_name="vangogh",
+                agent_name=vangogh_name,
                 phase="artifact",
                 data={"artifact_manifest": artifact.model_dump(exclude={"html", "css"}), "pipeline": "react_bundle"},
             )
+        )
+        logger.info(
+            "[workflow] artifact_render_completed artifact_id=%s section_count=%d evidence_ref_count=%d",
+            artifact.artifact_id,
+            len(artifact.sections),
+            len(artifact.evidence_refs),
+        )
+        await self._emit_step_summary(
+            events,
+            publish,
+            step="artifact_render",
+            phase="artifact",
+            summary={
+                "artifact_id": artifact.artifact_id,
+                "section_count": len(artifact.sections),
+                "evidence_ref_count": len(artifact.evidence_refs),
+            },
         )
         await ctx.agent_run_repo.mark_complete(agent_run.run_id, artifact.model_dump())
         await self._complete_branch(ctx, branch_id=branch_id, output_json=artifact.model_dump())
@@ -2197,10 +3252,11 @@ class WorkflowEngine:
 
     async def _generate_artifact(self, ctx: WorkflowRunContext, events: EventFactory, publish: EventPublisher, evidence: EvidencePack, content_brief: dict[str, Any] | None = None) -> _ArtifactOutcome:
         branch_id = "artifact"
+        vangogh_name, vangogh_agent = self._resolve_runtime_agent(ctx, "vangogh", "vangogh")
         await self._set_branch(
             ctx,
             branch_id=branch_id,
-            agent_name="vangogh",
+            agent_name=vangogh_name,
             branch_kind="artifact",
             status="running",
             current_phase="artifact",
@@ -2209,15 +3265,15 @@ class WorkflowEngine:
         agent_run = await ctx.agent_run_repo.create_run(
             thread_id=ctx.request.thread_id,
             tenant_id=ctx.request.tenant_id,
-            agent_name="vangogh",
+            agent_name=vangogh_name,
             agent_type=AgentType.vangogh.value,
             branch_id=branch_id,
             input_json={"user_query": ctx.request.user_query, "evidence_summary": evidence.summary},
         )
 
-        await publish(events.build("artifact_started", agent_name="vangogh", phase="artifact", data={"branch": branch_id}))
-        self.registry.mark_agent_busy("vangogh", "artifact")
-        self._maybe_set_log_sink(self.registry.vangogh, _make_agent_log_sink(events, publish, "vangogh", "artifact"))
+        await publish(events.build("artifact_started", agent_name=vangogh_name, phase="artifact", data={"branch": branch_id}))
+        self.registry.mark_agent_busy(vangogh_name, "artifact")
+        self._maybe_set_log_sink(vangogh_agent, _make_agent_log_sink(events, publish, vangogh_name, "artifact", "vangogh"))
 
         _section_emitted_count = 0
 
@@ -2229,18 +3285,34 @@ class WorkflowEngine:
         # Load Brand DNA for the tenant so Vangogh generates branded artifacts
         brand_dna = await self._load_brand_dna(ctx.request.tenant_id)
 
-        artifact = await self.registry.vangogh.generate(
+        self._pre_handoff_check(
+            "content_director" if content_brief is not None else "research",
+            vangogh_name,
+            content_brief or evidence.model_dump(mode="json"),
+            workflow_id=self._contract_workflow_id(ctx),
+        )
+        self._pre_dispatch_check(
+            vangogh_name,
+            {
+                "user_query": ctx.request.user_query,
+                "evidence_pack": evidence.model_dump(mode="json"),
+                "content_brief": content_brief,
+                "brand_dna": brand_dna,
+            },
+            workflow_id=self._contract_workflow_id(ctx),
+        )
+        artifact = await vangogh_agent.generate(
             ctx.request.user_query,
             evidence,
             content_brief=content_brief,
             on_section_ready=_on_section_ready,
             brand_dna=brand_dna,
         )
-        self.registry.mark_agent_ready("vangogh", "idle")
+        self.registry.mark_agent_ready(vangogh_name, "idle")
         await publish(
             events.build(
                 "artifact_ready",
-                agent_name="vangogh",
+                agent_name=vangogh_name,
                 phase="artifact",
                 data={"artifact_manifest": artifact.model_dump(exclude={"html", "css"})},
             )
@@ -2277,10 +3349,11 @@ class WorkflowEngine:
         emit_parallel_events: bool,
     ) -> BranchResult:
         branch_id = f"artifact-section-{section.section_id}"
+        vangogh_name = self._assigned_agent_name(ctx, "vangogh", "vangogh")
         await self._set_branch(
             ctx,
             branch_id=branch_id,
-            agent_name="vangogh",
+            agent_name=vangogh_name,
             branch_kind="artifact-section",
             status="running",
             current_phase="artifact",
@@ -2292,7 +3365,7 @@ class WorkflowEngine:
                 await publish(
                     events.build(
                         "parallel_branch_started",
-                        agent_name="vangogh",
+                        agent_name=vangogh_name,
                         phase="artifact",
                         data={"branch": branch_id, "section_id": section.section_id},
                     )
@@ -2300,7 +3373,7 @@ class WorkflowEngine:
             await publish(
                 events.build(
                     "artifact_section_ready",
-                    agent_name="vangogh",
+                    agent_name=vangogh_name,
                     phase="artifact",
                     data={
                         "section_id": section.section_id,
@@ -2316,7 +3389,7 @@ class WorkflowEngine:
                 await publish(
                     events.build(
                         "parallel_branch_completed",
-                        agent_name="vangogh",
+                        agent_name=vangogh_name,
                         phase="artifact",
                         data={"branch": branch_id, "section_id": section.section_id},
                     )
@@ -2330,10 +3403,11 @@ class WorkflowEngine:
 
     async def _review_artifact(self, ctx: WorkflowRunContext, events: EventFactory, publish: EventPublisher, artifact: VisualArtifact, evidence: EvidencePack) -> _GovernanceOutcome:
         branch_id = "governance"
+        governance_name = self._assigned_agent_name(ctx, branch_id, "governance")
         await self._set_branch(
             ctx,
             branch_id=branch_id,
-            agent_name="governance",
+            agent_name=governance_name,
             branch_kind="governance",
             status="running",
             current_phase="governance",
@@ -2342,15 +3416,52 @@ class WorkflowEngine:
         agent_run = await ctx.agent_run_repo.create_run(
             thread_id=ctx.request.thread_id,
             tenant_id=ctx.request.tenant_id,
-            agent_name="governance",
+            agent_name=governance_name,
             agent_type=AgentType.governance.value,
             branch_id=branch_id,
             input_json={"artifact_id": artifact.artifact_id, "evidence_refs": artifact.evidence_refs},
         )
-        await publish(events.build("governance_started", agent_name="governance", phase="governance"))
-        self._maybe_set_log_sink(self.registry.governance, _make_agent_log_sink(events, publish, "governance", "governance"))
-        report = (await self.registry.governance.review(artifact, evidence)).model_dump()
-        await publish(events.build("governance_complete", agent_name="governance", phase="governance", data={"governance_report": report}))
+        await publish(events.build("governance_started", agent_name=governance_name, phase="governance"))
+        logger.info(
+            "[workflow] governance_started artifact_id=%s evidence_refs=%d",
+            artifact.artifact_id,
+            len(artifact.evidence_refs),
+        )
+        _, governance_agent = self._resolve_runtime_agent(ctx, branch_id, "governance")
+        self._maybe_set_log_sink(governance_agent, _make_agent_log_sink(events, publish, governance_name, "governance", "governance"))
+        self._pre_handoff_check(
+            "vangogh",
+            governance_name,
+            artifact.model_dump(mode="json"),
+            workflow_id=self._contract_workflow_id(ctx),
+        )
+        self._pre_dispatch_check(
+            governance_name,
+            {
+                "artifact": artifact.model_dump(mode="json"),
+                "evidence_pack": evidence.model_dump(mode="json"),
+            },
+            workflow_id=self._contract_workflow_id(ctx),
+        )
+        report = (await governance_agent.review(artifact, evidence)).model_dump()
+        await publish(events.build("governance_complete", agent_name=governance_name, phase="governance", data={"governance_report": report}))
+        logger.info(
+            "[workflow] governance_completed approved=%s readiness_score=%s issues=%s",
+            report.get("approved"),
+            report.get("readiness_score"),
+            report.get("issues", []),
+        )
+        await self._emit_step_summary(
+            events,
+            publish,
+            step="governance",
+            phase="governance",
+            summary={
+                "approved": report.get("approved"),
+                "readiness_score": report.get("readiness_score"),
+                "issues": report.get("issues", []),
+            },
+        )
         await ctx.agent_run_repo.mark_complete(agent_run.run_id, report)
         await self._complete_branch(ctx, branch_id=branch_id, output_json=report)
         return WorkflowEngine._GovernanceOutcome(report=report)

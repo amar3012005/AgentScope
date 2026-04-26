@@ -41,6 +41,7 @@ class WorkflowRedisState(BaseModel):
     workflow_plan_json: str | None = None
     artifact_family: str | None = None
     blocked_question: str | None = None
+    blocked_bundle_json: str | None = None  # Phase 3: typed ClarificationBundle JSON
     expected_answer_schema: dict[str, Any] | None = None
     requirements_checklist_json: str | None = None
     task_graph_json: str | None = None
@@ -189,6 +190,7 @@ class RedisStateStore:
         error_message: str,
         *,
         blocked_question: str | None = None,
+        blocked_bundle_json: str | None = None,
         expected_answer_schema: dict[str, Any] | None = None,
         pending_node: str | None = None,
         resume_cursor: str | None = None,
@@ -203,6 +205,7 @@ class RedisStateStore:
         state.status = WorkflowStatus.blocked
         state.error_message = error_message
         state.blocked_question = blocked_question or error_message
+        state.blocked_bundle_json = blocked_bundle_json or state.blocked_bundle_json
         state.expected_answer_schema = expected_answer_schema
         state.pending_node = pending_node or state.pending_node
         state.resume_cursor = resume_cursor or state.resume_cursor

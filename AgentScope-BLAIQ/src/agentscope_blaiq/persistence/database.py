@@ -32,6 +32,14 @@ def get_session_local() -> async_sessionmaker[AsyncSession]:
     return _session_local
 
 
+def async_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Compatibility helper used by seeding/tests."""
+    return get_session_local()
+
+
+engine = get_engine()
+
+
 async def get_db() -> AsyncIterator[AsyncSession]:
     async with get_session_local()() as session:
         yield session

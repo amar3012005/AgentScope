@@ -1,5 +1,13 @@
 from .artifact import ArtifactSection, PreviewMetadata, TextArtifact, VisualArtifact
-from .evidence import Citation, EvidenceFinding, EvidencePack, SourceRecord
+from .brief import ArtifactBrief, BriefSection
+from .evidence import (
+    Citation,
+    ContentBriefHandoff,
+    EvidenceFinding,
+    EvidencePack,
+    SourceRecord,
+    content_brief_to_artifact_brief,
+)
 from .events import StreamEvent, WorkflowStatusSnapshot
 from .harness import (
     AGENT_HARNESSES,
@@ -24,7 +32,10 @@ from .hooks import (
     HookType,
     evaluate_governance_gate,
     evaluate_missing_input,
+    evaluate_planner_guard,
     evaluate_post_node,
+    evaluate_pre_dispatch,
+    evaluate_pre_handoff,
     evaluate_pre_node,
     evaluate_retry_replan,
 )
@@ -40,6 +51,10 @@ from .validation import (
 from .workflow import (
     AgentRunPayload,
     AgentType,
+    ClarificationAnswerSet,
+    ClarificationBundle,
+    ClarificationQuestion,
+    ResumeWorkflowRequest,
     SubmitWorkflowRequest,
     WorkflowMode,
     WorkflowPlan,
@@ -52,6 +67,7 @@ from .workflows import (
     TEXT_ARTIFACT_V1,
     VISUAL_ARTIFACT_V1,
     WORKFLOW_TEMPLATES,
+    HANDOFF_CONTRACTS_BY_WORKFLOW,
     EvidencePack,
     GovernanceReview,
     StrategicPlan,
@@ -60,8 +76,48 @@ from .workflows import (
     VisualArtifact,
     VisualSpec,
     get_workflow_template,
+    get_handoff_contract,
     list_workflow_templates,
 )
+from .messages import (
+    AnyMsg,
+    MessageLog,
+    MsgType,
+    RuntimeMsg,
+    ToolCallMsg,
+    ToolResultMsg,
+    deserialize_msg,
+    make_agent_input,
+    make_agent_output,
+    make_handoff,
+    serialize_msg,
+    validate_msg_schema,
+)
+from .enforcement import (
+    ContractViolationError,
+    EnforcementMode,
+    enforcement_check,
+    enforcement_guard,
+    get_enforcement_mode,
+    set_enforcement_from_settings,
+    set_enforcement_mode,
+)
+from .recovery import (
+    DEFAULT_RECOVERY_POLICIES,
+    FailureClass,
+    RecoveryAction as RecoveryPlan,
+    RecoveryEvent,
+    RetryBudget,
+    classify_failure,
+    resolve_recovery,
+)
+from .custom_agents import (
+    CustomAgentRegistration,
+    CustomAgentSpec,
+    spec_to_harness,
+    validate_custom_agent_spec,
+)
+from .user_agent_registry import UserAgentRegistry
 
 __all__ = [
     # Artifact
@@ -71,9 +127,11 @@ __all__ = [
     "VisualArtifact",
     # Evidence
     "Citation",
+    "ContentBriefHandoff",
     "EvidenceFinding",
     "EvidencePack",
     "SourceRecord",
+    "content_brief_to_artifact_brief",
     # Events
     "StreamEvent",
     "WorkflowStatusSnapshot",
@@ -103,7 +161,10 @@ __all__ = [
     "HookType",
     "evaluate_governance_gate",
     "evaluate_missing_input",
+    "evaluate_planner_guard",
     "evaluate_post_node",
+    "evaluate_pre_dispatch",
+    "evaluate_pre_handoff",
     "evaluate_pre_node",
     "evaluate_retry_replan",
     # Registry
@@ -120,6 +181,10 @@ __all__ = [
     # Workflow (orchestration contracts)
     "AgentRunPayload",
     "AgentType",
+    "ClarificationAnswerSet",
+    "ClarificationBundle",
+    "ClarificationQuestion",
+    "ResumeWorkflowRequest",
     "SubmitWorkflowRequest",
     "WorkflowMode",
     "WorkflowPlan",
@@ -131,6 +196,7 @@ __all__ = [
     "TEXT_ARTIFACT_V1",
     "VISUAL_ARTIFACT_V1",
     "WORKFLOW_TEMPLATES",
+    "HANDOFF_CONTRACTS_BY_WORKFLOW",
     "EvidencePack",
     "GovernanceReview",
     "StrategicPlan",
@@ -139,5 +205,41 @@ __all__ = [
     "VisualArtifact",
     "VisualSpec",
     "get_workflow_template",
+    "get_handoff_contract",
     "list_workflow_templates",
+    # Messages (Phase 5)
+    "AnyMsg",
+    "MessageLog",
+    "MsgType",
+    "RuntimeMsg",
+    "ToolCallMsg",
+    "ToolResultMsg",
+    "deserialize_msg",
+    "make_agent_input",
+    "make_agent_output",
+    "make_handoff",
+    "serialize_msg",
+    "validate_msg_schema",
+    # Enforcement (Phase 8)
+    "ContractViolationError",
+    "EnforcementMode",
+    "enforcement_check",
+    "enforcement_guard",
+    "get_enforcement_mode",
+    "set_enforcement_from_settings",
+    "set_enforcement_mode",
+    # Recovery (Phase 6)
+    "DEFAULT_RECOVERY_POLICIES",
+    "FailureClass",
+    "RecoveryPlan",
+    "RecoveryEvent",
+    "RetryBudget",
+    "classify_failure",
+    "resolve_recovery",
+    # Custom agents (Phase 4/7)
+    "CustomAgentRegistration",
+    "CustomAgentSpec",
+    "UserAgentRegistry",
+    "spec_to_harness",
+    "validate_custom_agent_spec",
 ]

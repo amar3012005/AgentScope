@@ -1,17 +1,32 @@
 from __future__ import annotations
 
-import json
 import logging
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 from agentscope.tool import Toolkit
 
 from agentscope_blaiq.agents.skills import load_skill, load_brand_context
+from agentscope_blaiq.contracts.brief import ArtifactBrief, BriefSection
 from agentscope_blaiq.contracts.evidence import EvidencePack
+from agentscope_blaiq.contracts.messages import make_agent_input, make_agent_output
 from agentscope_blaiq.contracts.workflow import ArtifactFamily, ArtifactSpec, RequirementsChecklist
 from agentscope_blaiq.runtime.agent_base import BaseAgent
 
 logger = logging.getLogger(__name__)
+
+
+def _section_defaults(section_title: str) -> dict[str, str]:
+    title = section_title.strip() or "Section"
+    lower = title.lower()
+    if lower in {"hero", "opening"}:
+        return {"purpose": "Establish the core narrative and immediate context.", "visual_intent": "hero-centered"}
+    if lower in {"evidence", "proof"}:
+        return {"purpose": "Present concrete proof points anchored in evidence.", "visual_intent": "evidence-grid"}
+    if lower in {"cta", "call to action", "next steps"}:
+        return {"purpose": "Drive a single explicit next action.", "visual_intent": "single-cta"}
+    return {"purpose": f"Advance the narrative through {title}.", "visual_intent": "section-grid"}
 
 
 class ContentSectionPlan(BaseModel):
@@ -96,124 +111,30 @@ class SlidesData(BaseModel):
     slides: list[SlideData] = Field(default_factory=list)
 
 
-_SECTION_DEFAULTS: dict[str, dict] = {
-    "hero": {
-        "purpose": "Hook the audience — bold headline and 1-sentence value statement.",
-        "visual_intent": "Full-bleed background, oversized headline, minimal copy.",
-    },
-    "problem": {
-        "purpose": "Make the audience feel the pain point acutely.",
-        "visual_intent": "Data callout or stat that quantifies the problem.",
-    },
-    "solution": {
-        "purpose": "Show how the product/idea solves the stated problem.",
-        "visual_intent": "Before/after or 3-step flow diagram.",
-    },
-    "proof": {
-        "purpose": "Evidence that the solution works — metrics, testimonials, case studies.",
-        "visual_intent": "Number cards or quote blocks with source attribution.",
-    },
-    "traction": {
-        "purpose": "Show growth momentum and key milestones.",
-        "visual_intent": "Timeline or growth chart with callout numbers.",
-    },
-    "market": {
-        "purpose": "Size the opportunity — TAM/SAM/SOM or market context.",
-        "visual_intent": "Concentric circles or bar chart showing market layers.",
-    },
-    "team": {
-        "purpose": "Build trust in the people executing the vision.",
-        "visual_intent": "Headshots with name, role, 1-line credential.",
-    },
-    "ask": {
-        "purpose": "State clearly what you are asking for and why.",
-        "visual_intent": "Clean single-focus slide with the ask front and centre.",
-    },
-    "cta": {
-        "purpose": "Drive the next action — book a call, invest, sign up.",
-        "visual_intent": "Bold CTA button or contact info, minimal distractions.",
-    },
-    "thesis": {
-        "purpose": "State the central investment or analytical thesis.",
-        "visual_intent": "1-sentence thesis in oversized type with supporting context.",
-    },
-    "hypotheses": {
-        "purpose": "List testable sub-hypotheses that support or challenge the thesis.",
-        "visual_intent": "Numbered hypothesis cards with verification status.",
-    },
-    "evidence": {
-        "purpose": "Present source-backed evidence for each hypothesis.",
-        "visual_intent": "Evidence table or cards with source citations.",
-    },
-    "risks": {
-        "purpose": "Acknowledge key risks and mitigants honestly.",
-        "visual_intent": "Risk matrix or bullet list with mitigation notes.",
-    },
-    "recommendation": {
-        "purpose": "State the analytical conclusion and recommended action.",
-        "visual_intent": "Clear verdict with confidence level and next steps.",
-    },
-}
-
-
-def _section_defaults(title: str) -> dict:
-    return _SECTION_DEFAULTS.get(title.lower(), {
-        "purpose": f"Cover {title.lower()} for the audience.",
-        "visual_intent": f"Clear {title.lower()} section with supporting evidence.",
-    })
-
-
 class ContentDirectorAgent(BaseAgent):
     def __init__(self, **kwargs) -> None:
         super().__init__(
             name="ContentDirectorAgent",
             role="content_director",
             sys_prompt=(
-                "You are a senior creative director who has shipped award-winning digital posters, pitch decks, "
-                "and data-driven reports for Fortune 500 brands. You art-direct visual structures, not just label sections.\n\n"
-                "YOUR OUTPUTS must include precise visual art direction for each section:\n"
-                "• visual_intent: SPECIFIC layout pattern + typography choice + emotional tone. "
-                  "Bad: 'Show the main message'. "
-                  "Good: 'Full-bleed hero — h1.poster-display gradient text (max 8 words), "
-                  "supporting .poster-lead in var(--text-secondary), .poster-tag eyebrow with category. "
-                  "Dark heroic tone with ambient glow background. High contrast, zero clutter.'\n"
-                "• headline: 10 words max. Power verb + specific claim. No generic titles.\n"
-                "• subheadline: One sentence. The proof or the promise. Max 20 words.\n"
-                "• bullets: Each bullet = a complete fact with evidence. Min 15 words each. No vague summaries.\n"
-                "• stats: Real numbers from evidence only. Format as {value: '50%', label: 'cost reduction in year 1'}.\n\n"
-                "SECTION SELECTION for posters:\n"
-                "1. HERO — bold headline, one powerful claim, eyebrow tag\n"
-                "2. KEY STATS — 3–4 big numbers in grid cards\n"
-                "3. EVIDENCE / PROOF POINTS — structured bullets with source attribution\n"
-                "4. CTA / CLOSE — the ask, with urgency\n\n"
-                "Think: what would a reader understand in 5 seconds scanning this section?\n"
-                "Return valid JSON matching the ContentBrief schema."
+                "You are a senior creative director. Your sole responsibility is to transform research "
+                "findings into a structured ArtifactBrief. You do NOT perform research or render final HTML.\n\n"
+                "Focus on:\n"
+                "1. Narrative Flow: Ensure sections build a coherent story (Problem -> Solution -> Proof).\n"
+                "2. Sectional Objectives: Define exactly what each section should achieve.\n"
+                "3. Key Points: Extract the most impactful 3-5 points from evidence for each section.\n"
+                "4. Visual Hints: Recommend layout patterns (e.g., 'hero-centered', 'metric-grid').\n\n"
+                "Your output must be a valid ArtifactBrief JSON which guides the downstream renderers."
             ),
             **kwargs,
         )
 
     def build_toolkit(self) -> Toolkit:
         toolkit = Toolkit()
-        toolkit.register_tool_function(
-            self._tool_content_distribution,
-            func_name="content_distribution",
-            func_description="Decide how content should be distributed across sections.",
-        )
-        toolkit.register_tool_function(
-            self._tool_section_planning,
-            func_name="section_planning",
-            func_description="Produce a section-by-section plan from requirements and evidence.",
-        )
-        toolkit.register_tool_function(
-            self._tool_template_selection,
-            func_name="template_selection",
-            func_description="Select a template direction for the renderer.",
-        )
-        toolkit.register_tool_function(
-            self._tool_render_brief_generation,
-            func_name="render_brief_generation",
-            func_description="Generate the renderer handoff brief.",
-        )
+        self.register_tool(toolkit, tool_id="content_distribution", fn=self._tool_content_distribution, description="Decide how content should be distributed across sections.")
+        self.register_tool(toolkit, tool_id="section_planning", fn=self._tool_section_planning, description="Produce a section-by-section plan from requirements and evidence.")
+        self.register_tool(toolkit, tool_id="template_selection", fn=self._tool_template_selection, description="Select a template direction for the renderer.")
+        self.register_tool(toolkit, tool_id="render_brief_generation", fn=self._tool_render_brief_generation, description="Generate the renderer handoff brief.")
         return toolkit
 
     def _tool_content_distribution(self, artifact_spec: dict | None = None, requirements: dict | None = None):
@@ -244,6 +165,17 @@ class ContentDirectorAgent(BaseAgent):
 
     def _tool_render_brief_generation(self, brief: dict | None = None):
         return self.tool_response({"brief": brief or {}})
+
+    @staticmethod
+    def _artifact_family_value(family: ArtifactFamily | str) -> str:
+        return family.value if isinstance(family, ArtifactFamily) else str(family)
+
+    @staticmethod
+    def _artifact_family_from_value(value: str) -> ArtifactFamily:
+        try:
+            return ArtifactFamily(value)
+        except ValueError:
+            return ArtifactFamily.custom
 
     @staticmethod
     def _is_usable_finding(f: "EvidenceFinding") -> bool:
@@ -359,6 +291,239 @@ class ContentDirectorAgent(BaseAgent):
 
         return "\n".join(sections) if sections else ""
 
+    def _build_artifact_brief_prompt(
+        self,
+        *,
+        user_query: str,
+        artifact_spec: ArtifactSpec,
+        evidence_text: str,
+        evidence_summary: str,
+        hitl_text: str,
+        section_titles: list[str],
+    ) -> str:
+        schema_hint = {
+            "brief_id": "string",
+            "thread_id": "string",
+            "artifact_family": self._artifact_family_value(artifact_spec.family),
+            "title": "string",
+            "core_narrative": "string",
+            "target_audience": artifact_spec.audience or "general",
+            "sections": [
+                {
+                    "section_id": "section-1",
+                    "title": "string",
+                    "objective": "string",
+                    "key_points": ["string"],
+                    "evidence_refs": ["finding_id"],
+                    "visual_hint": "string",
+                    "constraints": ["string"],
+                }
+            ],
+            "brand_voice_id": "optional-string",
+            "style_preference": artifact_spec.tone or "executive",
+            "evidence_pack_id": "string",
+            "required_disclaimers": [],
+            "metadata": {"template_name": self._template_name_for_family(artifact_spec.family)},
+        }
+        return (
+            "Create an ArtifactBrief JSON only. Keep it concise and evidence-anchored.\n"
+            f"Request: {user_query}\n"
+            f"Artifact Family: {self._artifact_family_value(artifact_spec.family)}\n"
+            f"Audience: {artifact_spec.audience or 'general'}\n"
+            f"Tone: {artifact_spec.tone or 'professional'}\n"
+            f"Required Sections: {', '.join(section_titles)}\n\n"
+            "Evidence:\n"
+            f"{evidence_text}\n\n"
+            "Evidence Summary:\n"
+            f"{evidence_summary or 'None'}\n\n"
+            "HITL Answers:\n"
+            f"{hitl_text}\n\n"
+            "Requirements:\n"
+            "- sections must include objective, key_points, and evidence_refs\n"
+            "- keep claims supported by evidence_refs\n"
+            "- include visual_hint per section\n\n"
+            "Return JSON matching this shape:\n"
+            f"{schema_hint}"
+        )
+
+    def _content_brief_to_artifact_brief(
+        self,
+        *,
+        brief: ContentBrief,
+        artifact_spec: ArtifactSpec,
+        evidence_pack: EvidencePack | None = None,
+    ) -> ArtifactBrief:
+        sections: list[BriefSection] = []
+        for section in brief.section_plan:
+            key_points = section.bullets or ([section.core_message] if section.core_message else [])
+            sections.append(
+                BriefSection(
+                    section_id=section.section_id,
+                    title=section.title,
+                    objective=section.objective or section.purpose or f"Cover {section.title}",
+                    key_points=[point for point in key_points if point],
+                    evidence_refs=section.evidence_refs,
+                    visual_hint=section.visual_intent or None,
+                    constraints=section.acceptance_checks,
+                )
+            )
+
+        evidence_pack_id = "ep-unknown"
+        if evidence_pack and evidence_pack.metadata:
+            evidence_pack_id = str(
+                evidence_pack.metadata.get("evidence_pack_id")
+                or evidence_pack.metadata.get("pack_id")
+                or evidence_pack_id
+            )
+
+        return ArtifactBrief(
+            brief_id=f"brief-{uuid4().hex[:12]}",
+            thread_id="workflow-thread",
+            artifact_family=self._artifact_family_from_value(brief.family),
+            title=brief.title,
+            core_narrative=brief.narrative or brief.core_message or brief.title,
+            target_audience=brief.audience or artifact_spec.audience or "general",
+            sections=sections,
+            style_preference=artifact_spec.tone or "executive",
+            evidence_pack_id=evidence_pack_id,
+            required_disclaimers=[risk for risk in brief.risks if risk],
+            metadata={
+                "template_name": brief.template_name,
+                "visual_direction": brief.visual_direction,
+                "cta": brief.cta,
+                "acceptance_checks": brief.acceptance_checks,
+                "distribution_notes": brief.distribution_notes,
+                "handoff_notes": brief.handoff_notes,
+            },
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def _artifact_brief_to_content_brief(
+        self,
+        *,
+        artifact_brief: ArtifactBrief,
+        artifact_spec: ArtifactSpec,
+        hitl_answers: dict[str, str] | None,
+    ) -> ContentBrief:
+        section_plan: list[ContentSectionPlan] = []
+        for section in artifact_brief.sections:
+            defaults = _section_defaults(section.title)
+            section_plan.append(
+                ContentSectionPlan(
+                    section_id=section.section_id,
+                    title=section.title,
+                    purpose=defaults["purpose"],
+                    objective=section.objective,
+                    audience=artifact_brief.target_audience,
+                    core_message=" ".join(section.key_points[:2]),
+                    bullets=section.key_points,
+                    evidence_refs=section.evidence_refs,
+                    visual_intent=section.visual_hint or defaults["visual_intent"],
+                    acceptance_checks=section.constraints,
+                )
+            )
+
+        metadata = artifact_brief.metadata or {}
+        return ContentBrief(
+            title=artifact_brief.title,
+            family=self._artifact_family_value(artifact_brief.artifact_family),
+            template_name=str(metadata.get("template_name") or self._template_name_for_family(artifact_brief.artifact_family)),
+            narrative=artifact_brief.core_narrative,
+            audience=artifact_brief.target_audience,
+            core_message=artifact_brief.core_narrative,
+            visual_direction=str(metadata.get("visual_direction") or f"{artifact_spec.tone} {artifact_spec.family.value} layout"),
+            cta=str(metadata.get("cta") or (hitl_answers or {}).get("cta", "")),
+            risks=[d for d in artifact_brief.required_disclaimers if d],
+            acceptance_checks=list(metadata.get("acceptance_checks", [])),
+            section_plan=section_plan,
+            distribution_notes=list(metadata.get("distribution_notes", [])),
+            handoff_notes=list(metadata.get("handoff_notes", [])),
+        )
+
+    def _fallback_artifact_brief(
+        self,
+        *,
+        user_query: str,
+        evidence_summary: str,
+        artifact_spec: ArtifactSpec,
+        requirements: RequirementsChecklist,
+        hitl_answers: dict[str, str] | None,
+        evidence_pack: EvidencePack | None = None,
+    ) -> ArtifactBrief:
+        legacy = self._fallback_brief(
+            user_query=user_query,
+            evidence_summary=evidence_summary,
+            artifact_spec=artifact_spec,
+            requirements=requirements,
+            hitl_answers=hitl_answers,
+            evidence_pack=evidence_pack,
+        )
+        return self._content_brief_to_artifact_brief(
+            brief=legacy,
+            artifact_spec=artifact_spec,
+            evidence_pack=evidence_pack,
+        )
+
+    async def plan_artifact_brief(
+        self,
+        *,
+        user_query: str,
+        evidence_summary: str,
+        artifact_spec: ArtifactSpec,
+        requirements: RequirementsChecklist,
+        hitl_answers: dict[str, str] | None = None,
+        evidence_pack: EvidencePack | None = None,
+    ) -> ArtifactBrief:
+        evidence_text = self._format_evidence_for_prompt(evidence_pack)
+        hitl_text = "\n".join(f"- {k}: {v}" for k, v in (hitl_answers or {}).items()) or "None"
+        section_titles = artifact_spec.required_sections or ["Hero", "Evidence", "CTA"]
+        summary = evidence_summary
+        if evidence_pack and evidence_pack.summary and len(evidence_pack.summary) > 30:
+            summary = evidence_pack.summary
+
+        prompt = self._build_artifact_brief_prompt(
+            user_query=user_query,
+            artifact_spec=artifact_spec,
+            evidence_text=evidence_text,
+            evidence_summary=summary,
+            hitl_text=hitl_text,
+            section_titles=section_titles,
+        )
+
+        try:
+            response = await self.resolver.acompletion(
+                "content_director",
+                [
+                    {"role": "system", "content": self.sys_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=self.resolver.settings.content_director_max_output_tokens,
+                temperature=0.2,
+            )
+            raw = self.resolver.extract_text(response)
+            artifact_brief = ArtifactBrief.model_validate(self.resolver.safe_json_loads(raw))
+        except Exception:
+            artifact_brief = self._fallback_artifact_brief(
+                user_query=user_query,
+                evidence_summary=summary,
+                artifact_spec=artifact_spec,
+                requirements=requirements,
+                hitl_answers=hitl_answers,
+                evidence_pack=evidence_pack,
+            )
+
+        if not artifact_brief.sections:
+            artifact_brief = self._fallback_artifact_brief(
+                user_query=user_query,
+                evidence_summary=summary,
+                artifact_spec=artifact_spec,
+                requirements=requirements,
+                hitl_answers=hitl_answers,
+                evidence_pack=evidence_pack,
+            )
+
+        return artifact_brief
+
     def _fallback_brief(
         self,
         *,
@@ -461,135 +626,52 @@ class ContentDirectorAgent(BaseAgent):
         #     detail={"family": artifact_spec.family.value, "requirement_count": len(requirements.items)},
         # )
 
-        evidence_text = self._format_evidence_for_prompt(evidence_pack)
-        hitl_text = (
-            "\n".join(f"- {k}: {v}" for k, v in hitl_answers.items())
-            if hitl_answers else "None"
+        input_msg = make_agent_input(
+            workflow_id=None,
+            node_id="content_director",
+            agent_id="content_director",
+            payload={"family": artifact_spec.family.value, "user_query": user_query},
+            schema_ref="ContentDirectorInput",
         )
-        sections_list = ", ".join(artifact_spec.required_sections or ["Hero", "Evidence"])
+        logger.debug("content_director input_msg=%s", input_msg.msg_id)
 
-        evidence_summary = ""
-        if evidence_pack and evidence_pack.summary and len(evidence_pack.summary) > 30:
-            evidence_summary = evidence_pack.summary
+        artifact_brief = await self.plan_artifact_brief(
+            user_query=user_query,
+            evidence_summary=evidence_summary,
+            artifact_spec=artifact_spec,
+            requirements=requirements,
+            hitl_answers=hitl_answers,
+            evidence_pack=evidence_pack,
+        )
+        brief = self._artifact_brief_to_content_brief(
+            artifact_brief=artifact_brief,
+            artifact_spec=artifact_spec,
+            hitl_answers=hitl_answers,
+        )
 
-        # Build enriched evidence context from research agent's handoff
-        enriched_context = self._build_enriched_evidence_context(evidence_pack)
-
-        prompt = f"""You are the content director writing the complete copy for a {artifact_spec.family.value}.
-
-IMPORTANT — READ THE EVIDENCE FIRST. The evidence defines what the request is about.
-Any acronyms or terms in the request MUST be interpreted based on the evidence, NOT your training data.
-
-=== EVIDENCE (read this FIRST) ===
-{evidence_text}
-
-=== EVIDENCE SYNTHESIS ===
-{evidence_summary or "See individual findings above."}
-
-{enriched_context}
-
-=== USER ANSWERS ===
-{hitl_text}
-
-=== REQUEST ===
-USER REQUEST: {user_query}
-AUDIENCE: {artifact_spec.audience or "general"}
-TONE: {artifact_spec.tone or "professional"}
-REQUIRED SECTIONS: {sections_list}
-
----
-TASK: Generate a ContentBrief JSON with FULL COPY for every section.
-Each section must have REAL, SPECIFIC content — not placeholders or generic descriptions.
-You are the writer. The renderer will use your copy verbatim.
-
-CONTENT RULES:
-- headline: punchy, specific (e.g. "Tokyo's ¥50T Tourism Market Awakens" not "Hero Section")
-- subheadline: one strong sentence expanding the headline
-- body: 2-3 paragraphs of narrative. Use actual facts from evidence. Min 80 words per section.
-- bullets: 3-5 specific, complete sentences (not fragments). Each bullet should be a standalone insight.
-- stats: extract real numbers from evidence. If no numbers exist, omit the field.
-- core_message: 3-4 sentence synthesis of the section's key message
-- visual_intent: specific layout instruction (e.g. "3-card grid with stat callouts" not "clean layout")
-
-Return ONLY valid JSON:
-{{
-  "title": string,
-  "family": "{artifact_spec.family.value}",
-  "template_name": "{self._template_name_for_family(artifact_spec.family)}",
-  "narrative": "3-4 sentence story arc covering the whole artifact",
-  "audience": string or null,
-  "core_message": "overall key message",
-  "visual_direction": "specific design direction with colours and layout style",
-  "cta": "specific call to action text",
-  "risks": [],
-  "acceptance_checks": [],
-  "section_plan": [
-    {{
-      "section_id": "section-1",
-      "title": "Hero",
-      "purpose": "Hook audience with the central proposition",
-      "objective": "Make the audience immediately understand what this is about",
-      "headline": "SPECIFIC punchy headline using facts from evidence",
-      "subheadline": "One supporting sentence with a key insight",
-      "body": "2-3 paragraphs of real narrative content (min 80 words) using evidence findings",
-      "bullets": ["Complete insight sentence 1", "Complete insight sentence 2", "Complete insight sentence 3"],
-      "stats": [{{"value": "XXX", "label": "metric name"}}],
-      "core_message": "3-4 sentence synthesis of this section",
-      "visual_intent": "specific layout instruction for the renderer",
-      "cta": "",
-      "evidence_refs": [],
-      "risks": [],
-      "acceptance_checks": [],
-      "source_refs": [],
-      "notes": [],
-      "audience": null
-    }}
-  ],
-  "distribution_notes": [],
-  "handoff_notes": []
-}}"""
-
-        try:
-            response = await self.resolver.acompletion(
-                "content_director",
-                [
-                    {"role": "system", "content": self.sys_prompt},
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=self.resolver.settings.content_director_max_output_tokens,
-                temperature=0.2,
+        # Validate: each section must have objective, evidence_refs, and visual_intent
+        missing_fields: list[str] = []
+        for section in brief.section_plan:
+            if not section.objective:
+                missing_fields.append(f"section '{section.title}' missing objective")
+            if not section.evidence_refs:
+                missing_fields.append(f"section '{section.title}' missing evidence_refs")
+            if not section.visual_intent:
+                missing_fields.append(f"section '{section.title}' missing visual_intent")
+        if missing_fields:
+            logger.warning(
+                "content_director acceptance_check: %d issues in %s",
+                len(missing_fields), brief.title,
             )
-            raw = self.resolver.extract_text(response)
-            payload = self.resolver.safe_json_loads(raw)
-            brief = ContentBrief.model_validate(payload)
-        except Exception:
-            brief = self._fallback_brief(
-                user_query=user_query,
-                evidence_summary=evidence_summary,
-                artifact_spec=artifact_spec,
-                requirements=requirements,
-                hitl_answers=hitl_answers,
-                evidence_pack=evidence_pack,
-            )
+            for issue in missing_fields[:5]:
+                logger.warning("  - %s", issue)
 
-        if not brief.section_plan:
-            brief = self._fallback_brief(
-                user_query=user_query,
-                evidence_summary=evidence_summary,
-                artifact_spec=artifact_spec,
-                requirements=requirements,
-                hitl_answers=hitl_answers,
-                evidence_pack=evidence_pack,
-            )
-
-        if not brief.audience:
-            brief.audience = artifact_spec.audience
-        if not brief.core_message:
-            brief.core_message = brief.narrative or user_query
-        if not brief.visual_direction:
-            brief.visual_direction = f"{artifact_spec.tone} {artifact_spec.family.value} layout"
-        if not brief.cta and hitl_answers:
-            brief.cta = hitl_answers.get("cta", "")
+        output_msg = make_agent_output(
+            input_msg=input_msg,
+            payload={"title": brief.title, "section_count": len(brief.section_plan), "brief_id": artifact_brief.brief_id},
+            schema_ref="ArtifactBrief",
+        )
+        logger.debug("content_director output_msg=%s parent=%s", output_msg.msg_id, output_msg.parent_msg_id)
 
         # await self.log(
         #     f"Content brief ready: {len(brief.section_plan)} sections planned.",

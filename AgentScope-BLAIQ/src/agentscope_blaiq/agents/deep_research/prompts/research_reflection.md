@@ -31,18 +31,16 @@ For the failure above, determine:
 
 ## Output Format
 
-Return a JSON object:
+Return ONLY a RAW JSON object. DO NOT USE MARKDOWN BLOCKS OR CODE WRAPPERS (NO ```json). JUST THE BRACES AND CONTENT.
 
-```json
 {
   "failure_type": "tool_error|insufficient_results|contradictory_evidence|plan_misunderstanding|unachievable_subtask",
   "root_cause": "Specific explanation of what went wrong",
   "recommendation": "rephrase|decompose|alternative_approach|skip",
   "rephrased_plan": "New plan if recommendation is 'rephrase'",
-  "decomposition_questions": ["Sub-question 1", "Sub-question 2"] if recommendation is 'decompose',
+  "decomposition_questions": ["Sub-question 1", "Sub-question 2"],
   "reasoning": "Why this recommendation was chosen"
 }
-```
 
 ## Examples
 

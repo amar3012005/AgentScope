@@ -6,11 +6,22 @@ from pathlib import Path
 from typing import Any
 
 _SKILLS_DIR = Path(__file__).parent
+# Agent-local skills live next to the agent module: agents/{role}/skills/
+_AGENTS_DIR = _SKILLS_DIR.parent
 _SAFE_TENANT_ID = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
+
+
+def _agent_skill_path(role: str, filename: str) -> Path:
+    """Return the agent-local skill path (preferred) for a given role + file."""
+    return _AGENTS_DIR / role / "skills" / filename
 
 
 def load_skill(artifact_family: str, role: str) -> str:
     """Load the skill file for a given artifact family and agent role.
+
+    Lookup order for each file:
+    1. Agent-local  ``agents/{role}/skills/{file}``   (editable without touching shared/)
+    2. Shared       ``skills/{role}/{file}``           (fallback)
 
     Args:
         artifact_family: e.g. "pitch_deck", "poster", "finance_analysis", "report"
@@ -19,6 +30,18 @@ def load_skill(artifact_family: str, role: str) -> str:
     Returns:
         The skill content as a string. Includes shared rules prepended.
     """
+    def _read(filename: str, subdirectory: str | None = None) -> str | None:
+        """Try agent-local first, then shared/."""
+        # Agent-local: agents/{role}/skills/{filename}
+        local = _agent_skill_path(role, filename)
+        if local.exists():
+            return local.read_text(encoding="utf-8")
+        # Shared: skills/{subdirectory or role}/{filename}
+        shared = _SKILLS_DIR / (subdirectory or role) / filename
+        if shared.exists():
+            return shared.read_text(encoding="utf-8")
+        return None
+
     parts: list[str] = []
 
     # Always load shared evidence rules
@@ -28,12 +51,12 @@ def load_skill(artifact_family: str, role: str) -> str:
 
     # For text_buddy, load main skill first, then artifact-specific skill
     if role == "text_buddy":
-        main_skill = _SKILLS_DIR / "text_buddy" / "main.md"
-        if main_skill.exists():
-            parts.append(main_skill.read_text(encoding="utf-8"))
-        artifact_skill = _SKILLS_DIR / "text_buddy" / f"{artifact_family}.md"
-        if artifact_skill.exists():
-            parts.append(artifact_skill.read_text(encoding="utf-8"))
+        main_content = _read("main.md")
+        if main_content:
+            parts.append(main_content)
+        artifact_content = _read(f"{artifact_family}.md")
+        if artifact_content:
+            parts.append(artifact_content)
         return "\n\n---\n\n".join(parts)
 
     # Load shared slide types reference (visual pipeline only)
@@ -41,15 +64,14 @@ def load_skill(artifact_family: str, role: str) -> str:
     if slide_types.exists():
         parts.append(slide_types.read_text(encoding="utf-8"))
 
-    # Load artifact-specific skill
-    skill_path = _SKILLS_DIR / artifact_family / f"{role}.md"
-    if skill_path.exists():
-        parts.append(skill_path.read_text(encoding="utf-8"))
+    # Load artifact-specific skill — agent-local first, then shared, then pitch_deck fallback
+    artifact_content = _read(f"{role}.md", subdirectory=artifact_family)
+    if artifact_content:
+        parts.append(artifact_content)
     else:
-        # Fallback to pitch_deck as default
-        fallback = _SKILLS_DIR / "pitch_deck" / f"{role}.md"
-        if fallback.exists():
-            parts.append(fallback.read_text(encoding="utf-8"))
+        fallback_content = _read(f"{role}.md", subdirectory="pitch_deck")
+        if fallback_content:
+            parts.append(fallback_content)
 
     return "\n\n---\n\n".join(parts)
 

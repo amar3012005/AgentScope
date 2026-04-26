@@ -88,14 +88,35 @@ class Subtask:
 
 
 # Limits
-_MAX_SUB_QUESTIONS = 4
+_MAX_SUB_QUESTIONS = 3      # max branches per decomposition step
 _MIN_SUB_QUESTIONS = 2
+_MAX_TASK_DEPTH = 2        # depth 0→1→2 = max 3+9 = 12 research tasks
+_MAX_TOTAL_TASKS = 12      # hard cap: never exceed this many tasks total
+
+
+def _extract_partial_decomposition(text: str) -> dict:
+    """Recover sub_questions from a truncated / fence-wrapped LLM response.
+
+    Used when ``safe_json_loads`` fails (typically because max_tokens was hit
+    and the closing braces are missing).  Pulls ``"question"`` strings out of
+    the partial payload so research can still proceed with partial decomposition.
+    """
+    import re
+    # Strip markdown fences first
+    stripped = re.sub(r"^```(?:json)?\s*", "", text.strip())
+    stripped = re.sub(r"\s*```\s*$", "", stripped)
+
+    # Extract every "question": "..." value from the partial JSON
+    questions_found = re.findall(r'"question"\s*:\s*"([^"]{10,})"', stripped)
+
+    sub_questions = [{"question": q} for q in questions_found[:_MAX_SUB_QUESTIONS]]
+    return {"sub_questions": sub_questions, "knowledge_gaps_summary": ""}
 _MAX_RECALL_RESULTS = 10
 _GRAPH_TRAVERSAL_DEPTH = 2
 _WEB_RESULTS_LIMIT = 5
 _MIN_FINDING_LENGTH = 20
 _MAX_REFLECTIONS_PER_TASK = 2  # Avoid infinite reflection loops
-_MAX_TASK_DEPTH = 4  # Maximum tree depth for task decomposition
+# _MAX_TASK_DEPTH defined at top of file (value: 2)
 # HIVE-MIND recall already ranks, scores, dedupes, and filters.
 # Don't over-fetch — trust the ranking pipeline. Injection_text has the rich content.
 _RECALL_LIMITS = {"quick": 5, "insight": 10, "panorama": 10}
@@ -137,6 +158,13 @@ def _finding_dedup_key(finding: EvidenceFinding) -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _avg_conf(findings: list[EvidenceFinding]) -> float:
+    """Compute average confidence for a finding set with a safe empty fallback."""
+    if not findings:
+        return 0.0
+    return sum(f.confidence for f in findings) / len(findings)
 
 
 def _normalize_memories(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -362,7 +390,18 @@ class BlaiqDeepResearchAgent:
                 return hashlib.md5(normalized.encode()).hexdigest()
             return normalized
 
+        tasks_started = 0
         while task_stack:
+            # Hard cap: never exceed _MAX_TOTAL_TASKS research tasks.
+            # Prevents exponential explosion (branching_factor^depth tasks).
+            if tasks_started >= _MAX_TOTAL_TASKS:
+                await self._log(
+                    f"Task cap reached ({_MAX_TOTAL_TASKS}). Proceeding to synthesis.",
+                    kind="status",
+                    visibility="user",
+                )
+                break
+
             current = task_stack.pop()
 
             # Skip if we've already processed this objective (prevent infinite loops)
@@ -415,6 +454,7 @@ class BlaiqDeepResearchAgent:
                 current.status = "in_progress"
 
             # Step 3b: Research current task
+            tasks_started += 1
             current.status = "in_progress"
             await self._log(f"Researching: {current.objective[:50]}...", kind="status")
 
@@ -660,6 +700,10 @@ class BlaiqDeepResearchAgent:
         system_prompt = (
             f"{length_block}\n"
             "You are BLAIQ, a technical knowledge assistant.\n\n"
+            "LANGUAGE: Write the ENTIRE response in German (Deutsch). All headings, "
+            "body text, and bullet points must be in German. Preserve proper nouns, "
+            "product names (e.g. SolvisMax), and technical identifiers in their original form. "
+            "Use formal register (\"Sie\" form).\n\n"
             "Rules:\n"
             "- Use ONLY the provided evidence — do not add facts from training data.\n"
             "- Extract and list EVERY product name, model number, and spec from the evidence.\n"
@@ -762,12 +806,13 @@ class BlaiqDeepResearchAgent:
         """Quick HIVE-MIND recall only - no deep research tree.
 
         Use this for standard queries where full research decomposition
-        is not needed. Returns memory findings with optional web enrichment.
+        is not needed. Runs ONLY direct recall (Pass 1) — skips AI synthesis
+        and graph traversal for speed (~4s instead of ~14s).
         """
         await self._log(f"Quick recall started: {user_query[:80]}...", kind="status")
 
-        # Phase 1: HIVE-MIND recall
-        findings, sources, citations, synthesis = await self._phase1_deep_recall(user_query)
+        # Fast recall: Pass 1 only (no AI synthesis, no graph traversal)
+        findings, sources, citations, synthesis = await self._phase1_recall_only(user_query)
 
         await self._log(
             f"Quick recall complete: {len(findings)} memory findings",
@@ -805,6 +850,75 @@ class BlaiqDeepResearchAgent:
 
         return pack
 
+    async def _phase1_recall_only(
+        self, query: str
+    ) -> tuple[list[EvidenceFinding], list[SourceRecord], list[Citation], str | None]:
+        """Single-pass recall: direct HIVE-MIND recall only.
+
+        Skips AI synthesis (Pass 2) and graph traversal (Pass 3) for speed.
+        Used by _quick_recall_gather for direct_answer workflows where latency
+        matters more than exhaustive evidence coverage.
+        """
+        findings: list[EvidenceFinding] = []
+        sources: list[SourceRecord] = []
+        citations: list[Citation] = []
+
+        if not self.hivemind.enabled:
+            return findings, sources, citations, None
+
+        recall_mode, recall_limit = self._recall_profile_for_query(query)
+        await self._log(
+            f"Phase 1 recall profile selected: mode={recall_mode}, limit={recall_limit}.",
+            kind="decision",
+        )
+
+        try:
+            await self._log(
+                "Calling hivemind_recall",
+                kind="tool_call",
+                detail={"tool_id": "hivemind_recall", "mode": recall_mode, "limit": recall_limit},
+            )
+            recall_result = await self.hivemind.recall(
+                query=query, limit=recall_limit, mode=recall_mode,
+            )
+            payload = self.hivemind._extract_tool_payload(recall_result) if isinstance(recall_result, dict) else recall_result
+            await self._log(
+                "hivemind_recall completed",
+                kind="tool_result",
+                detail={"tool_id": "hivemind_recall", "memory_count": len(_normalize_memories(payload))},
+            )
+            logger.info("Phase 1 recall payload keys: %s", list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__)
+            memories = _normalize_memories(payload)
+            logger.info("Phase 1 normalized memories: %d", len(memories))
+            for mem in memories:
+                f, s, c = self._memory_to_finding(mem)
+                if f is not None:
+                    findings.append(f)
+                    sources.append(s)
+                    citations.append(c)
+
+            injection = _normalize_injection_text(payload)
+            if injection:
+                first_chars = injection.lstrip()[:20]
+                is_structured = first_chars.startswith(("{", "[", "<user-profile", "<", '"'))
+                if not is_structured:
+                    injection_findings = _injection_to_findings(injection)[:15]
+                    logger.info("Phase 1 injection findings: %d (prose content)", len(injection_findings))
+                    findings.extend(injection_findings)
+                else:
+                    logger.info("Phase 1 injection text skipped: structured metadata, not prose")
+        except HivemindMCPError as exc:
+            logger.warning("Phase 1 recall failed: %s", exc)
+            await self._log(f"Memory recall error (continuing): {exc}", kind="status", visibility="debug")
+
+        # Build a simple summary from findings instead of calling AI synthesis
+        synthesis = None
+        if findings:
+            top_titles = [f.title for f in findings[:5] if f.title]
+            synthesis = f"Found {len(findings)} relevant memories: {', '.join(top_titles)}"
+
+        return findings, sources, citations, synthesis
+
     async def _phase1_deep_recall(
         self, query: str
     ) -> tuple[list[EvidenceFinding], list[SourceRecord], list[Citation], str | None]:
@@ -825,10 +939,20 @@ class BlaiqDeepResearchAgent:
 
         # Pass 1: Direct recall
         try:
+            await self._log(
+                "Calling hivemind_recall",
+                kind="tool_call",
+                detail={"tool_id": "hivemind_recall", "mode": recall_mode, "limit": recall_limit},
+            )
             recall_result = await self.hivemind.recall(
                 query=query, limit=recall_limit, mode=recall_mode,
             )
             payload = self.hivemind._extract_tool_payload(recall_result) if isinstance(recall_result, dict) else recall_result
+            await self._log(
+                "hivemind_recall completed",
+                kind="tool_result",
+                detail={"tool_id": "hivemind_recall", "memory_count": len(_normalize_memories(payload))},
+            )
             logger.info("Phase 1 recall payload keys: %s", list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__)
             memories = _normalize_memories(payload)
             logger.info("Phase 1 normalized memories: %d", len(memories))
@@ -859,8 +983,18 @@ class BlaiqDeepResearchAgent:
 
         # Pass 2: AI synthesis
         try:
+            await self._log(
+                "Calling hivemind_query_with_ai",
+                kind="tool_call",
+                detail={"tool_id": "hivemind_query_with_ai", "context_limit": 8},
+            )
             ai_result = await self.hivemind.query_with_ai(question=query, context_limit=8)
             ai_payload = self.hivemind._extract_tool_payload(ai_result) if isinstance(ai_result, dict) else ai_result
+            await self._log(
+                "hivemind_query_with_ai completed",
+                kind="tool_result",
+                detail={"tool_id": "hivemind_query_with_ai", "has_answer": bool((ai_payload or {}).get("answer"))},
+            )
             answer = ai_payload.get("answer") or ai_payload.get("text") or ""
             if isinstance(answer, str) and answer.strip():
                 synthesis = answer.strip()
@@ -871,12 +1005,22 @@ class BlaiqDeepResearchAgent:
         top_memory_ids = [f.source_ids[0] for f in findings if f.source_ids][:3]
         for memory_id in top_memory_ids:
             try:
+                await self._log(
+                    "Calling hivemind_traverse_graph",
+                    kind="tool_call",
+                    detail={"tool_id": "hivemind_traverse_graph", "memory_id": memory_id, "depth": _GRAPH_TRAVERSAL_DEPTH},
+                )
                 graph_result = await self.hivemind.traverse_graph(
                     memory_id=memory_id, depth=_GRAPH_TRAVERSAL_DEPTH,
                 )
                 graph_payload = (
                     self.hivemind._extract_tool_payload(graph_result)
                     if isinstance(graph_result, dict) else graph_result
+                )
+                await self._log(
+                    "hivemind_traverse_graph completed",
+                    kind="tool_result",
+                    detail={"tool_id": "hivemind_traverse_graph", "memory_id": memory_id, "memory_count": len(_normalize_memories(graph_payload))},
                 )
                 graph_memories = _normalize_memories(graph_payload)
                 for mem in graph_memories:
@@ -904,7 +1048,7 @@ class BlaiqDeepResearchAgent:
         prompt = prompt.replace("{source_scope}", source_scope)
 
         messages = [
-            {"role": "system", "content": "You are a research planner. Return ONLY valid JSON. No markdown, no code blocks, no explanatory text. Raw JSON only."},
+            {"role": "system", "content": "You are a research planner. Your response MUST start with { and end with }. Never use ```json or any markdown. Never add text before or after the JSON braces. Raw JSON only."},
             {"role": "user", "content": prompt},
         ]
 
@@ -981,25 +1125,28 @@ class BlaiqDeepResearchAgent:
         prompt = prompt.replace("{source_scope}", source_scope)
 
         messages = [
-            {"role": "system", "content": "You are a research planner. Return ONLY valid JSON. No markdown, no code blocks, no explanatory text. Raw JSON only."},
+            {"role": "system", "content": "You are a research planner. Your response MUST start with { and end with }. Never use ```json or any markdown. Never add text before or after the JSON braces. Raw JSON only."},
             {"role": "user", "content": prompt},
         ]
 
         try:
             response = await self.resolver.acompletion(
-                "research", messages, max_tokens=800, temperature=0.5,
+                "research", messages, max_tokens=2000, temperature=0.5,
             )
             text = self.resolver.extract_text(response)
 
-            # Log raw response for debugging
-            logger.warning("Decomposition LLM response (raw): %s", text[:500] if text else "(EMPTY)")
+            logger.debug("Decomposition LLM response (raw): %s", text[:300] if text else "(EMPTY)")
 
-            parsed = self.resolver.safe_json_loads(text)
+            # Primary parse — handles complete JSON
+            try:
+                parsed = self.resolver.safe_json_loads(text)
+            except Exception:
+                # Secondary: extract partial sub_questions from truncated JSON.
+                # Captures question strings even when the closing braces are missing.
+                parsed = _extract_partial_decomposition(text)
 
-            # Extract working plan from rationale or generate one
             sub_questions = parsed.get("sub_questions", [])
             if isinstance(sub_questions, list) and len(sub_questions) >= 1:
-                # Build working plan from sub-questions
                 working_plan = "\n".join([
                     f"{i+1}. Research: {sq.get('question', str(sq)) if isinstance(sq, dict) else sq}"
                     for i, sq in enumerate(sub_questions[:_MAX_SUB_QUESTIONS])
@@ -1010,7 +1157,7 @@ class BlaiqDeepResearchAgent:
                     "knowledge_gaps": parsed.get("knowledge_gaps_summary", ""),
                 }
         except Exception as exc:
-            logger.warning("Decomposition with plan failed: %s", exc)
+            logger.debug("Decomposition with plan failed: %s", exc)
 
         # Fallback - vary questions by depth to avoid infinite loops
         fallback_questions = self._fallback_decompose(query, depth)
@@ -1158,7 +1305,7 @@ class BlaiqDeepResearchAgent:
         )
 
         messages = [
-            {"role": "system", "content": "You are a deep search analyst. Return ONLY valid JSON. No markdown, no code blocks, no explanatory text. Raw JSON only."},
+            {"role": "system", "content": "You are a deep search analyst. Your response MUST start with { and end with }. Never use ```json or any markdown. Never add text before or after the JSON braces. Raw JSON only."},
             {"role": "user", "content": prompt},
         ]
 
@@ -1189,7 +1336,7 @@ class BlaiqDeepResearchAgent:
         )
 
         messages = [
-            {"role": "system", "content": "You are a research quality controller. Return ONLY valid JSON. No markdown, no code blocks, no explanatory text. Raw JSON only."},
+            {"role": "system", "content": "You are a research quality controller. Your response MUST start with { and end with }. Never use ```json or any markdown. Never add text before or after the JSON braces. Raw JSON only."},
             {"role": "user", "content": prompt},
         ]
 
