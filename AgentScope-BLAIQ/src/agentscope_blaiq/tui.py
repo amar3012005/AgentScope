@@ -16,8 +16,6 @@ from rich.markdown import Markdown
 from rich.prompt import Prompt
 
 from agentscope.message import Msg
-from agentscope_blaiq.runtime.agent_base import BaseAgent
-from agentscope_blaiq.agents.strategic.agent import StrategicAgent
 from agentscope_blaiq.runtime.config import settings
 from agentscope_blaiq.workflows.swarm_engine import SwarmEngine
 from agentscope_blaiq.persistence.redis_state import RedisStateStore
@@ -35,11 +33,6 @@ SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 class BlaiqWorkspaceTUI:
     """The central Command Center for testing and managing the BLAIQ stack."""
     def __init__(self):
-        self.strategist = StrategicAgent(
-            name="Strategist",
-            role="strategic",
-            sys_prompt="You are the BLAIQ Strategist. Orchestrate missions using the specialist fleet."
-        )
         self.session_id = "tui-session-" + os.urandom(4).hex()
         self.engaged_agents = set()
         self.service_host = os.environ.get("BLAIQ_SERVICE_HOST", "localhost")
@@ -181,13 +174,6 @@ class BlaiqWorkspaceTUI:
 
         # 3. Completion Marker
         console.rule("[bold green]Pipeline Complete[/bold green]")
-
-    async def run_mission(self, user_input: str):
-        """Executes an autonomous mission."""
-        console.rule(f"[bold cyan]Mission: {user_input[:50]}...[/bold cyan]")
-        with Live(Panel("Strategist is reasoning...", title="Orchestration Flow", border_style="yellow"), refresh_per_second=4) as live:
-            response = await self.strategist.reply(Msg(name="User", content=user_input, role="user"))
-            live.update(Panel(Markdown(response.content), title="[bold green]Final Synthesis[/bold green]", border_style="green"))
 
 # ── COMMAND HANDLERS ────────────────────────────────────────────────────
 
@@ -334,7 +320,7 @@ async def run_repl():
                 console.print(table)
                 continue
 
-            await workspace.run_mission(query)
+            console.print("[yellow]Unknown command. Use /pipeline <goal> [--hitl] to run a mission.[/yellow]")
             
         except KeyboardInterrupt: break
         except Exception as e:
