@@ -45,10 +45,14 @@ class BlaiqWorkspaceTUI:
     async def check_fleet_status(self):
         """Checks health of all BLAIQ microservices."""
         services = {
-            "Factory": f"http://{self.service_host}:8100/api/v1/health",
-            "Research": f"http://{self.service_host}:8091/api/v1/health",
-            "Oracle": f"http://{self.service_host}:8092/api/v1/health",
-            "Strategist (AaaS)": f"http://{self.service_host}:8095/api/v1/health",
+            "Factory": f"http://{self.service_host}:8100/health",
+            "Research": f"http://{self.service_host}:8096/health",
+            "Oracle": f"http://{self.service_host}:8094/health",
+            "Strategist (AaaS)": f"http://{self.service_host}:8095/health",
+            "Text Buddy": f"http://{self.service_host}:8097/health",
+            "Content Director": f"http://{self.service_host}:8098/health",
+            "Van Gogh": f"http://{self.service_host}:8099/health",
+            "Governance": f"http://{self.service_host}:8093/health",
         }
         
         table = Table(title="BLAIQ Fleet Status", border_style="cyan")
