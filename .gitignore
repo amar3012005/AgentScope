@@ -17,12 +17,26 @@ _jobs/
 tests/
 !AgentScope-BLAIQ/tests/
 !AgentScope-BLAIQ/tests/**/*.py
+
 # Virtual environments
 .venv
 AgentScope-BLAIQ/.venv/
 AgentScope-BLAIQ/references/
 AgentScope-BLAIQ/frontend/
 .env
+
+# Node.js dependencies and build artifacts
+node_modules/
+.next/
+out/
+*.node
+*.pack
+
+# Large binary files (use Git LFS or external storage)
+SOLVIS/
+*.pdf
+
+# Misc
 docker_compose_local_yml_asdasd.txt
 manual.txt
 schemas/verwaltung_schema/relationship_types.json
