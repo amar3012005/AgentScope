@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -50,7 +50,7 @@ class ArtifactFamily(str, Enum):
 # Canonical set of text-based artifact families handled by TextBuddy.
 TEXT_ARTIFACT_FAMILIES: frozenset[str] = frozenset({
     "email", "invoice", "letter", "memo",
-    "proposal", "report", "social_post", "summary",
+    "proposal", "report", "social_post", "summary", "direct",
 })
 
 
@@ -58,6 +58,7 @@ class TaskRole(str, Enum):
     strategist = "strategist"
     research = "research"
     hitl = "hitl"
+    oracle = "oracle"
     content_director = "content_director"
     vangogh = "vangogh"
     governance = "governance"
@@ -77,7 +78,9 @@ class ExecutorKind(str, Enum):
 
 class RequirementStage(str, Enum):
     before_research = "before_research"
+    before_storyboard = "before_storyboard"
     before_render = "before_render"
+    before_synthesis = "before_synthesis"
     evidence_informed = "evidence_informed"
 
 
@@ -87,6 +90,15 @@ class WorkflowStatus(str, Enum):
     blocked = "blocked"
     complete = "complete"
     error = "error"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class WorkflowExecutionResult(BaseModel):
+    status: WorkflowStatus = WorkflowStatus.complete
+    results: Dict[str, Any] = Field(default_factory=dict)
+    blocked_by: Optional[RequirementStage] = None
+    next_action: Optional[str] = None
 
 
 class AgentType(str, Enum):

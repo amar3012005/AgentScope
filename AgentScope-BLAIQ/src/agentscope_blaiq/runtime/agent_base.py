@@ -51,10 +51,21 @@ class BaseAgent:
         self._log_sink: AgentLogSink = _noop_sink
         self._notebook: PlanNotebook | None = None
         self._notebook_revision: int = 0
+        self.status_messages: list[str] = []
+        self.last_history: list[Msg] = []
 
     def set_log_sink(self, sink: AgentLogSink) -> None:
         """Inject the live event sink. Called by the engine before each run."""
         self._log_sink = sink
+
+    async def log_starting(self) -> None:
+        """Log the first status message to indicate the agent has started."""
+        if self.status_messages:
+            await self.log_user(self.status_messages[0])
+        else:
+            # Fallback for agents without custom status messages
+            await self.log_user(f"{self.name} is starting...")
+
 
     # ── PlanNotebook lifecycle ────────────────────────────────────────────────
 
@@ -127,11 +138,12 @@ class BaseAgent:
         description: str = "",
     ) -> None:
         """Register a tool with runtime telemetry wrapping."""
-        toolkit.register_tool_function(
-            self.instrument_tool(tool_id, fn),
-            func_name=tool_id,
-            func_description=description,
-        )
+        wrapped = self.instrument_tool(tool_id, fn)
+        # AgentScope extracts metadata from __name__ and __doc__
+        wrapped.__name__ = tool_id
+        wrapped.__doc__ = description
+        
+        toolkit.register_tool_function(wrapped)
 
     async def log(
         self,
@@ -146,10 +158,18 @@ class BaseAgent:
         Args:
             message: Human-readable message for the frontend chat.
             kind: One of thought, tool_call, tool_result, status, decision, artifact, review.
-            visibility: 'user' for frontend chat, 'debug' for operator console.
+            visibility: 'user' for frontend chat, 'log' for logs panel, 'debug' for operator console.
             detail: Optional structured payload.
         """
         await self._log_sink(message, kind, visibility, detail)
+
+    async def log_user(self, message: str, *, detail: dict[str, Any] | None = None) -> None:
+        """Emit a user-visible status message to the agent card on the frontend.
+
+        Use this for meaningful progress updates the user should see.
+        Use ``log()`` with ``visibility='log'`` for internal/debug messages.
+        """
+        await self._log_sink(message, "status", "user", detail)
 
     @staticmethod
     def _redact_tool_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -278,7 +298,7 @@ class BaseAgent:
         ``self._notebook`` when set, or create a fresh one otherwise.
         """
         notebook = plan_notebook or self._notebook or PlanNotebook()
-        return ReActAgent(
+        agent = ReActAgent(
             name=self.name,
             sys_prompt=self.sys_prompt,
             model=self.resolver.build_agentscope_model(self.role),
@@ -289,6 +309,11 @@ class BaseAgent:
             max_iters=6,
             parallel_tool_calls=True,
         )
+        # Disable AgentScope's built-in console printer so raw tool_use /
+        # tool_result blocks do not leak into backend stdout.
+        if hasattr(agent, "_disable_console_output"):
+            agent._disable_console_output = True
+        return agent
 
     def make_msg(self, content: Any, role: str = "assistant", **metadata: Any) -> Msg:
         sender_name = "user" if role == "user" else self.name
@@ -305,7 +330,16 @@ class BaseAgent:
             role="user",
             phase="request",
         )
-        return await agent.reply(runtime_msg)
+        response = await agent.reply(runtime_msg)
+        
+        # Store history for telemetry/TUI inspection
+        history = agent.memory.get_memory()
+        if inspect.isawaitable(history):
+            self.last_history = await history
+        else:
+            self.last_history = history
+        
+        return response
 
     async def complete_text(
         self,

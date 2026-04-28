@@ -129,7 +129,7 @@ class LiteLLMModelResolver:
                 provider=resolved.provider,
                 api_key=resolved.api_key,
                 api_base=resolved.api_base,
-                timeout_seconds=resolved.timeout_seconds,
+                timeout_seconds=600, # Explicitly high for visual synthesis
                 max_output_tokens=self.settings.content_director_max_output_tokens,
                 temperature=resolved.temperature,
                 reasoning_effort=resolved.reasoning_effort,
@@ -148,7 +148,7 @@ class LiteLLMModelResolver:
                 provider=resolved.provider,
                 api_key=resolved.api_key,
                 api_base=resolved.api_base,
-                timeout_seconds=resolved.timeout_seconds,
+                timeout_seconds=600, # High for complex rendering
                 max_output_tokens=self.settings.vangogh_max_output_tokens,
                 temperature=resolved.temperature,
                 reasoning_effort=resolved.reasoning_effort,
@@ -192,6 +192,21 @@ class LiteLLMModelResolver:
                 role=role_key,
                 model_name=self.settings.research_model,
                 temperature=0.1,  # Lower temperature for deterministic analysis
+                fallback_model=self.settings.llm_fallback_model,
+            )
+        if role_key == "oracle":
+            return self._build_resolved_model(
+                role=role_key,
+                model_name=self.settings.hitl_model,
+                temperature=0.3,
+                fallback_model=self.settings.llm_fallback_model,
+            )
+        if role_key == "custom":
+            # Fallback for dynamic/user agents
+            return self._build_resolved_model(
+                role=role_key,
+                model_name=self.settings.strategic_model,
+                temperature=self.settings.strategic_temperature,
                 fallback_model=self.settings.llm_fallback_model,
             )
         raise ValueError(f"Unknown model role: {role}")
@@ -256,6 +271,7 @@ class LiteLLMModelResolver:
         role: str,
         messages: list[dict[str, str]],
         *,
+        model_name: str | None = None,
         stream: bool = False,
         response_format: dict[str, Any] | None = None,
         max_tokens: int | None = None,
@@ -267,16 +283,16 @@ class LiteLLMModelResolver:
         except ImportError as exc:  # pragma: no cover - dependency missing in shell
             raise RuntimeError("litellm is required to execute AgentScope-BLAIQ model calls") from exc
 
-        # When api_base points to a proxy, keep the FULL model name (the proxy's
-        # model registry uses the full name, e.g. "vertex_ai/claude-sonnet-4-6@default").
-        # Force OpenAI-compatible routing so LiteLLM doesn't try native provider auth.
-        # When calling native providers directly (no proxy), strip the prefix.
+        # Use overridden model_name if provided, otherwise use the resolved one
+        final_model = model_name if model_name is not None else resolved.model_name
+
         if resolved.api_base:
-            model_name = resolved.model_name  # proxy resolves routing by full name
+            actual_model = final_model  # proxy resolves routing by full name
         else:
-            model_name = self._strip_provider_prefix(resolved.model_name)
+            actual_model = self._strip_provider_prefix(final_model)
+            
         kwargs: dict[str, Any] = {
-            "model": model_name,
+            "model": actual_model,
             "messages": messages,
             "api_key": resolved.api_key,
             "api_base": resolved.api_base,

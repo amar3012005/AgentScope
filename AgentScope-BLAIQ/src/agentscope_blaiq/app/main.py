@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 import hashlib
 import json
 import logging
+import os
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -19,6 +20,7 @@ from sse_starlette.sse import EventSourceResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agentscope_blaiq.contracts.hitl import HITLResumeRequest
 from agentscope_blaiq.contracts.workflow import ResumeWorkflowRequest, SubmitWorkflowRequest, WorkflowStatus
 from agentscope_blaiq.contracts.custom_agents import CustomAgentSpec, validate_custom_agent_spec
 from agentscope_blaiq.contracts.user_agent_registry import UserAgentRegistry
@@ -58,11 +60,32 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AgentScope-BLAIQ", version="0.1.0", lifespan=lifespan)
 app.include_router(admin_router)
 
+# Silence low-level LLM / AgentScope console dumps in backend runtime.
+os.environ.setdefault("AGENTSCOPE_DISABLE_CONSOLE_OUTPUT", "true")
+os.environ.setdefault("LITELLM_LOG", "WARNING")
+
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     force=True,
 )
+logging.Formatter.converter = __import__("time").gmtime  # force UTC across all handlers
+
+# Keep production logs focused on workflow phase transitions and warnings.
+for noisy_logger in (
+    "LiteLLM",
+    "litellm",
+    "_toolkit",
+    "httpx",
+    "httpcore",
+    "openai",
+    "agentscope",
+    "agentscope_blaiq.agents",
+    "agentscope_blaiq.runtime",
+):
+    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+
+logging.getLogger("agentscope_blaiq.workflow").setLevel(logging.INFO)
 
 # CORS — allow the frontend dev server
 _allowed_origins = [
@@ -577,6 +600,112 @@ async def resume_workflow(request: ResumeWorkflowRequest, session: AsyncSession 
     )
 
 
+@app.post("/api/v1/swarm/resume")
+async def resume_swarm(request: HITLResumeRequest) -> EventSourceResponse:
+    """Resume a suspended swarm after HITL answer. Streams results as SSE."""
+    from agentscope_blaiq.workflows.swarm_engine import SwarmEngine
+    from agentscope_blaiq.contracts.hitl import WorkflowSuspended
+    from agentscope_blaiq.streaming.sse import encode_sse
+
+    swarm = SwarmEngine()
+
+    async def event_stream():
+        published: list[dict] = []
+
+        async def publish(role: str, text: str, is_stream: bool = False):
+            published.append({"role": role, "text": text, "is_stream": is_stream})
+            yield {"event": "message", "data": json.dumps({"role": role, "text": text, "is_stream": is_stream})}
+
+        try:
+            async def _publish(role: str, text: str, is_stream: bool = False):
+                yield {"event": "message", "data": json.dumps({"role": role, "text": text, "is_stream": is_stream})}
+
+            results = await swarm.resume(request)
+            yield {"event": "message", "data": json.dumps({"status": "complete", "results": results})}
+        except WorkflowSuspended as exc:
+            yield {"event": "message", "data": json.dumps({
+                "status": "suspended",
+                "session_id": exc.session_id,
+                "hitl": {"question": exc.question, "options": exc.options, "why": exc.why},
+            })}
+        except Exception as exc:
+            yield {"event": "message", "data": json.dumps({"status": "error", "detail": str(exc)})}
+
+    async def _sse_stream():
+        async for event in event_stream():
+            data = event.get("data", "")
+            yield f"data: {data}\n\n"
+
+    return EventSourceResponse(
+        _sse_stream(),
+        ping=10,
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
+import httpx
+from fastapi.responses import StreamingResponse
+
+class ProcessWorkflowRequest(BaseModel):
+    input: list[Any]
+    session_id: str
+    user_id: str | None = None
+
+@app.post("/process")
+async def process_workflow_proxy(
+    request: ProcessWorkflowRequest, 
+    req: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    AaaS Control Plane Gateway:
+    Intercepts frontend requests, validates them, and securely proxies the 
+    SSE stream to the internal AgentScope cluster.
+    """
+    # 1. Auth Validation
+    # In production, extract user_id from HTTPOnly cookies or JWT
+    user_id = request.user_id or "default_user"
+    
+    # 2. Network Routing
+    # Inside docker, strategist-service runs on 8090. Locally, it's 8095.
+    agentscope_host = os.environ.get("STRATEGIST_HOST", "strategist-service")
+    agentscope_port = os.environ.get("STRATEGIST_PORT", "8090")
+    
+    # Fallback for local dev without Docker
+    if settings.app_env == "development" and not os.environ.get("DOCKER_ENV"):
+        agentscope_host = "localhost"
+        agentscope_port = "8095"
+
+    agentscope_url = f"http://{agentscope_host}:{agentscope_port}/process"
+    
+    async def stream_generator():
+        # Using a long timeout since agent reasoning can take minutes
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            try:
+                async with client.stream("POST", agentscope_url, json={
+                    "input": request.input,
+                    "session_id": request.session_id,
+                    "user_id": user_id
+                }) as response:
+                    async for chunk in response.aiter_bytes():
+                        # Database Hook: Here we could decode the chunk, look for 
+                        # metadata.kind == 'design_spec', and UPDATE the DB asynchronously.
+                        yield chunk
+            except Exception as e:
+                import json
+                error_msg = json.dumps({"metadata": {"kind": "error"}, "content": f"Control Plane Proxy Error: {str(e)}"})
+                yield f"data: {error_msg}\n\n".encode("utf-8")
+
+    return StreamingResponse(
+        stream_generator(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no" # Prevent Nginx from buffering SSE
+        }
+    )
+
 @app.get("/api/v1/workflows/{thread_id}/status")
 async def workflow_status(thread_id: str, session: AsyncSession = Depends(get_db)):
     snapshot = await WorkflowRepository(session).get_status(thread_id)
@@ -740,8 +869,10 @@ async def draft_custom_agent(req: AgentDraftRequest):
         f'  "allowed_workflows": ["pick relevant workflows from available list"],\n'
         f'  "tags": ["relevant", "tags"],\n'
         f'  "artifact_family": "email|summary|social_post|memo|proposal|letter|invoice|null",\n'
+        f'  "status_messages": ["3-4 short status updates (max 40 chars each) that this agent should stream while working, matching its specific persona"],\n'
         f'  "missing_info": ["list any info you need from the user to complete the spec"]\n'
         f'}}'
+
     )
 
     try:

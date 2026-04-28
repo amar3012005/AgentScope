@@ -102,6 +102,23 @@ def _make_agent_log_sink(
         event_type = "agent_log"
         if message_kind in {"tool_call", "tool_result", "tool_error", "tool_call_started", "tool_call_finished", "tool_call_failed"}:
             event_type = message_kind
+        # The frontend user stream should stay focused on clear progress states.
+        # Internal reasoning, tooling, and review telemetry remains available in
+        # the logs panel via visibility="log".
+        _non_user_kinds = {
+            "thought",
+            "decision",
+            "artifact",
+            "review",
+            "tool_call",
+            "tool_result",
+            "tool_error",
+            "tool_call_started",
+            "tool_call_finished",
+            "tool_call_failed",
+        }
+        if visibility == "user" and message_kind in _non_user_kinds:
+            visibility = "log"
         data = {
             "message": message,
             "message_kind": message_kind,
@@ -197,6 +214,7 @@ class EventFactory:
         phase: str = "system",
         status: str = "running",
         data: dict[str, Any] | None = None,
+        visibility: str = "user",
     ) -> StreamEvent:
         self.sequence += 1
         return StreamEvent(
@@ -209,6 +227,7 @@ class EventFactory:
             agent_name=agent_name,
             phase=phase,
             status=status,
+            visibility=visibility,
             data=data or {},
         )
 
@@ -911,34 +930,6 @@ class WorkflowEngine:
                 )
             )
 
-            # Load prior conversation chain from HIVE-MIND
-            if request.memory_chain_id:
-                try:
-                    chain = await asyncio.wait_for(
-                        self.registry.hivemind.traverse_graph(
-                            memory_id=request.memory_chain_id, depth=3,
-                        ),
-                        timeout=5.0,
-                    )
-                    if chain:
-                        logger.info("Loaded conversation chain from HIVE-MIND for memory_chain_id %s", request.memory_chain_id)
-                        request.metadata = request.metadata or {}
-                        request.metadata["prior_turns"] = chain
-                except asyncio.TimeoutError:
-                    logger.warning("HIVE-MIND traverse_graph timeout for memory_chain_id %s", request.memory_chain_id)
-                except Exception as exc:
-                    logger.warning("Failed to load conversation chain: %s", exc)
-            elif request.session_id:
-                try:
-                    prior_context = await self.registry.hivemind.recall(
-                        query=request.user_query, limit=5, mode="quick",
-                    )
-                    if prior_context:
-                        logger.info("Loaded prior context from HIVE-MIND for session %s", request.session_id)
-                        request.metadata = request.metadata or {}
-                        request.metadata["prior_turns"] = prior_context
-                except Exception as exc:
-                    logger.warning("Failed to load prior context: %s", exc)
         else:
             current_state = await self.state_store.get_workflow_state(request.thread_id)
             if current_state is not None:
@@ -1032,7 +1023,7 @@ class WorkflowEngine:
                         data={"workflow_mode": workflow_mode.value},
                     )
                 )
-                self._maybe_set_log_sink(self.registry.strategist, make_agent_log_sink("strategist", "planning", "planning"))
+                await self._maybe_set_log_sink(self.registry.strategist, make_agent_log_sink("strategist", "planning", "planning"))
                 plan = await self._resolve_plan(request, repo, is_resume=is_resume)
                 workflow_mode = plan.workflow_mode
                 await self._update_workflow_snapshot(
@@ -1098,6 +1089,17 @@ class WorkflowEngine:
                     events,
                     publish,
                     emit_initial_events=False,
+                )
+
+                # Signal strategist completion for continuous UI flow
+                await publish(
+                    events.build(
+                        "agent_log",
+                        agent_name="strategist",
+                        phase="planning",
+                        status="completed",
+                        data={"message": "Strategic plan finalized. Intelligence grid initialized."},
+                    )
                 )
 
                 workflow_state = await self.state_store.get_workflow_state(request.thread_id)
@@ -1263,10 +1265,17 @@ class WorkflowEngine:
         return await build_plan(request)
 
     @staticmethod
-    def _maybe_set_log_sink(agent: Any, sink: Any) -> None:
+    async def _maybe_set_log_sink(agent: Any, sink: Any) -> None:
+
         setter = getattr(agent, "set_log_sink", None)
         if callable(setter):
             setter(sink)
+
+        # Persona-Linked Status Logs: give immediate, context-aware feedback
+        starter = getattr(agent, "log_starting", None)
+        if callable(starter):
+            await starter()
+
 
     def _get_research_agent(self, ctx: WorkflowRunContext) -> Any:
         """Return the appropriate research agent based on analysis_mode.
@@ -1353,7 +1362,7 @@ class WorkflowEngine:
     ) -> ClarificationPrompt:
         hitl_name = self._assigned_agent_name(ctx, "hitl", "hitl")
         _, hitl = self._resolve_runtime_agent(ctx, "hitl", "hitl")
-        self._maybe_set_log_sink(hitl, make_agent_log_sink(hitl_name, "clarification"))
+        await self._maybe_set_log_sink(hitl, make_agent_log_sink(hitl_name, "clarification"))
         self.registry.mark_agent_busy(hitl_name, "clarification")
         try:
             generate_prompt = getattr(hitl, "generate_prompt")
@@ -1375,13 +1384,17 @@ class WorkflowEngine:
                 hitl_name,
                 {
                     "evidence_pack": evidence.model_dump(mode="json"),
-                    "missing_requirement_ids": missing_ids,
+                    "missing_requirements": [{"id": r} for r in missing_ids] if missing_ids else [],
                 },
                 workflow_id=self._contract_workflow_id(ctx),
             )
             self._pre_dispatch_check(
                 hitl_name,
-                kwargs,
+                {
+                    "missing_requirements": [{"id": r} for r in missing_ids] if missing_ids else [],
+                    "evidence_summary": evidence.summary if evidence else "",
+                    "workflow_family": ctx.plan.artifact_family.value,
+                },
                 workflow_id=self._contract_workflow_id(ctx),
             )
             return await generate_prompt(**kwargs)
@@ -1454,7 +1467,7 @@ class WorkflowEngine:
             )
         )
         content_director_name, content_director = self._resolve_runtime_agent(ctx, node_id, "content_director")
-        self._maybe_set_log_sink(content_director, _make_agent_log_sink(events, publish, content_director_name, "content_director", node_id))
+        await self._maybe_set_log_sink(content_director, _make_agent_log_sink(events, publish, content_director_name, "content_director", node_id))
         self.registry.mark_agent_busy(content_director_name, "content_director")
         self._pre_handoff_check(
             "research",
@@ -1664,6 +1677,16 @@ class WorkflowEngine:
                     )
                 )
                 await publish(events.build("agent_completed", agent_name=research_name, phase="research", data={"evidence_pack": effective_evidence.model_dump()}))
+                # Signal research refinement completion
+                await publish(
+                    events.build(
+                        "agent_log",
+                        agent_name=research_name,
+                        phase="research",
+                        status="completed",
+                        data={"message": "Research refined with your feedback. Composition starting..."},
+                    )
+                )
             except Exception as exc:
                 logger.warning("Research final recall failed, proceeding with prior evidence: %s", exc)
             finally:
@@ -1705,7 +1728,7 @@ class WorkflowEngine:
         )
 
         text_buddy_name, text_buddy = self._resolve_runtime_agent(ctx, node_id, "text_buddy")
-        self._maybe_set_log_sink(text_buddy, _make_agent_log_sink(events, publish, text_buddy_name, "text_buddy", "text_buddy"))
+        await self._maybe_set_log_sink(text_buddy, _make_agent_log_sink(events, publish, text_buddy_name, "text_buddy", "text_buddy"))
         self.registry.mark_agent_busy(text_buddy_name, "text_buddy")
         prior_context = format_prior_context(ctx.prior_turns)
         self._pre_handoff_check(
@@ -1714,6 +1737,7 @@ class WorkflowEngine:
             {
                 "artifact_family": ctx.plan.artifact_family.value,
                 "evidence_pack": effective_evidence.model_dump(mode="json"),
+                "user_query": ctx.request.user_query,
             },
             workflow_id=self._contract_workflow_id(ctx),
         )
@@ -1773,9 +1797,20 @@ class WorkflowEngine:
                 data={"text_artifact": text_artifact_dict},
             )
         )
+        # Signal text buddy completion
+        await publish(
+            events.build(
+                "agent_log",
+                agent_name=text_buddy_name,
+                phase="text_buddy",
+                status="completed",
+                data={"message": "Content composition complete. Passing to Governance for review."},
+            )
+        )
         await self._complete_branch(ctx, branch_id=node_id, output_json=text_artifact_dict)
 
         # ── Emit answer preview before governance so frontend streams immediately ──
+        # Use completion_summary (task description) not the raw artifact content.
         await publish(
             events.build(
                 "answer_preview",
@@ -1783,7 +1818,10 @@ class WorkflowEngine:
                 phase="text_buddy",
                 status="running",
                 data={
-                    "content": text_artifact.content,
+                    "content": text_artifact.completion_summary or (
+                        f"I've composed a {ctx.plan.artifact_family.value.replace('_', ' ')} for your request. "
+                        "The artifact is ready in the preview panel."
+                    ),
                     "artifact_family": ctx.plan.artifact_family.value,
                     "governance_pending": True,
                 },
@@ -1812,7 +1850,7 @@ class WorkflowEngine:
         )
         await publish(events.build("governance_started", agent_name=governance_name, phase="governance"))
         _, governance_agent = self._resolve_runtime_agent(ctx, governance_branch_id, "governance")
-        self._maybe_set_log_sink(governance_agent, _make_agent_log_sink(events, publish, governance_name, "governance", "governance"))
+        await self._maybe_set_log_sink(governance_agent, _make_agent_log_sink(events, publish, governance_name, "governance", "governance"))
 
         self.registry.mark_agent_busy(governance_name, "governance")
         self._pre_handoff_check(
@@ -1825,7 +1863,7 @@ class WorkflowEngine:
             self._pre_dispatch_check(
                 governance_name,
                 {
-                    "text_artifact": text_artifact.model_dump(mode="json"),
+                    "artifact": text_artifact.model_dump(mode="json"),
                     "evidence_pack": evidence.model_dump(mode="json"),
                 },
                 workflow_id=self._contract_workflow_id(ctx),
@@ -1838,13 +1876,26 @@ class WorkflowEngine:
             self.registry.mark_agent_ready(governance_name, "idle")
 
         await publish(events.build("governance_complete", agent_name=governance_name, phase="governance", data={"governance_report": governance_report}))
+        # Signal governance completion
+        await publish(
+            events.build(
+                "agent_log",
+                agent_name=governance_name,
+                phase="governance",
+                status="completed",
+                data={"message": "Governance review complete. Document finalized."},
+            )
+        )
         await ctx.agent_run_repo.mark_complete(governance_run.run_id, governance_report)
         await self._complete_branch(ctx, branch_id=governance_branch_id, output_json=governance_report)
 
         return WorkflowExecutionResult(
             evidence=evidence,
             final_answer=text_artifact.content,
-            final_answer_display=text_artifact.content,
+            final_answer_display=text_artifact.completion_summary or (
+                f"I've composed a {ctx.plan.artifact_family.value.replace('_', ' ')} for your request. "
+                "The artifact is ready in the preview panel."
+            ),
             governance_report=governance_report,
         )
 
@@ -2211,7 +2262,7 @@ class WorkflowEngine:
             await publish(events.build("agent_started", agent_name=research_name, phase="research", data={"branch_id": branch_id}))
             self.registry.mark_agent_busy(research_name, "research")
             research_name, research_agent = self._resolve_research_runtime_agent(ctx)
-            self._maybe_set_log_sink(research_agent, _make_agent_log_sink(events, publish, research_name, "research", "research"))
+            await self._maybe_set_log_sink(research_agent, _make_agent_log_sink(events, publish, research_name, "research", "research"))
             # Quick recall for standard mode; full tree for deep_research/finance
             quick_recall = ctx.request.analysis_mode == AnalysisMode.standard
             self._pre_handoff_check(
@@ -2250,6 +2301,17 @@ class WorkflowEngine:
             await self._emit_evidence_signals(publish, events, evidence)
             await ctx.agent_run_repo.mark_complete(research_run.run_id, evidence.model_dump())
             await self._complete_branch(ctx, branch_id=branch_id, output_json=evidence.model_dump())
+
+            # Signal research completion for continuous UI flow
+            await publish(
+                events.build(
+                    "agent_log",
+                    agent_name=research_name,
+                    phase="research",
+                    status="completed",
+                    data={"message": f"Research complete. Found {len(evidence.findings)} key findings across {len(evidence.sources)} sources."},
+                )
+            )
 
         if not ctx.resume_from_post_research_hitl:
             blocked = await self._maybe_block_for_requirements(
@@ -2342,44 +2404,34 @@ class WorkflowEngine:
         )
 
     async def _run_conversational(self, ctx: WorkflowRunContext, events: EventFactory, publish: EventPublisher) -> WorkflowExecutionResult:
-        """Handle conversational messages (greetings, chitchat, meta-questions).
+        """Handle conversational messages directly — fast LLM call, no text_buddy overhead."""
+        from agentscope_blaiq.runtime.model_resolver import LiteLLMModelResolver
 
-        No research, no HITL, no artifact pipeline. Uses a single fast LLM call
-        to produce a friendly response.
-        """
-        await publish(events.build("agent_started", agent_name="text_buddy", phase="conversational"))
+        fallback = "Hello! I'm BLAIQ — your AI research and content assistant. How can I help you today?"
+        await publish(events.build("agent_started", agent_name="BLAIQ-CORE", phase="conversational"))
 
         prior_context_text = format_prior_context(ctx.prior_turns, max_total_chars=1500)
-        prior_prefix = f"=== PRIOR CONTEXT ===\n{prior_context_text}\n\n" if prior_context_text else ""
+        system_prompt = (
+            "You are BLAIQ, a sharp and capable AI assistant. "
+            "Respond naturally — warm, direct, and concise. "
+            "No markdown headers or bullet lists for greetings or chitchat. "
+            "Keep greetings to 1-2 sentences. For capability questions, be specific and confident."
+        )
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        user_content = ctx.request.user_query
+        if prior_context_text:
+            user_content = f"[Prior context]\n{prior_context_text}\n\n{user_content}"
+        messages.append({"role": "user", "content": user_content})
 
+        answer = fallback
         try:
-            response = await self.registry.resolver.acompletion(
-                "text_buddy",
-                [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are BLAIQ, a friendly and helpful AI assistant. "
-                            "Respond naturally to greetings and conversational messages. "
-                            "Keep responses concise (2-4 sentences). "
-                            "If the user asks what you can do, briefly explain you can: "
-                            "research topics from enterprise memory, create visual artifacts "
-                            "(pitch decks, posters, reports), write text documents "
-                            "(emails, memos, proposals), and answer knowledge questions. "
-                            "Respond in the same language the user writes in."
-                        ),
-                    },
-                    {"role": "user", "content": f"{prior_prefix}{ctx.request.user_query}"},
-                ],
-                max_tokens=300,
-                temperature=0.7,
-            )
-            answer = self.registry.resolver.extract_text(response)
+            resolver = LiteLLMModelResolver.from_settings(settings)
+            response = await resolver.acompletion("routing", messages, max_tokens=300)
+            answer = (response.choices[0].message.content or "").strip() or fallback
         except Exception as exc:
-            logger.warning("Conversational LLM call failed: %s", exc)
-            answer = "Hello! I'm BLAIQ — your AI research and content assistant. How can I help you today?"
-
-        await publish(events.build("agent_completed", agent_name="text_buddy", phase="conversational"))
+            logger.warning("Conversational direct LLM call failed: %s", exc)
+        finally:
+            await publish(events.build("agent_completed", agent_name="BLAIQ-CORE", phase="conversational"))
 
         return WorkflowExecutionResult(
             final_answer=answer,
@@ -2415,7 +2467,7 @@ class WorkflowEngine:
             )
             await publish(events.build("agent_started", agent_name=research_name, phase="research", data={"branch_id": branch_id}))
             self.registry.mark_agent_busy(research_name, "research")
-            self._maybe_set_log_sink(direct_research_agent, _make_agent_log_sink(events, publish, research_name, "research", "research"))
+            await self._maybe_set_log_sink(direct_research_agent, _make_agent_log_sink(events, publish, research_name, "research", "research"))
             # Quick recall for standard mode; full tree for deep_research/finance
             quick_recall = ctx.request.analysis_mode == AnalysisMode.standard
             self._pre_handoff_check(
@@ -2549,7 +2601,7 @@ class WorkflowEngine:
         depth_answer = (ctx.resume_answers or {}).get("field:response_depth", "")
         prior_context_text = format_prior_context(ctx.prior_turns, max_total_chars=1500)
         text_buddy_name, text_buddy = self._resolve_runtime_agent(ctx, "text_buddy", "text_buddy")
-        self._maybe_set_log_sink(
+        await self._maybe_set_log_sink(
             text_buddy,
             _make_agent_log_sink(events, publish, text_buddy_name, "conversational", "text_buddy"),
         )
@@ -2562,6 +2614,7 @@ class WorkflowEngine:
                 {
                     "artifact_family": "summary",
                     "evidence_pack": evidence.model_dump(mode="json"),
+                    "user_query": ctx.request.user_query,
                 },
                 workflow_id=self._contract_workflow_id(ctx),
             )
@@ -2669,6 +2722,13 @@ class WorkflowEngine:
                 self._clear_cancellation(ctx.request.thread_id)
                 await publish(events.build("workflow_cancelled", phase="text_buddy", data={"reason": "User requested cancellation"}))
                 return WorkflowExecutionResult()
+            # Pre-synthesis emphasis gate
+            blocked = await self._maybe_block_for_requirements(
+                ctx, events, publish, evidence=merged_evidence,
+                stages={RequirementStage.before_synthesis},
+                pending_node="hitl_pre_synthesis",
+            )
+            if blocked is not None: return blocked
             return await self._run_text_buddy_pipeline(ctx, events, publish, evidence=merged_evidence)
 
         # Check for cancellation before artifact pipeline
@@ -2737,8 +2797,12 @@ class WorkflowEngine:
                 events,
                 publish,
                 evidence=merged_evidence,
-                stages={RequirementStage.before_render, RequirementStage.evidence_informed},
-                pending_node="hitl_evidence",
+                stages={
+                    RequirementStage.before_render, 
+                    RequirementStage.before_storyboard,
+                    RequirementStage.evidence_informed
+                },
+                pending_node="hitl_post_research",
             )
             if blocked is not None:
                 return blocked
@@ -2751,6 +2815,13 @@ class WorkflowEngine:
                 self._clear_cancellation(ctx.request.thread_id)
                 await publish(events.build("workflow_cancelled", phase="text_buddy", data={"reason": "User requested cancellation"}))
                 return WorkflowExecutionResult()
+            # Pre-synthesis emphasis gate
+            blocked = await self._maybe_block_for_requirements(
+                ctx, events, publish, evidence=merged_evidence,
+                stages={RequirementStage.before_synthesis},
+                pending_node="hitl_pre_synthesis",
+            )
+            if blocked is not None: return blocked
             return await self._run_text_buddy_pipeline(ctx, events, publish, evidence=merged_evidence)
 
         # Check for cancellation before artifact pipeline
@@ -2814,7 +2885,7 @@ class WorkflowEngine:
                 )
                 scope = "web" if branch_kind == "web" else "docs"
                 research_name, branch_research_agent = self._resolve_research_runtime_agent(ctx)
-                self._maybe_set_log_sink(branch_research_agent, _make_agent_log_sink(events, publish, research_name, "research", "research"))
+                await self._maybe_set_log_sink(branch_research_agent, _make_agent_log_sink(events, publish, research_name, "research", "research"))
                 # Quick recall for standard mode; full tree for deep_research/finance
                 quick_recall = ctx.request.analysis_mode == AnalysisMode.standard
                 self._pre_handoff_check(
@@ -2910,7 +2981,7 @@ class WorkflowEngine:
             "react_slides",
         )
         content_director_name, content_director = self._resolve_runtime_agent(ctx, node_id, "content_director")
-        self._maybe_set_log_sink(content_director, _make_agent_log_sink(events, publish, content_director_name, "content_director", node_id))
+        await self._maybe_set_log_sink(content_director, _make_agent_log_sink(events, publish, content_director_name, "content_director", node_id))
         self.registry.mark_agent_busy(content_director_name, "content_director")
         user_query_with_context = ctx.request.user_query
         if ctx.prior_turns:
@@ -3164,7 +3235,7 @@ class WorkflowEngine:
         )
         vangogh_name, vangogh_agent = self._resolve_runtime_agent(ctx, "vangogh", "vangogh")
         self.registry.mark_agent_busy(vangogh_name, "artifact")
-        self._maybe_set_log_sink(vangogh_agent, _make_agent_log_sink(events, publish, vangogh_name, "artifact", "vangogh"))
+        await self._maybe_set_log_sink(vangogh_agent, _make_agent_log_sink(events, publish, vangogh_name, "artifact", "vangogh"))
 
         self._pre_handoff_check(
             "content_director",
@@ -3273,7 +3344,7 @@ class WorkflowEngine:
 
         await publish(events.build("artifact_started", agent_name=vangogh_name, phase="artifact", data={"branch": branch_id}))
         self.registry.mark_agent_busy(vangogh_name, "artifact")
-        self._maybe_set_log_sink(vangogh_agent, _make_agent_log_sink(events, publish, vangogh_name, "artifact", "vangogh"))
+        await self._maybe_set_log_sink(vangogh_agent, _make_agent_log_sink(events, publish, vangogh_name, "artifact", "vangogh"))
 
         _section_emitted_count = 0
 
@@ -3428,7 +3499,7 @@ class WorkflowEngine:
             len(artifact.evidence_refs),
         )
         _, governance_agent = self._resolve_runtime_agent(ctx, branch_id, "governance")
-        self._maybe_set_log_sink(governance_agent, _make_agent_log_sink(events, publish, governance_name, "governance", "governance"))
+        await self._maybe_set_log_sink(governance_agent, _make_agent_log_sink(events, publish, governance_name, "governance", "governance"))
         self._pre_handoff_check(
             "vangogh",
             governance_name,

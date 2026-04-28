@@ -84,9 +84,12 @@ class CustomAgentSpec(BaseModel):
     timeout_seconds: int = 120
     """Wall-clock execution timeout in seconds."""
 
-    # Metadata
     tags: list[str] = []
     """Arbitrary metadata tags for filtering and discovery."""
+
+    status_messages: list[str] = []
+    """Predefined status messages to stream during execution (e.g., ["Thinking...", "Drafting..."])."""
+
 
     # ------------------------------------------------------------------ #
     # Pydantic validators

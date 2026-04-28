@@ -43,3 +43,4 @@ class TextArtifact(BaseModel):
     evidence_refs: list[str] = Field(default_factory=list)
     governance_status: str = "pending"
     metadata: dict[str, str] = Field(default_factory=dict)
+    completion_summary: str = ""

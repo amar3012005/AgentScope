@@ -205,7 +205,7 @@ VISUAL_ARTIFACT_V1 = WorkflowTemplate(
             timeout_seconds=30,
         ),
     ],
-    allowed_agents=["strategist", "research", "content_director", "vangogh", "governance", "human"],
+    allowed_agents=["strategist", "research", "deep_research", "hitl", "content_director", "vangogh", "governance", "human"],
     required_handoffs=[
         ("strategist", "research"),
         ("research", "hitl_verification"),
@@ -293,7 +293,7 @@ TEXT_ARTIFACT_V1 = WorkflowTemplate(
             timeout_seconds=30,
         ),
     ],
-    allowed_agents=["strategist", "research", "content_director", "text_buddy", "governance", "human"],
+    allowed_agents=["strategist", "research", "deep_research", "hitl", "content_director", "text_buddy", "governance", "human"],
     required_handoffs=[
         ("strategist", "research"),
         ("research", "hitl_verification"),

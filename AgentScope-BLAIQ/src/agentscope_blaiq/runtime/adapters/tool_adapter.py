@@ -68,17 +68,9 @@ class HarnessToolAdapter:
             lambda: toolkit.register_tool_function(
                 self._validated_fn,
                 group_name="basic",
-                func_name=self.harness.tool_id,
             ),
             lambda: toolkit.register_tool_function(
                 self._validated_fn,
-                name=self.harness.tool_id,
-            ),
-            lambda: toolkit.register_tool_function(
-                self._validated_fn,
-                "basic",
-                None,
-                self.harness.tool_id,
             ),
         )
 

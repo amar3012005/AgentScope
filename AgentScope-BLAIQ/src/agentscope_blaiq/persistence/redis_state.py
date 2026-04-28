@@ -12,6 +12,7 @@ except Exception:  # pragma: no cover
     Redis = None  # type: ignore[assignment]
 
 from agentscope_blaiq.contracts.artifact import VisualArtifact
+from agentscope_blaiq.contracts.hitl import SwarmSuspendedState
 from agentscope_blaiq.contracts.workflow import AnalysisMode, WorkflowMode, WorkflowStatus
 from agentscope_blaiq.runtime.config import settings
 
@@ -248,3 +249,43 @@ class RedisStateStore:
         for branch_id in branch_ids or []:
             await self.delete_branch_state(thread_id, branch_id)
         await self.delete_workflow_state(thread_id)
+
+    # ── SWARM HITL SUSPENSION ────────────────────────────────────────────
+
+    def swarm_suspension_key(self, session_id: str) -> str:
+        return f"blaiq:swarm:suspended:{session_id}"
+
+    async def save_swarm_suspension(self, state: SwarmSuspendedState, ttl: int = 3600) -> None:
+        key = self.swarm_suspension_key(state.session_id)
+        payload = state.model_dump_json()
+        if self.client is not None:
+            try:
+                await self.client.set(key, payload, ex=ttl)
+                return
+            except Exception:
+                pass
+        self._memory_workflows[key] = payload
+
+    async def load_swarm_suspension(self, session_id: str) -> SwarmSuspendedState | None:
+        key = self.swarm_suspension_key(session_id)
+        raw: str | None = None
+        if self.client is not None:
+            try:
+                raw = await self.client.get(key)
+            except Exception:
+                pass
+        if raw is None:
+            raw = self._memory_workflows.get(key)
+        if raw is None:
+            return None
+        return SwarmSuspendedState.model_validate_json(raw)
+
+    async def delete_swarm_suspension(self, session_id: str) -> None:
+        key = self.swarm_suspension_key(session_id)
+        if self.client is not None:
+            try:
+                await self.client.delete(key)
+                return
+            except Exception:
+                pass
+        self._memory_workflows.pop(key, None)

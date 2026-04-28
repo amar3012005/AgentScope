@@ -25,6 +25,7 @@ class StreamEvent(BaseModel):
     agent_name: str = "system"
     phase: str = "system"
     status: str = "running"
+    visibility: str = "user"  # user | workbench | log | hidden
     data: dict[str, Any] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=utc_now)
 

@@ -23,17 +23,20 @@ services:
       LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-gemini-2.5-pro}
       LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-gemini-2.5-pro}
       LITELLM_REFORMAT_MODEL: ${LITELLM_REFORMAT_MODEL:-gemini-2.5-pro}
-      LITELLM_TIMEOUT_SECONDS: ${LITELLM_TIMEOUT_SECONDS:-25}
+      LITELLM_TIMEOUT_SECONDS: ${LITELLM_TIMEOUT_SECONDS:-60}
       LITELLM_MAX_OUTPUT_TOKENS: ${LITELLM_MAX_OUTPUT_TOKENS:-1200}
       CONTENT_DIRECTOR_MAX_OUTPUT_TOKENS: ${CONTENT_DIRECTOR_MAX_OUTPUT_TOKENS:-4000}
       VANGOGH_MAX_OUTPUT_TOKENS: ${VANGOGH_MAX_OUTPUT_TOKENS:-16000}
       LITELLM_API_BASE_URL: ${LITELLM_API_BASE_URL:-}
       LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
       NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
       MODEL_REASONING_EFFORT: ${MODEL_REASONING_EFFORT:-}
       STRATEGIC_MODEL: ${STRATEGIC_MODEL:-gemini-2.5-pro}
       ROUTING_MODEL: ${ROUTING_MODEL:-gemini-2.5-flash-lite}
       RESEARCH_MODEL: ${RESEARCH_MODEL:-gemini-2.5-pro}
+      HITL_MODEL: ${HITL_MODEL:-gemini-2.5-pro}
+      TEXT_BUDDY_MODEL: ${TEXT_BUDDY_MODEL:-gemini-2.5-pro}
       VANGOGH_MODEL: ${VANGOGH_MODEL:-vertex_ai/claude-sonnet-4-5@20250929}
       GOVERNANCE_MODEL: ${GOVERNANCE_MODEL:-gemini-2.5-pro}
       OPENAI_FALLBACK_MODEL: ${OPENAI_FALLBACK_MODEL:-}
@@ -49,11 +52,14 @@ services:
       RESEARCH_MAX_ITERS: ${RESEARCH_MAX_ITERS:-15}
       ENABLE_GRAPH_AGENT: ${ENABLE_GRAPH_AGENT:-false}
     command: >
-      sh -c "python -m pip install --no-cache-dir bcrypt email-validator &&
-      python /app/deployment/bootstrap.py --migrate &&
+      sh -c "python /app/deployment/bootstrap.py --migrate &&
       exec python -m uvicorn agentscope_blaiq.app.main:app
       --host ${APP_HOST:-0.0.0.0}
       --port ${APP_PORT:-8090}"
+    dns:
+      - 127.0.0.11
+      - 8.8.8.8
+      - 1.1.1.1
     ports:
       - "${HOST_PORT:-8090}:8090"
     depends_on:
@@ -107,6 +113,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 5s
 
   redis:
     image: redis:7-alpine
@@ -119,6 +126,279 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+
+  strategist-service:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    environment:
+      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-gemini-2.5-pro}
+      REDIS_URL: redis://redis:6379/0
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      HIVEMIND_API_KEY: ${HIVEMIND_API_KEY:-}
+      HIVEMIND_MCP_RPC_URL: ${HIVEMIND_MCP_RPC_URL:-}
+      HIVEMIND_TIMEOUT_SECONDS: ${HIVEMIND_TIMEOUT_SECONDS:-45}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
+      DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
+    dns:
+      - 127.0.0.11
+      - 8.8.8.8
+    command: python /app/src/agentscope_blaiq/app/services/strategist_v2.py
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8095:8090"
+    volumes:
+      - ../src:/app/src
+      - ../deployment:/app/deployment
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  research-service:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    environment:
+      RESEARCH_MODEL: ${RESEARCH_MODEL:-gemini-2.5-pro}
+      REDIS_URL: redis://redis:6379/0
+      HIVEMIND_API_KEY: ${HIVEMIND_API_KEY:-}
+      HIVEMIND_MCP_RPC_URL: ${HIVEMIND_MCP_RPC_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
+      DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
+    dns:
+      - 127.0.0.11
+      - 8.8.8.8
+    command: python /app/src/agentscope_blaiq/app/services/research_v2.py
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8096:8091"
+    volumes:
+      - ../src:/app/src
+      - ../deployment:/app/deployment
+      - ../data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  text-buddy-service:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    environment:
+      TEXT_BUDDY_MODEL: ${TEXT_BUDDY_MODEL:-gemini-2.5-pro}
+      REDIS_URL: redis://redis:6379/0
+      HIVEMIND_API_KEY: ${HIVEMIND_API_KEY:-}
+      HIVEMIND_MCP_RPC_URL: ${HIVEMIND_MCP_RPC_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
+      DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
+    dns:
+      - 127.0.0.11
+      - 8.8.8.8
+    command: python /app/src/agentscope_blaiq/app/services/text_buddy_v2.py
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8097:8092"
+    volumes:
+      - ../src:/app/src
+      - ../deployment:/app/deployment
+      - ../data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8092/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  content-director-service:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    environment:
+      CONTENT_DIRECTOR_MODEL: ${CONTENT_DIRECTOR_MODEL:-gemini-2.5-pro}
+      REDIS_URL: redis://redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
+      DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
+    dns:
+      - 127.0.0.11
+      - 8.8.8.8
+    command: python /app/src/agentscope_blaiq/app/services/content_director_v2.py
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8098:8092"
+    volumes:
+      - ../src:/app/src
+      - ../deployment:/app/deployment
+      - ../data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8092/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  van-gogh-service:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    environment:
+      VAN_GOGH_MODEL: ${VAN_GOGH_MODEL:-gemini-2.5-pro}
+      REDIS_URL: redis://redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
+      DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
+    dns:
+      - 127.0.0.11
+      - 8.8.8.8
+    command: python /app/src/agentscope_blaiq/app/services/van_gogh_v2.py
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8099:8092"
+    volumes:
+      - ../src:/app/src
+      - ../deployment:/app/deployment
+      - ../data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8092/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  oracle-service:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      HITL_MODEL: ${HITL_MODEL:-gemini-2.5-pro}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
+      DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
+    dns:
+      - 127.0.0.11
+      - 8.8.8.8
+    command: python /app/src/agentscope_blaiq/app/services/oracle_v2.py
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8094:8092"
+    volumes:
+      - ../src:/app/src
+      - ../deployment:/app/deployment
+      - ../data/blueprints:/app/data/blueprints
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8092/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  governance-service:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    environment:
+      GOVERNANCE_MODEL: ${GOVERNANCE_MODEL:-gemini-2.5-pro}
+      REDIS_URL: redis://redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
+      DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
+    dns:
+      - 127.0.0.11
+      - 8.8.8.8
+    command: python /app/src/agentscope_blaiq/app/services/governance_v2.py
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8093:8092"
+    volumes:
+      - ../src:/app/src
+      - ../deployment:/app/deployment
+      - ../data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8092/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  factory-service:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-gemini-2.5-pro}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
+    dns:
+      - 127.0.0.11
+      - 8.8.8.8
+    command: python /app/src/agentscope_blaiq/app/services/factory_v2.py
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8100:8100"
+    volumes:
+      - ../src:/app/src
+      - ../deployment:/app/deployment
+      - ../data/blueprints:/app/data/blueprints
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 volumes:
   agentscope_blaiq_postgres:

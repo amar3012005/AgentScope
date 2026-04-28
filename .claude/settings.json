@@ -1,4 +1,13 @@
 {
+  "permissions": {
+    "additionalDirectories": [
+      "/Users/amar/.claude/agents",
+      "/Users/amar/.claude/skills"
+    ],
+    "allow": [
+      "Edit(~/.claude/skills/apex-ai-product/**)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -6,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "code-review-graph update --quiet",
+            "command": "code-review-graph update",
             "timeout": 5
           }
         ]
@@ -30,8 +39,8 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git commit*)",
             "command": "code-review-graph detect-changes --brief",
+            "if": "Bash(git commit*)",
             "timeout": 10
           }
         ]

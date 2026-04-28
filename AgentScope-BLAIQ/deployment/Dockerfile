@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1
@@ -16,18 +15,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
 COPY requirements.lock pyproject.toml README.md /app/
 RUN --mount=type=cache,target=/root/.cache/pip pip install -r /app/requirements.lock
 
+# Install agentscope-runtime separately to preserve the heavy cache above
+RUN pip install agentscope-runtime "agentscope-runtime[ext]"
+
 COPY src /app/src
 COPY deployment /app/deployment
 
-RUN --mount=type=cache,target=/root/.cache/pip pip install --no-deps -e .
-
-# Pre-install React template dependencies for faster artifact generation
-# Timeout at 30s per request, 2 retries max — prevents 6min hangs on registry issues
-RUN if [ -d /app/src/agentscope_blaiq/artifacts/template ]; then \
-      cd /app/src/agentscope_blaiq/artifacts/template && \
-      timeout 120s pnpm install || \
-      echo "WARN: pnpm install failed — template deps will install at first artifact generation"; \
-    fi
+ENV PYTHONPATH=/app/src
 
 RUN mkdir -p /app/data/uploads /app/data/artifacts /app/data/agent_profiles /app/logs
 

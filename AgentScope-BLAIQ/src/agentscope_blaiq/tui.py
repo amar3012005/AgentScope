@@ -1,421 +1,399 @@
-from __future__ import annotations
-
-import argparse
-import json
+# -*- coding: utf-8 -*-
+import asyncio
 import os
-import sys
-from dataclasses import dataclass
-from typing import Any
-
+import json
 import httpx
+import logging
+from pathlib import Path
+from typing import Optional, List, Dict, Any
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.live import Live
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.markdown import Markdown
+from rich.prompt import Prompt
 
-DEFAULT_BASE_URL = os.environ.get("BLAIQ_BACKEND_URL", "http://127.0.0.1:8090").rstrip("/")
-DEFAULT_TENANT_ID = os.environ.get("BLAIQ_TENANT_ID", "default")
-CREATE_AGENT_ROLES = ("text_buddy", "content_director", "vangogh", "research", "governance", "strategist", "hitl")
+from agentscope.message import Msg
+from agentscope_blaiq.runtime.agent_base import BaseAgent
+from agentscope_blaiq.agents.strategic.agent import StrategicAgent
+from agentscope_blaiq.runtime.config import settings
+from agentscope_blaiq.workflows.swarm_engine import SwarmEngine
+from agentscope_blaiq.persistence.redis_state import RedisStateStore
 
+# Setup logging
+logging.basicConfig(level=logging.ERROR)
+logger = logging.getLogger("blaiq-tui")
 
-def _strip_data_prefix(payload: str) -> str:
-    value = payload.strip()
-    while value.startswith("data:"):
-        value = value[5:].lstrip()
-    return value
+console = Console()
 
+SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 
-def _extract_event_payload(line: str) -> dict[str, Any] | None:
-    if not line.startswith("data:"):
-        return None
-    payload = _strip_data_prefix(line)
-    if not payload or payload == "[DONE]":
-        return None
-    try:
-        return json.loads(payload)
-    except json.JSONDecodeError:
-        return None
+# ── WORKSPACE CORE ──────────────────────────────────────────────────────
 
-
-def _prompt(label: str, default: str | None = None, *, allow_empty: bool = False) -> str:
-    suffix = f" [{default}]" if default else ""
-    while True:
-        value = input(f"{label}{suffix}: ").strip()
-        if value:
-            return value
-        if default is not None:
-            return default
-        if allow_empty:
-            return ""
-
-
-def _yes_no(label: str, *, default: bool = True) -> bool:
-    default_label = "Y/n" if default else "y/N"
-    raw = input(f"{label} [{default_label}]: ").strip().lower()
-    if not raw:
-        return default
-    return raw in {"y", "yes"}
-
-
-def _comma_list(label: str, defaults: list[str]) -> list[str]:
-    default_text = ", ".join(defaults)
-    raw = _prompt(label, default_text, allow_empty=True)
-    if not raw.strip():
-        return list(defaults)
-    return [item.strip() for item in raw.split(",") if item.strip()]
-
-
-@dataclass
-class StreamResult:
-    thread_id: str | None = None
-    blocked: bool = False
-    blocked_questions: list[dict[str, Any]] | None = None
-
-
-class BlaiqTUIClient:
-    def __init__(self, base_url: str, tenant_id: str) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.tenant_id = tenant_id
-        self.client = httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0))
-        self.last_thread_id: str | None = None
-
-    def close(self) -> None:
-        self.client.close()
-
-    def _url(self, path: str) -> str:
-        return f"{self.base_url}{path}"
-
-    def check_ready(self) -> dict[str, Any]:
-        response = self.client.get(self._url("/readyz"))
-        response.raise_for_status()
-        return response.json()
-
-    def list_live_agents(self) -> dict[str, Any]:
-        response = self.client.get(self._url("/api/v1/agents/live"))
-        response.raise_for_status()
-        return response.json()
-
-    def list_custom_agents(self) -> dict[str, Any]:
-        response = self.client.get(self._url("/api/v1/agents/custom/list"))
-        response.raise_for_status()
-        return response.json()
-
-    def contracts_snapshot(self) -> dict[str, Any]:
-        response = self.client.get(self._url("/api/v1/contracts/snapshot"))
-        response.raise_for_status()
-        return response.json()
-
-    def validate_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
-        response = self.client.post(self._url("/api/v1/contracts/validate"), json=spec)
-        response.raise_for_status()
-        return response.json()
-
-    def register_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
-        response = self.client.post(self._url("/api/v1/agents/custom/register"), json=spec)
-        response.raise_for_status()
-        return response.json()
-
-    def draft_agent(self, description: str) -> dict[str, Any]:
-        response = self.client.post(
-            self._url("/api/v1/agents/custom/draft"),
-            json={"description": description},
+class BlaiqWorkspaceTUI:
+    """The central Command Center for testing and managing the BLAIQ stack."""
+    def __init__(self):
+        self.strategist = StrategicAgent(
+            name="Strategist",
+            role="strategic",
+            sys_prompt="You are the BLAIQ Strategist. Orchestrate missions using the specialist fleet."
         )
-        response.raise_for_status()
-        return response.json()
+        self.session_id = "tui-session-" + os.urandom(4).hex()
+        self.engaged_agents = set()
+        self.service_host = os.environ.get("BLAIQ_SERVICE_HOST", "localhost")
+        # Ensure the environment variable is propagated to all fleet tools
+        os.environ["BLAIQ_SERVICE_HOST"] = self.service_host
+        
+        self.state_store = RedisStateStore()
+        self.swarm = SwarmEngine()
 
-    def workflow_status(self, thread_id: str) -> dict[str, Any]:
-        response = self.client.get(
-            self._url(f"/api/v1/workflows/{thread_id}/status"),
-            params={"tenant_id": self.tenant_id},
+    async def check_fleet_status(self):
+        """Checks health of all BLAIQ microservices."""
+        services = {
+            "Factory": f"http://{self.service_host}:8100/api/v1/health",
+            "Research": f"http://{self.service_host}:8091/api/v1/health",
+            "Oracle": f"http://{self.service_host}:8092/api/v1/health",
+            "Strategist (AaaS)": f"http://{self.service_host}:8095/api/v1/health",
+        }
+        
+        table = Table(title="BLAIQ Fleet Status", border_style="cyan")
+        table.add_column("Service", style="bold white")
+        table.add_column("Endpoint", style="dim")
+        table.add_column("Status", justify="center")
+        
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            for name, url in services.items():
+                try:
+                    res = await client.get(url)
+                    status = "[bold green]ONLINE[/bold green]" if res.status_code == 200 else f"[yellow]ERR {res.status_code}[/yellow]"
+                except Exception:
+                    status = "[bold red]OFFLINE[/bold red]"
+                table.add_row(name, url, status)
+        
+        return table
+
+    def safe_text_extract(self, res: Any) -> str:
+        """Safely extracts text from a ToolResponse or raw result."""
+        try:
+            if hasattr(res, "content") and res.content:
+                part = res.content[0]
+                return str(getattr(part, "text", part.get("text", str(part)) if isinstance(part, dict) else str(part)))
+            if isinstance(res, dict) and "content" in res and res["content"]:
+                part = res["content"][0]
+                return str(part.get("text", str(part)))
+            return str(res)
+        except Exception:
+            return str(res)
+
+    async def create_skill(self, name: str, description: str, body: str, agents: list[str]) -> Path:
+        """Create a new AgentScope skill from LLM-generated SKILL.md."""
+        skill_dir = SKILLS_DIR / name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        targets = ", ".join(agents) if agents else "text_buddy, content_director"
+        skill_md = (
+            f"---\n"
+            f"name: {name}\n"
+            f"description: {description}\n"
+            f"target_agent: {targets}\n"
+            f"---\n\n"
+            f"{body}"
         )
-        response.raise_for_status()
-        return response.json()
+        (skill_dir / "SKILL.md").write_text(skill_md)
+        return skill_dir
 
-    def _stream(self, path: str, body: dict[str, Any]) -> StreamResult:
-        payload = {"tenant_id": self.tenant_id, **body}
-        result = StreamResult()
-        with self.client.stream(
-            "POST",
-            self._url(path),
-            json=payload,
-            headers={"Accept": "text/event-stream"},
-        ) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if not line:
-                    continue
-                event = _extract_event_payload(line)
-                if event is None:
-                    continue
-                result.thread_id = event.get("thread_id") or result.thread_id
-                self._render_event(event)
-                if event.get("type") == "workflow_blocked":
-                    result.blocked = True
-                    result.blocked_questions = list(event.get("data", {}).get("questions") or [])
-        if result.thread_id:
-            self.last_thread_id = result.thread_id
-        return result
+    async def run_pipeline(self, prompt: str, with_oracle: bool = False):
+        """Runs the BLAIQ v3 swarm pipeline via MsgHub + ServiceProxyAgents."""
+        console.rule(f"[bold magenta]Swarm Mission: {prompt[:50]}...[/bold magenta]")
 
-    def submit(self, user_query: str, *, analysis_mode: str = "standard") -> StreamResult:
-        return self._stream(
-            "/api/v1/workflows/submit",
-            {"user_query": user_query, "analysis_mode": analysis_mode},
-        )
+        # 1. Classify artifact_family with a cheap LLM call
+        artifact_family = "report"
+        with Progress(SpinnerColumn(), TextColumn("[cyan]Classifying mission..."), console=console) as prog:
+            task = prog.add_task("Classify", total=1)
+            try:
+                classifier_prompt = (
+                    f"### CLASSIFICATION TASK\n"
+                    f"User Goal: \"{prompt}\"\n\n"
+                    "Classify this goal into exactly ONE of the following families. "
+                    "## TASK:\n"
+                    "Identify the artifact family for this mission. Output ONLY the keyword.\n\n"
+                    "## CRITICAL RULES:\n"
+                    "1. If the user mentions 'poster', 'pitch deck', 'presentation', 'landing page', or 'brochure', you MUST choose a VISUAL keyword.\n"
+                    "2. Do NOT choose 'report' if the user asks for a visual or creative asset.\n"
+                    "3. Choose 'report' only for data-heavy, text-only summaries or financial analysis.\n\n"
+                    "KEYWORDS: pitch_deck, keynote, poster, brochure, one_pager, landing_page, "
+                    "report, finance_analysis, custom, email, invoice, letter, memo, "
+                    "proposal, social_post, summary"
+                )
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    host = os.environ.get("BLAIQ_SERVICE_HOST", "localhost")
+                    res = await client.post(
+                        f"http://{host}:8095/process",
+                        json={
+                            "input": [{"role": "user", "content": [{"type": "text", "text": classifier_prompt}]}],
+                            "session_id": self.session_id,
+                            "user_id": "tui-classifier",
+                        },
+                    )
+                    raw_text = ""
+                    for line in res.text.splitlines():
+                        if line.startswith("data: "):
+                            try:
+                                d = json.loads(line[6:])
+                                raw_text += d.get("text", "") or d.get("content", "")
+                            except Exception:
+                                continue
+                    
+                    # Robust Parsing: Search the whole response for any valid keyword
+                    valid = {
+                        "pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page",
+                        "report", "finance_analysis", "custom", "email", "invoice", "letter",
+                        "memo", "proposal", "social_post", "summary",
+                    }
+                    cleaned_raw = raw_text.lower()
+                    for word in valid:
+                        if word in cleaned_raw or word.replace("_", " ") in cleaned_raw:
+                            artifact_family = word
+                            break
+            except Exception:
+                pass
+            prog.update(task, completed=1)
 
-    def resume(self, thread_id: str, answers: dict[str, str]) -> StreamResult:
-        return self._stream(
-            "/api/v1/workflows/resume",
-            {"thread_id": thread_id, "answers": answers},
-        )
+        console.print(f"[dim]Artifact family: [bold]{artifact_family}[/bold][/dim]")
 
-    @staticmethod
-    def _render_event(event: dict[str, Any]) -> None:
-        event_type = event.get("type", "event")
-        agent = event.get("agent_name", "system")
-        data = event.get("data") or {}
+        # 2. Run swarm — proxies call AaaS containers, MsgHub broadcasts context
+        results: dict = {}
 
-        if event_type == "agent_log":
-            message = data.get("message") or ""
-            if message:
-                print(f"[{agent}] {message}")
-            return
-        if event_type == "workflow_blocked":
-            print(f"[HITL] {data.get('prompt_headline') or 'Clarification needed'}")
-            intro = data.get("prompt_intro")
-            if intro:
-                print(intro)
-            for question in data.get("questions") or []:
-                print(f" - {question.get('requirement_id')}: {question.get('question')}")
-            return
-        if event_type == "workflow_complete":
-            print("[system] Workflow complete.")
-            final_answer = data.get("final_answer")
-            if final_answer:
-                print(final_answer)
-            return
-        if event_type == "workflow_error":
-            print(f"[error] {data.get('error_message') or 'Workflow error'}")
-            return
-        print(f"[{agent}] {event_type}")
-
-
-def _base_spec_from_role(snapshot: dict[str, Any], role: str) -> dict[str, Any]:
-    agents = snapshot.get("agents") or {}
-    harness = agents.get(role)
-    if not harness:
-        raise ValueError(f"Role '{role}' is not available in the contract snapshot.")
-    return {
-        "role": role,
-        "input_schema": harness.get("input_schema") or {"type": "object", "properties": {}},
-        "output_schema": harness.get("output_schema") or {"type": "object", "properties": {}},
-        "allowed_tools": list(harness.get("allowed_tools") or []),
-        "allowed_workflows": list(harness.get("allowed_workflows") or []),
-        "artifact_family": (harness.get("artifact_families") or [None])[0],
-    }
-
-
-def create_agent_wizard(client: BlaiqTUIClient, role: str | None = None) -> None:
-    # Step 1: Get natural language description
-    if role:
-        description = role  # user typed @create_agent <description>
-    else:
-        description = _prompt("Describe what your agent should do")
-    if not description.strip():
-        print("No description provided. Aborting.")
-        return
-
-    # Step 2: LLM extracts spec from description
-    print("\nAnalyzing your request...")
-    try:
-        draft_result = client.draft_agent(description)
-    except Exception as exc:
-        print(f"Failed to draft agent: {exc}")
-        return
-
-    if not draft_result.get("ok") or not draft_result.get("spec"):
-        print(f"Could not extract agent spec: {draft_result.get('error', 'unknown error')}")
-        return
-
-    spec = draft_result["spec"]
-    missing = draft_result.get("missing_info") or []
-
-    # Step 3: Show what was extracted
-    print(f"\n--- Extracted Agent Spec ---")
-    print(f"  ID:          {spec.get('agent_id')}")
-    print(f"  Name:        {spec.get('display_name')}")
-    print(f"  Role:        {spec.get('role')}")
-    print(f"  Model:       {spec.get('model_hint')}")
-    print(f"  Tools:       {', '.join(spec.get('allowed_tools', []))}")
-    print(f"  Workflows:   {', '.join(spec.get('allowed_workflows', []))}")
-    print(f"  Tags:        {', '.join(spec.get('tags', []))}")
-    prompt_preview = (spec.get("prompt") or "")[:120]
-    print(f"  Prompt:      {prompt_preview}...")
-
-    # Step 4: HITL — ask for missing info
-    if missing:
-        print(f"\nI need a few more details:")
-        for item in missing:
-            answer = _prompt(f"  {item}")
-            if answer:
-                # Append to prompt
-                spec["prompt"] = spec.get("prompt", "") + f"\n{item}: {answer}"
-
-    # Step 5: Let user tweak any field
-    print()
-    if _yes_no("Want to edit any field before registering?", default=False):
-        spec["agent_id"] = _prompt("Agent ID", spec.get("agent_id", ""))
-        spec["display_name"] = _prompt("Display name", spec.get("display_name", ""))
-        spec["prompt"] = _prompt("System prompt", spec.get("prompt", ""))
-        spec["model_hint"] = _prompt("Model hint", spec.get("model_hint", "sonnet"))
-
-    # Step 6: Validate
-    print("\nValidating...")
-    # Ensure required fields for CustomAgentSpec
-    spec.setdefault("max_iterations", 6)
-    spec.setdefault("timeout_seconds", 120)
-    spec.pop("missing_info", None)
-
-    validation = client.validate_spec(spec)
-    if not validation.get("ok"):
-        print(f"\nValidation failed:")
-        for err in validation.get("errors", []):
-            print(f"  - {err}")
-
-        if _yes_no("Try to fix and retry?", default=True):
-            # Let user fix the issues
-            for err in validation.get("errors", []):
-                if "tool" in err.lower():
-                    spec["allowed_tools"] = _comma_list("Allowed tools (comma-separated)", spec.get("allowed_tools", []))
-                elif "workflow" in err.lower():
-                    spec["allowed_workflows"] = _comma_list("Allowed workflows (comma-separated)", spec.get("allowed_workflows", []))
-                elif "prompt" in err.lower():
-                    spec["prompt"] = _prompt("System prompt (min 20 chars)", spec.get("prompt", ""))
-
-            validation = client.validate_spec(spec)
-            if not validation.get("ok"):
-                print("Still invalid. Aborting.")
-                print(json.dumps(validation, indent=2))
+        async def swarm_publisher(role: str, text: str, is_stream: bool = False):
+            if is_stream:
+                # For streaming, we only want to show structured phase updates in real-time
+                if "{" in text and '"phase"' in text:
+                    try:
+                        # Attempt to parse to get the phase name for the title
+                        import json
+                        data = json.loads(text)
+                        phase_name = data.get("phase", "Update").title()
+                        console.print(Panel(
+                            text.strip(),
+                            title=f"[bold yellow]▶ {role.replace('_', ' ').title()} - {phase_name} Phase[/bold yellow]",
+                            border_style="yellow",
+                            expand=False
+                        ))
+                    except Exception:
+                        pass
                 return
-        else:
+
+            if text.startswith("Starting"):
+                console.print(f"[blue]▶ {role}:[/blue] {text}")
+            else:
+                console.print(f"[green]✔ {role}:[/green] Completed")
+                # Show the final output in a green panel
+                console.print(Panel(
+                    text.strip(),
+                    title=f"[bold]{role.replace('_', ' ').title()}[/bold]",
+                    border_style="green",
+                    expand=False
+                ))
+                console.print("") # Spacer
+
+        from agentscope_blaiq.contracts.hitl import HITLResumeRequest, WorkflowSuspended
+        try:
+            results = await self.swarm.run(
+                goal=prompt,
+                session_id=self.session_id,
+                artifact_family=artifact_family,
+                publish=swarm_publisher,
+                with_oracle=with_oracle,
+            )
+        except WorkflowSuspended as exc:
+            console.print(Panel(
+                f"[bold yellow]Oracle Question:[/bold yellow]\n{exc.question}\n\n"
+                + (f"[dim]{exc.why}[/dim]\n\n" if exc.why else "")
+                + "\n".join(f"  [{i+1}] {opt}" for i, opt in enumerate(exc.options)),
+                title="[bold magenta]⏸ HITL — Human Input Required[/bold magenta]",
+                border_style="magenta",
+            ))
+            choice = Prompt.ask("[magenta]Your answer or pick number[/magenta]")
+            # Resolve numbered option
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(exc.options):
+                    choice = exc.options[idx]
+            except ValueError:
+                pass
+            console.print(f"[dim]Resuming with: {choice}[/dim]")
+            try:
+                results = await self.swarm.resume(
+                    HITLResumeRequest(session_id=exc.session_id, answer=choice)
+                )
+            except Exception as e:
+                console.print(f"[bold red]Resume failed:[/bold red] {e}")
+                return
+        except Exception as e:
+            console.print(f"[bold red]Swarm failed:[/bold red] {e}")
             return
 
-    print("Validation passed!")
+        # 3. Completion Marker
+        console.rule("[bold green]Pipeline Complete[/bold green]")
 
-    # Step 7: Register
-    if not _yes_no("Register this agent?"):
-        print("Cancelled.")
-        return
+    async def run_mission(self, user_input: str):
+        """Executes an autonomous mission."""
+        console.rule(f"[bold cyan]Mission: {user_input[:50]}...[/bold cyan]")
+        with Live(Panel("Strategist is reasoning...", title="Orchestration Flow", border_style="yellow"), refresh_per_second=4) as live:
+            response = await self.strategist.reply(Msg(name="User", content=user_input, role="user"))
+            live.update(Panel(Markdown(response.content), title="[bold green]Final Synthesis[/bold green]", border_style="green"))
 
-    registered = client.register_spec(spec)
-    print(json.dumps(registered, indent=2))
+# ── COMMAND HANDLERS ────────────────────────────────────────────────────
 
-
-def _collect_hitl_answers(questions: list[dict[str, Any]]) -> dict[str, str]:
-    answers: dict[str, str] = {}
-    for question in questions:
-        requirement_id = question.get("requirement_id") or question.get("id") or "answer"
-        prompt = question.get("question") or requirement_id
-        answers[requirement_id] = _prompt(prompt)
-    return answers
-
-
-def repl(client: BlaiqTUIClient) -> None:
-    print(f"BLAIQ TUI connected to {client.base_url} (tenant={client.tenant_id})")
-    print("Commands: /help, /agents, /custom, /status <thread_id>, /resume <thread_id>, @create_agent, /quit")
+async def run_repl():
+    workspace = BlaiqWorkspaceTUI()
+    
+    console.print(Panel.fit(
+        "[bold cyan]BLAIQ v2.2 - PIPELINE COMMAND CENTER[/bold cyan]\n"
+        "Status: [green]Active[/green] | Mode: [yellow]Sequential & Strategic[/yellow]\n\n"
+        "Commands:\n"
+        "  /pipeline <goal> [--hitl] - Run pipeline (add --hitl for event-driven Oracle)\n"
+        "  /status          - Check Fleet Health\n"
+        "  /hive <query>    - Direct Memory Access\n"
+        "  /create <prompt> - Birth a new Specialist\n"
+        "  /new-skill [name] - Register a new AgentScope Skill\n"
+        "  /list-skills     - Browse Skills Library\n"
+        "  /list            - Browse Blueprint Library\n"
+        "  /quit            - Exit Workspace\n\n"
+        "[dim]Oracle: Event-driven — fires only when context is insufficient[/dim]",
+        border_style="bright_blue",
+        padding=(1, 2)
+    ))
 
     while True:
         try:
-            raw = input("blaiq> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
+            query = Prompt.ask("\n[bold cyan]blaiq-workspace[/bold cyan]")
+            if query.lower() in ["/quit", "exit", "quit"]: break
+            
+            if query.startswith("/pipeline"):
+                rest = query.replace("/pipeline", "").strip()
+                with_oracle = "--hitl" in rest
+                p = rest.replace("--hitl", "").strip()
+                if not p:
+                    console.print("[red]Error: Please provide a goal for the pipeline.[/red]")
+                    continue
+                await workspace.run_pipeline(p, with_oracle=with_oracle)
+                continue
 
-        if not raw:
-            continue
-        if raw in {"/quit", "/exit"}:
-            break
-        if raw == "/help":
-            print("Plain text submits a workflow. Use @create_agent to launch the custom-agent wizard.")
-            continue
-        if raw == "/agents":
-            print(json.dumps(client.list_live_agents(), indent=2))
-            continue
-        if raw == "/custom":
-            print(json.dumps(client.list_custom_agents(), indent=2))
-            continue
-        if raw.startswith("/status "):
-            _, thread_id = raw.split(maxsplit=1)
-            print(json.dumps(client.workflow_status(thread_id), indent=2))
-            continue
-        if raw.startswith("/resume "):
-            _, thread_id = raw.split(maxsplit=1)
-            answers = {"resume": _prompt("Resume note", "Continue")}
-            client.resume(thread_id, answers)
-            continue
-        if raw.startswith("@create_agent"):
-            parts = raw.split(maxsplit=1)
-            create_agent_wizard(client, parts[1].strip() if len(parts) > 1 else None)
-            continue
+            if query.startswith("/status"):
+                table = await workspace.check_fleet_status()
+                console.print(table)
+                continue
+                
+            if query.startswith("/hive"):
+                q = query.replace("/hive", "").strip()
+                from agentscope_blaiq.tools.enterprise_fleet import BlaiqEnterpriseFleet
+                fleet = BlaiqEnterpriseFleet()
+                res = await fleet.hivemind_recall(q)
+                output = workspace.safe_text_extract(res)
+                console.print(Panel(output if output else "No memories.", title="HIVE-MIND Memory", border_style="magenta"))
+                continue
+                
+            if query.startswith("/create"):
+                prompt = query.replace("/create", "").strip()
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    res = await client.post(f"http://{workspace.service_host}:8100/create", json={"prompt": prompt})
+                    if res.status_code == 200:
+                        data = res.json()
+                        console.print(Panel(f"Agent [bold]{data['blueprint']['name']}[/bold] saved.", title="Factory Success", border_style="green"))
+                    else:
+                        console.print(f"[red]Factory Error: {res.text}[/red]")
+                continue
+                
+            if query.startswith("/new-skill"):
+                args = query.replace("/new-skill", "").strip().split()
+                name = args[0] if args else Prompt.ask("[cyan]Skill name[/cyan] (e.g. 'linkedin_post')")
+                name = name.strip().lower().replace(" ", "_").replace("-", "_")
+                agents_input = Prompt.ask(
+                    "[cyan]Target agents[/cyan] (comma-separated, or Enter for all)",
+                    default="text_buddy,content_director"
+                )
+                agents = [a.strip() for a in agents_input.split(",") if a.strip()]
+                description = Prompt.ask("[cyan]Short description[/cyan]")
+                console.print("[dim]Generating skill content via LLM...[/dim]")
+                try:
+                    from litellm import acompletion
+                    gen_resp = await acompletion(
+                        model=os.environ.get("LITELLM_API_BASE_URL") and os.environ.get("LITELLM_PRE_MODEL") or "gemini/gemini-2.5-flash",
+                        messages=[
+                            {"role": "system", "content": (
+                                "You are an AgentScope Skill author. Write the BODY of a SKILL.md file. "
+                                "Do NOT include YAML frontmatter — only the markdown body. "
+                                "Include: purpose, rules, output format, examples. Be concise but complete."
+                            )},
+                            {"role": "user", "content": (
+                                f"Skill name: {name}\n"
+                                f"Description: {description}\n"
+                                f"Target agents: {', '.join(agents)}\n\n"
+                                "Write the skill body markdown now."
+                            )},
+                        ],
+                        max_tokens=1500,
+                        timeout=30,
+                    )
+                    body = gen_resp.choices[0].message.content or ""
+                except Exception as e:
+                    console.print(f"[yellow]LLM generation failed ({e}), using description as body.[/yellow]")
+                    body = f"# {name.replace('_', ' ').title()}\n\n{description}\n"
 
-        result = client.submit(raw)
-        if result.blocked and result.thread_id and result.blocked_questions:
-            answers = _collect_hitl_answers(result.blocked_questions)
-            client.resume(result.thread_id, answers)
+                skill_dir = await workspace.create_skill(name, description, body, agents)
+                console.print(Panel(
+                    f"[bold green]✓[/bold green] Skill [bold]{name}[/bold] created.\n"
+                    f"Path: {skill_dir}/SKILL.md\n"
+                    f"Agents: {', '.join(agents)}\n\n"
+                    f"[dim]Active on next /pipeline call — no restart needed.[/dim]",
+                    title="[bold green]Skill Registered[/bold green]",
+                    border_style="green"
+                ))
+                continue
 
+            if query.startswith("/list-skills"):
+                table = Table(title="Skills Library", border_style="cyan")
+                table.add_column("Skill", style="bold white")
+                table.add_column("Description", style="dim")
+                table.add_column("Target Agents")
+                if SKILLS_DIR.exists():
+                    import yaml
+                    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+                        skill_file = skill_dir / "SKILL.md"
+                        if skill_file.exists():
+                            content = skill_file.read_text()
+                            fm = {}
+                            if content.startswith("---"):
+                                end = content.find("---", 3)
+                                if end > 0:
+                                    try:
+                                        fm = yaml.safe_load(content[3:end])
+                                    except Exception:
+                                        pass
+                            table.add_row(
+                                fm.get("name", skill_dir.name),
+                                fm.get("description", ""),
+                                fm.get("target_agent", "")
+                            )
+                console.print(table)
+                continue
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Terminal UI for AgentScope-BLAIQ.")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
-    parser.add_argument("--tenant-id", default=DEFAULT_TENANT_ID)
-    subparsers = parser.add_subparsers(dest="command")
+            if query.startswith("/list"):
+                path = "./data/blueprints"
+                files = [f for f in os.listdir(path) if f.endswith(".json")]
+                table = Table(title="Blueprint Library")
+                table.add_column("Agent ID")
+                for f in files: table.add_row(f.replace(".json", ""))
+                console.print(table)
+                continue
 
-    subparsers.add_parser("repl")
-
-    run_parser = subparsers.add_parser("run")
-    run_parser.add_argument("query")
-    run_parser.add_argument("--analysis-mode", default="standard")
-
-    ready_parser = subparsers.add_parser("ready")
-    ready_parser.add_argument("--json", action="store_true")
-
-    subparsers.add_parser("agents")
-    subparsers.add_parser("custom")
-
-    status_parser = subparsers.add_parser("status")
-    status_parser.add_argument("thread_id")
-
-    create_parser = subparsers.add_parser("create-agent")
-    create_parser.add_argument("--role", default="text_buddy")
-
-    args = parser.parse_args(argv)
-    command = args.command or "repl"
-    client = BlaiqTUIClient(args.base_url, args.tenant_id)
-    try:
-        if command == "ready":
-            payload = client.check_ready()
-            print(json.dumps(payload, indent=2) if args.json else payload.get("status", "unknown"))
-            return 0
-        if command == "agents":
-            print(json.dumps(client.list_live_agents(), indent=2))
-            return 0
-        if command == "custom":
-            print(json.dumps(client.list_custom_agents(), indent=2))
-            return 0
-        if command == "status":
-            print(json.dumps(client.workflow_status(args.thread_id), indent=2))
-            return 0
-        if command == "create-agent":
-            create_agent_wizard(client, args.role)
-            return 0
-        if command == "run":
-            result = client.submit(args.query, analysis_mode=args.analysis_mode)
-            if result.blocked and result.thread_id and result.blocked_questions:
-                answers = _collect_hitl_answers(result.blocked_questions)
-                client.resume(result.thread_id, answers)
-            return 0
-
-        repl(client)
-        return 0
-    finally:
-        client.close()
-
+            await workspace.run_mission(query)
+            
+        except KeyboardInterrupt: break
+        except Exception as e:
+            console.print(f"[bold red]Workspace Error:[/bold red] {str(e)}")
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    asyncio.run(run_repl())

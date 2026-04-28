@@ -30,13 +30,13 @@ class Settings(BaseSettings):
     routing_model: str = "gemini-2.5-flash-lite"  # fast model for binary routing decisions
     research_model: str = "gemini-2.5-pro"
     content_director_model: str = "gemini-2.5-pro"
-    hitl_model: str = "vertex_ai/claude-sonnet-4-5@20250929"
+    hitl_model: str = "gemini-2.5-pro"
     vangogh_model: str = "vertex_ai/claude-sonnet-4-5@20250929"
     governance_model: str = "gemini-2.5-pro"
-    text_buddy_model: str = "vertex_ai/claude-sonnet-4-5@20250929"
+    text_buddy_model: str = "gemini-2.5-pro"
     llm_fallback_model: str | None = "gemini-2.5-flash-lite"
     llm_timeout_seconds: int = 60
-    llm_max_output_tokens: int = 1200
+    llm_max_output_tokens: int = 4000
     content_director_max_output_tokens: int = 4000
     vangogh_max_output_tokens: int = 16000
     text_buddy_max_output_tokens: int = 4000

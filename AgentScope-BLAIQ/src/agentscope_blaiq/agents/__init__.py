@@ -12,35 +12,41 @@ from typing import TYPE_CHECKING, Any
 __all__ = [
     "ContentDirectorAgent",
     "GovernanceAgent",
-    "ResearchAgent",
     "StrategicAgent",
     "TextBuddyAgent",
     "VangoghAgent",
+    "BlaiqDeepResearchAgent",
+    "FinanceDeepResearchAgent",
+    "ClarificationAgent",
     "content_director",
     "governance",
-    "research",
     "strategic",
     "text_buddy",
     "vangogh",
+    "deep_research",
+    "clarification",
 ]
 
 _LAZY_EXPORTS = {
     "ContentDirectorAgent": "agentscope_blaiq.agents.content_director",
     "GovernanceAgent": "agentscope_blaiq.agents.governance",
-    "ResearchAgent": "agentscope_blaiq.agents.research",
     "StrategicAgent": "agentscope_blaiq.agents.strategic",
     "TextBuddyAgent": "agentscope_blaiq.agents.text_buddy",
     "VangoghAgent": "agentscope_blaiq.agents.vangogh",
+    "BlaiqDeepResearchAgent": "agentscope_blaiq.agents.deep_research",
+    "FinanceDeepResearchAgent": "agentscope_blaiq.agents.deep_research",
+    "ClarificationAgent": "agentscope_blaiq.agents.clarification",
 }
 
 
 if TYPE_CHECKING:  # pragma: no cover - import-only typing aid
     from agentscope_blaiq.agents.content_director import ContentDirectorAgent
     from agentscope_blaiq.agents.governance import GovernanceAgent
-    from agentscope_blaiq.agents.research import ResearchAgent
     from agentscope_blaiq.agents.strategic import StrategicAgent
     from agentscope_blaiq.agents.text_buddy import TextBuddyAgent
     from agentscope_blaiq.agents.vangogh import VangoghAgent
+    from agentscope_blaiq.agents.deep_research import BlaiqDeepResearchAgent, FinanceDeepResearchAgent
+    from agentscope_blaiq.agents.clarification import ClarificationAgent
 
 
 def __getattr__(name: str) -> Any:

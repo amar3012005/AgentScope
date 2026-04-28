@@ -25,7 +25,6 @@ from agentscope_blaiq.agents.governance import GovernanceAgent
 from agentscope_blaiq.agents.deep_research import BlaiqDeepResearchAgent, FinanceDeepResearchAgent
 from agentscope_blaiq.agents.data_science import DataScienceAgent
 from agentscope_blaiq.agents.graph_stub import GraphKnowledgeAgent
-from agentscope_blaiq.agents.research import ResearchAgent
 from agentscope_blaiq.agents.strategic import StrategicAgent
 from agentscope_blaiq.agents.text_buddy import TextBuddyAgent
 from agentscope_blaiq.agents.vangogh import VangoghAgent
@@ -55,11 +54,11 @@ class AgentRegistry:
         )
         self.strategist = StrategicAgent(resolver=self.resolver, catalog_provider=self.list_live_profiles)
         self.hitl = ClarificationAgent(resolver=self.resolver)
-        self.research = ResearchAgent(resolver=self.resolver, hivemind=self.hivemind)
         self.deep_research = BlaiqDeepResearchAgent(
             hivemind=self.hivemind,
             resolver=self.resolver,
         )
+        self.research = self.deep_research  # Legacy alias
         self.finance_research = FinanceDeepResearchAgent(
             hivemind=self.hivemind,
             resolver=self.resolver,
@@ -603,7 +602,9 @@ class AgentRegistry:
         agent.name = spec.display_name or spec.agent_id
         agent.role = role_key or agent.role
         agent.sys_prompt = spec.prompt
+        agent.status_messages = spec.status_messages or []
         return agent
+
 
     def _builtin_agent_for_role(self, role_key: str) -> Any | None:
         factory = self._builtin_agent_factories.get(role_key)
