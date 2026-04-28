@@ -493,7 +493,4 @@ def get_enterprise_toolkit() -> Toolkit:
     # Failsafe Tools
     toolkit.register_tool_function(fleet.ask_human)
 
-    # AgentScope middleware: retry + graceful degradation on research tools
-    toolkit.register_middleware(_research_retry_middleware)
-
     return toolkit

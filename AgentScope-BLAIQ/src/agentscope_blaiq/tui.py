@@ -325,7 +325,7 @@ async def run_repl():
                             f"http://{workspace.service_host}:8095/process",
                             json={
                                 "input": [{"role": "user", "content": [{"type": "text", "text": skill_prompt}]}],
-                                "session_id": self.session_id,
+                                "session_id": workspace.session_id,
                                 "user_id": "tui-skill-gen",
                             },
                         )
