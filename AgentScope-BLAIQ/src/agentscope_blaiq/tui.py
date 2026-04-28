@@ -4,6 +4,7 @@ import os
 import json
 import httpx
 import logging
+import yaml
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -16,6 +17,7 @@ from rich.markdown import Markdown
 from rich.prompt import Prompt
 
 from agentscope.message import Msg
+from agentscope.tool import Toolkit
 from agentscope_blaiq.runtime.config import settings
 from agentscope_blaiq.workflows.swarm_engine import SwarmEngine
 from agentscope_blaiq.persistence.redis_state import RedisStateStore
@@ -27,6 +29,18 @@ logger = logging.getLogger("blaiq-tui")
 console = Console()
 
 SKILLS_DIR = Path(__file__).resolve().parent / "skills"
+BLUEPRINTS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "blueprints"
+
+# Global toolkit instance for dynamic skill registration
+_global_toolkit: Toolkit | None = None
+
+def get_global_toolkit() -> Toolkit:
+    """Get or create the global toolkit instance for skill registration."""
+    global _global_toolkit
+    if _global_toolkit is None:
+        from agentscope_blaiq.tools.enterprise_fleet import get_enterprise_toolkit
+        _global_toolkit = get_enterprise_toolkit()
+    return _global_toolkit
 
 # ── WORKSPACE CORE ──────────────────────────────────────────────────────
 
@@ -85,7 +99,7 @@ class BlaiqWorkspaceTUI:
             return str(res)
 
     async def create_skill(self, name: str, description: str, body: str, agents: list[str]) -> Path:
-        """Create a new AgentScope skill from LLM-generated SKILL.md."""
+        """Create and register a new AgentScope skill from LLM-generated SKILL.md."""
         skill_dir = SKILLS_DIR / name
         skill_dir.mkdir(parents=True, exist_ok=True)
         targets = ", ".join(agents) if agents else "text_buddy, content_director"
@@ -98,6 +112,12 @@ class BlaiqWorkspaceTUI:
             f"{body}"
         )
         (skill_dir / "SKILL.md").write_text(skill_md)
+
+        # Register with global Toolkit for immediate availability
+        toolkit = get_global_toolkit()
+        toolkit.register_agent_skill(str(skill_dir))
+        logger.info(f"Skill '{name}' registered with Toolkit at {skill_dir}")
+
         return skill_dir
 
     async def run_pipeline(self, prompt: str, with_oracle: bool = False):
@@ -191,10 +211,10 @@ async def run_repl():
         "  /pipeline <goal> [--hitl] - Run pipeline (add --hitl for event-driven Oracle)\n"
         "  /status          - Check Fleet Health\n"
         "  /hive <query>    - Direct Memory Access\n"
-        "  /create <prompt> - Birth a new Specialist\n"
-        "  /new-skill [name] - Register a new AgentScope Skill\n"
+        "  /create <prompt> - Create agent from natural language (auto-registers)\n"
+        "  /new-skill <prompt> - Create skill from natural language (auto-registers)\n"
         "  /list-skills     - Browse Skills Library\n"
-        "  /list            - Browse Blueprint Library\n"
+        "  /list            - Browse Agent Blueprints\n"
         "  /quit            - Exit Workspace\n\n"
         "[dim]Oracle: Event-driven — fires only when context is insufficient[/dim]",
         border_style="bright_blue",
@@ -231,57 +251,107 @@ async def run_repl():
                 continue
                 
             if query.startswith("/create"):
-                prompt = query.replace("/create", "").strip()
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    res = await client.post(f"http://{workspace.service_host}:8100/create", json={"prompt": prompt})
-                    if res.status_code == 200:
-                        data = res.json()
-                        console.print(Panel(f"Agent [bold]{data['blueprint']['name']}[/bold] saved.", title="Factory Success", border_style="green"))
-                    else:
-                        console.print(f"[red]Factory Error: {res.text}[/red]")
+                rest = query.replace("/create", "").strip()
+                if not rest:
+                    console.print("[yellow]Usage: /create <description> — e.g., '/create a social media agent for writing Instagram captions about solar energy'[/yellow]")
+                    continue
+
+                console.print(f"[dim]Architecting agent from: {rest[:80]}...[/dim]")
+
+                # 1. Generate blueprint via Factory service
+                try:
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        res = await client.post(f"http://{self.service_host}:8100/create", json={"prompt": rest})
+                        if res.status_code == 200:
+                            data = res.json()
+                            blueprint = data.get("blueprint", {})
+                            agent_name = blueprint.get("name", "Unknown")
+                            agent_desc = blueprint.get("description", "")
+                            blueprint_path = data.get("path", "")
+                        else:
+                            console.print(f"[red]Factory Error: {res.text}[/red]")
+                            continue
+                except Exception as e:
+                    console.print(f"[red]Failed to generate blueprint: {e}[/red]")
+                    continue
+
+                # 2. Create a corresponding SKILL.md so the agent is discoverable by the Strategist
+                skill_name = f"agent_{agent_name.lower().replace(' ', '_')}"
+                skill_body = (
+                    f"### Agent: {agent_name}\n\n"
+                    f"**Description**: {agent_desc}\n\n"
+                    f"**Blueprint**: `{blueprint_path}`\n\n"
+                    f"**Usage**: This agent can be spawned via the Factory service. "
+                    f"Use the `/create` command with a similar prompt to activate it.\n\n"
+                    f"**System Prompt**:\n{blueprint.get('system', 'N/A')}\n"
+                )
+                skill_dir = await self.create_skill(skill_name, agent_desc, skill_body, ["text_buddy", "content_director"])
+
+                # 3. Register the agent with the SwarmEngine for pipeline visibility
+                self.engaged_agents.add(agent_name)
+
+                console.print(Panel(
+                    f"[bold green]✓[/bold green] Agent [bold]{agent_name}[/bold] created and registered.\n"
+                    f"Blueprint: {blueprint_path}\n"
+                    f"Skill: {skill_dir}/SKILL.md\n"
+                    f"Description: {agent_desc}\n\n"
+                    f"[dim]Agent is now visible in /list and accessible via /pipeline with appropriate goals.[/dim]",
+                    title="[bold green]Agent Created & Registered[/bold green]",
+                    border_style="green"
+                ))
                 continue
                 
             if query.startswith("/new-skill"):
-                args = query.replace("/new-skill", "").strip().split()
-                name = args[0] if args else Prompt.ask("[cyan]Skill name[/cyan] (e.g. 'linkedin_post')")
-                name = name.strip().lower().replace(" ", "_").replace("-", "_")
-                agents_input = Prompt.ask(
-                    "[cyan]Target agents[/cyan] (comma-separated, or Enter for all)",
-                    default="text_buddy,content_director"
-                )
-                agents = [a.strip() for a in agents_input.split(",") if a.strip()]
-                description = Prompt.ask("[cyan]Short description[/cyan]")
-                console.print("[dim]Generating skill content via LLM...[/dim]")
-                try:
-                    from litellm import acompletion
-                    gen_resp = await acompletion(
-                        model=os.environ.get("LITELLM_API_BASE_URL") and os.environ.get("LITELLM_PRE_MODEL") or "gemini/gemini-2.5-flash",
-                        messages=[
-                            {"role": "system", "content": (
-                                "You are an AgentScope Skill author. Write the BODY of a SKILL.md file. "
-                                "Do NOT include YAML frontmatter — only the markdown body. "
-                                "Include: purpose, rules, output format, examples. Be concise but complete."
-                            )},
-                            {"role": "user", "content": (
-                                f"Skill name: {name}\n"
-                                f"Description: {description}\n"
-                                f"Target agents: {', '.join(agents)}\n\n"
-                                "Write the skill body markdown now."
-                            )},
-                        ],
-                        max_tokens=1500,
-                        timeout=30,
-                    )
-                    body = gen_resp.choices[0].message.content or ""
-                except Exception as e:
-                    console.print(f"[yellow]LLM generation failed ({e}), using description as body.[/yellow]")
-                    body = f"# {name.replace('_', ' ').title()}\n\n{description}\n"
+                rest = query.replace("/new-skill", "").strip()
+                if not rest:
+                    console.print("[yellow]Usage: /new-skill <description> — e.g., '/new-skill create a skill for writing Twitter threads about renewable energy'[/yellow]")
+                    continue
 
-                skill_dir = await workspace.create_skill(name, description, body, agents)
+                console.print(f"[dim]Generating skill from: {rest[:80]}...[/dim]")
+
+                # Use Strategist AaaS service to generate the skill
+                try:
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        skill_prompt = (
+                            f"You are an AgentScope Skill author. Create a complete SKILL.md for this request: \"{rest}\"\n\n"
+                            "Return ONLY the markdown body (no YAML frontmatter). Include:\n"
+                            "- Purpose: What this skill does\n"
+                            "- Rules: Step-by-step instructions for the agent\n"
+                            "- Output format: Expected structure\n"
+                            "- Examples: 1-2 concrete examples\n"
+                            "Be concise but complete. The skill will be used by text_buddy and content_director agents."
+                        )
+                        res = await client.post(
+                            f"http://{self.service_host}:8095/process",
+                            json={
+                                "input": [{"role": "user", "content": [{"type": "text", "text": skill_prompt}]}],
+                                "session_id": self.session_id,
+                                "user_id": "tui-skill-gen",
+                            },
+                        )
+                        body = ""
+                        for line in res.text.splitlines():
+                            if line.startswith("data: "):
+                                try:
+                                    d = json.loads(line[6:])
+                                    body += d.get("text", "") or d.get("content", "")
+                                except Exception:
+                                    continue
+                        if not body:
+                            body = f"# Generated Skill\n\n{rest}"
+                except Exception as e:
+                    console.print(f"[yellow]LLM generation failed ({e}), using fallback.[/yellow]")
+                    body = f"# Generated Skill\n\n{rest}"
+
+                # Derive name and description from the request
+                name = rest[:30].strip().lower().replace(" ", "_").replace("-", "_")
+                description = rest[:100]
+
+                skill_dir = await self.create_skill(name, description, body, ["text_buddy", "content_director"])
                 console.print(Panel(
-                    f"[bold green]✓[/bold green] Skill [bold]{name}[/bold] created.\n"
+                    f"[bold green]✓[/bold green] Skill [bold]{name}[/bold] created and registered.\n"
                     f"Path: {skill_dir}/SKILL.md\n"
-                    f"Agents: {', '.join(agents)}\n\n"
+                    f"Agents: text_buddy, content_director\n\n"
                     f"[dim]Active on next /pipeline call — no restart needed.[/dim]",
                     title="[bold green]Skill Registered[/bold green]",
                     border_style="green"
@@ -316,11 +386,18 @@ async def run_repl():
                 continue
 
             if query.startswith("/list"):
+                table = Table(title="Agent Blueprint Library", border_style="cyan")
+                table.add_column("Agent ID", style="bold white")
+                table.add_column("Status", justify="center")
                 path = "./data/blueprints"
-                files = [f for f in os.listdir(path) if f.endswith(".json")]
-                table = Table(title="Blueprint Library")
-                table.add_column("Agent ID")
-                for f in files: table.add_row(f.replace(".json", ""))
+                if os.path.exists(path):
+                    files = [f for f in os.listdir(path) if f.endswith(".json")]
+                    for f in files:
+                        agent_id = f.replace(".json", "")
+                        status = "[green]ACTIVE[/green]" if agent_id in self.engaged_agents else "[dim]stored[/dim]"
+                        table.add_row(agent_id, status)
+                if self.engaged_agents:
+                    table.add_row(f"[bold]{len(self.engaged_agents)} engaged[/bold]", "[green]●[/green]")
                 console.print(table)
                 continue
 
