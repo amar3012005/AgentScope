@@ -261,7 +261,7 @@ async def run_repl():
                 # 1. Generate blueprint via Factory service
                 try:
                     async with httpx.AsyncClient(timeout=60.0) as client:
-                        res = await client.post(f"http://{self.service_host}:8100/create", json={"prompt": rest})
+                        res = await client.post(f"http://{workspace.service_host}:8100/create", json={"prompt": rest})
                         if res.status_code == 200:
                             data = res.json()
                             blueprint = data.get("blueprint", {})
@@ -285,10 +285,10 @@ async def run_repl():
                     f"Use the `/create` command with a similar prompt to activate it.\n\n"
                     f"**System Prompt**:\n{blueprint.get('system', 'N/A')}\n"
                 )
-                skill_dir = await self.create_skill(skill_name, agent_desc, skill_body, ["text_buddy", "content_director"])
+                skill_dir = await workspace.create_skill(skill_name, agent_desc, skill_body, ["text_buddy", "content_director"])
 
                 # 3. Register the agent with the SwarmEngine for pipeline visibility
-                self.engaged_agents.add(agent_name)
+                workspace.engaged_agents.add(agent_name)
 
                 console.print(Panel(
                     f"[bold green]✓[/bold green] Agent [bold]{agent_name}[/bold] created and registered.\n"
@@ -322,7 +322,7 @@ async def run_repl():
                             "Be concise but complete. The skill will be used by text_buddy and content_director agents."
                         )
                         res = await client.post(
-                            f"http://{self.service_host}:8095/process",
+                            f"http://{workspace.service_host}:8095/process",
                             json={
                                 "input": [{"role": "user", "content": [{"type": "text", "text": skill_prompt}]}],
                                 "session_id": self.session_id,
@@ -347,7 +347,7 @@ async def run_repl():
                 name = rest[:30].strip().lower().replace(" ", "_").replace("-", "_")
                 description = rest[:100]
 
-                skill_dir = await self.create_skill(name, description, body, ["text_buddy", "content_director"])
+                skill_dir = await workspace.create_skill(name, description, body, ["text_buddy", "content_director"])
                 console.print(Panel(
                     f"[bold green]✓[/bold green] Skill [bold]{name}[/bold] created and registered.\n"
                     f"Path: {skill_dir}/SKILL.md\n"
@@ -394,10 +394,10 @@ async def run_repl():
                     files = [f for f in os.listdir(path) if f.endswith(".json")]
                     for f in files:
                         agent_id = f.replace(".json", "")
-                        status = "[green]ACTIVE[/green]" if agent_id in self.engaged_agents else "[dim]stored[/dim]"
+                        status = "[green]ACTIVE[/green]" if agent_id in workspace.engaged_agents else "[dim]stored[/dim]"
                         table.add_row(agent_id, status)
-                if self.engaged_agents:
-                    table.add_row(f"[bold]{len(self.engaged_agents)} engaged[/bold]", "[green]●[/green]")
+                if workspace.engaged_agents:
+                    table.add_row(f"[bold]{len(workspace.engaged_agents)} engaged[/bold]", "[green]●[/green]")
                 console.print(table)
                 continue
 
