@@ -47,7 +47,7 @@ from agentscope_blaiq.contracts.aaas import MissionPlan, MissionNode, NodeRole
 from agentscope_blaiq.runtime.model_resolver import LiteLLMModelResolver
 from agentscope_blaiq.runtime.config import settings
 from agentscope_blaiq.runtime.hooks import pre_flight_variable_check_hook
-from agentscope_blaiq.workflows.engine_v2 import WorkflowEngineV2
+from agentscope_blaiq.workflows.swarm_engine import SwarmEngine
 from agentscope_blaiq.persistence.redis_state import RedisStateStore
 from agentscope_blaiq.tools.enterprise_fleet import get_enterprise_toolkit, active_session_id
 
@@ -272,26 +272,55 @@ async def build_mission_plan(
             "assistant"
         ), False
 
-        # 8. Handoff to WorkflowEngineV2 for execution
-        logger.info(f"Handoff to WorkflowEngineV2 for session {session_id}")
-        state_store = RedisStateStore(redis_url=settings.redis_url)
-        engine = WorkflowEngineV2(state_store=state_store)
+        # 8. Handoff to SwarmEngine for execution (MsgHub + ServiceProxyAgent pattern)
+        logger.info(f"Handoff to SwarmEngine for session {session_id}")
+        engine = SwarmEngine()
 
-        async def event_publisher(event):
-            """Publish engine events back to the streaming client."""
-            yield Msg("Engine", str(event), "assistant"), False
+        async def swarm_publisher(role: str, text: str, is_stream: bool = False):
+            """Publish SwarmEngine events back to the streaming client."""
+            if is_stream:
+                return  # Skip streaming chunks for now
+            if text.startswith("Starting"):
+                yield Msg("Engine", f"▶ {role}: {text}", "assistant"), False
+            else:
+                yield Msg("Engine", f"✔ {role}: Completed", "assistant"), False
 
-        async for event_msg, is_last in engine.execute(mission_plan, session_id, event_publisher):
-            yield event_msg, is_last
+        try:
+            results = await engine.run(
+                goal=user_goal,
+                session_id=session_id,
+                artifact_family=mission_plan.artifact_type,
+                publish=lambda role, text, is_stream=False: asyncio.create_task(
+                    _async_yield_from_publisher(swarm_publisher, role, text, is_stream)
+                ),
+                with_oracle=True,
+            )
 
-        # Final status
-        yield Msg(
-            "StrategistMaster",
-            f"MISSION STATUS: Completed\n"
-            f"ARTIFACT: {mission_plan.artifact_type}\n"
-            f"NODES EXECUTED: {len(mission_plan.topology)}",
-            "assistant"
-        ), True
+            # Stream final results
+            for role, output in results.items():
+                if output:
+                    yield Msg(
+                        role.replace("_", " ").title(),
+                        output,
+                        "assistant"
+                    ), False
+
+            # Final status
+            yield Msg(
+                "StrategistMaster",
+                f"MISSION STATUS: Completed\n"
+                f"ARTIFACT: {mission_plan.artifact_type}\n"
+                f"NODES EXECUTED: {len(results)}",
+                "assistant"
+            ), True
+
+        except Exception as e:
+            logger.error(f"SwarmEngine execution failed: {e}")
+            yield Msg(
+                "StrategistMaster",
+                f"MISSION FAILED: {e}",
+                "assistant"
+            ), True
 
     except asyncio.CancelledError:
         logger.warning(f"Strategist session {session_id} was interrupted by user.")
@@ -312,6 +341,12 @@ async def build_mission_plan(
 # Helper Functions
 # ─────────────────────────────────────────────
 
+async def _async_yield_from_publisher(publisher, role: str, text: str, is_stream: bool = False):
+    """Bridge between SwarmEngine's publish callback and the async generator yield."""
+    async for msg, is_last in publisher(role, text, is_stream):
+        pass  # Publisher handles yielding internally
+
+
 def _build_mission_contract(plan_data: dict, session_id: str) -> MissionPlan:
     """Convert structured LLM output into a MissionPlan contract."""
     task_graph = plan_data.get("task_graph", {})
@@ -324,7 +359,22 @@ def _build_mission_contract(plan_data: dict, session_id: str) -> MissionPlan:
         try:
             role = NodeRole(role_str)
         except ValueError:
-            role = NodeRole.PLANNING
+            # Map common aliases to actual NodeRole values
+            alias_map = {
+                "text": "text_buddy",
+                "synthesis": "text_buddy",
+                "composition": "text_buddy",
+                "visual": "content_director",
+                "storyboard": "content_director",
+                "render": "vangogh",
+                "image": "vangogh",
+                "governance": "governance",
+                "review": "governance",
+                "oracle": "oracle",
+                "hitl": "oracle",
+                "research": "research",
+            }
+            role = NodeRole(alias_map.get(role_str.lower(), "planning"))
 
         topology.append(MissionNode(
             node_id=f"node_{i}",
@@ -366,7 +416,7 @@ def _inject_oracle_node(mission_plan: MissionPlan, reason: str) -> None:
     """Inject an Oracle (HITL) node into the mission topology after research."""
     oracle_node = MissionNode(
         node_id="node_oracle",
-        role=NodeRole.GOVERNANCE,  # Oracle acts as governance/HITL
+        role=NodeRole.ORACLE,
         service_endpoint="service_oracle",
         purpose=f"HITL escalation: {reason}",
         depends_on=["node_0"],  # Depends on first node (typically research)

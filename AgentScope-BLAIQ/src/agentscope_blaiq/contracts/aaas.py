@@ -5,10 +5,14 @@ from enum import Enum
 
 class NodeRole(str, Enum):
     RESEARCH = "research"
+    TEXT_BUDDY = "text_buddy"
+    CONTENT_DIRECTOR = "content_director"
+    VANGOGH = "vangogh"
+    ORACLE = "oracle"
+    GOVERNANCE = "governance"
     PLANNING = "planning"
     COMPOSITION = "composition"
     REFINEMENT = "refinement"
-    GOVERNANCE = "governance"
     VISUAL = "visual"
 
 class MissionNode(BaseModel):

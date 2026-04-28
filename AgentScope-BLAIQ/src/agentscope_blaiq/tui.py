@@ -104,65 +104,10 @@ class BlaiqWorkspaceTUI:
         return skill_dir
 
     async def run_pipeline(self, prompt: str, with_oracle: bool = False):
-        """Runs the BLAIQ v3 swarm pipeline via MsgHub + ServiceProxyAgents."""
+        """Runs the BLAIQ v3 swarm pipeline via StrategistV2 Master Orchestrator."""
         console.rule(f"[bold magenta]Swarm Mission: {prompt[:50]}...[/bold magenta]")
 
-        # 1. Classify artifact_family with a cheap LLM call
-        artifact_family = "report"
-        with Progress(SpinnerColumn(), TextColumn("[cyan]Classifying mission..."), console=console) as prog:
-            task = prog.add_task("Classify", total=1)
-            try:
-                classifier_prompt = (
-                    f"### CLASSIFICATION TASK\n"
-                    f"User Goal: \"{prompt}\"\n\n"
-                    "Classify this goal into exactly ONE of the following families. "
-                    "## TASK:\n"
-                    "Identify the artifact family for this mission. Output ONLY the keyword.\n\n"
-                    "## CRITICAL RULES:\n"
-                    "1. If the user mentions 'poster', 'pitch deck', 'presentation', 'landing page', or 'brochure', you MUST choose a VISUAL keyword.\n"
-                    "2. Do NOT choose 'report' if the user asks for a visual or creative asset.\n"
-                    "3. Choose 'report' only for data-heavy, text-only summaries or financial analysis.\n\n"
-                    "KEYWORDS: pitch_deck, keynote, poster, brochure, one_pager, landing_page, "
-                    "report, finance_analysis, custom, email, invoice, letter, memo, "
-                    "proposal, social_post, summary"
-                )
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    host = os.environ.get("BLAIQ_SERVICE_HOST", "localhost")
-                    res = await client.post(
-                        f"http://{host}:8095/process",
-                        json={
-                            "input": [{"role": "user", "content": [{"type": "text", "text": classifier_prompt}]}],
-                            "session_id": self.session_id,
-                            "user_id": "tui-classifier",
-                        },
-                    )
-                    raw_text = ""
-                    for line in res.text.splitlines():
-                        if line.startswith("data: "):
-                            try:
-                                d = json.loads(line[6:])
-                                raw_text += d.get("text", "") or d.get("content", "")
-                            except Exception:
-                                continue
-                    
-                    # Robust Parsing: Search the whole response for any valid keyword
-                    valid = {
-                        "pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page",
-                        "report", "finance_analysis", "custom", "email", "invoice", "letter",
-                        "memo", "proposal", "social_post", "summary",
-                    }
-                    cleaned_raw = raw_text.lower()
-                    for word in valid:
-                        if word in cleaned_raw or word.replace("_", " ") in cleaned_raw:
-                            artifact_family = word
-                            break
-            except Exception:
-                pass
-            prog.update(task, completed=1)
-
-        console.print(f"[dim]Artifact family: [bold]{artifact_family}[/bold][/dim]")
-
-        # 2. Run swarm — proxies call AaaS containers, MsgHub broadcasts context
+        # 1. Call StrategistV2 to produce a structured MissionPlan and execute via SwarmEngine
         results: dict = {}
 
         async def swarm_publisher(role: str, text: str, is_stream: bool = False):
@@ -202,7 +147,7 @@ class BlaiqWorkspaceTUI:
             results = await self.swarm.run(
                 goal=prompt,
                 session_id=self.session_id,
-                artifact_family=artifact_family,
+                artifact_family="report",  # Will be auto-classified by SwarmEngine
                 publish=swarm_publisher,
                 with_oracle=with_oracle,
             )
@@ -250,8 +195,8 @@ async def run_repl():
     workspace = BlaiqWorkspaceTUI()
     
     console.print(Panel.fit(
-        "[bold cyan]BLAIQ v2.2 - PIPELINE COMMAND CENTER[/bold cyan]\n"
-        "Status: [green]Active[/green] | Mode: [yellow]Sequential & Strategic[/yellow]\n\n"
+        "[bold cyan]BLAIQ v3.0 - MASTER ORCHESTRATOR[/bold cyan]\n"
+        "Status: [green]Active[/green] | Mode: [yellow]Event-Driven Swarm[/yellow]\n\n"
         "Commands:\n"
         "  /pipeline <goal> [--hitl] - Run pipeline (add --hitl for event-driven Oracle)\n"
         "  /status          - Check Fleet Health\n"
