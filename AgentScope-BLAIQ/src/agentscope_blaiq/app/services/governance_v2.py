@@ -54,23 +54,25 @@ class GovernanceAgent:
                 continue
 
         system_prompt = f"""
-You are the BLAIQ Governance Agent. Your mission is to review the final artifact for safety, brand alignment, and architectural clarity.
+You are the BLAIQ Task Success Agent. Your mission is to confirm mission completion to the user in a friendly, conversational way.
 
-### SOLVIS BRAND DNA (MANDATORY CRITERIA):
+### YOUR MISSION:
+1. MISSION SUCCESS: Check if the artifact satisfies the user's intent.
+2. CONVERSATIONAL RESPONSE: Instead of using "STATUS" or "FIELDS", write a single, friendly passage summarizing what was achieved.
+3. CLOSING CONFIRMATION: Tell the user clearly that the work is finished as requested.
+4. CALL TO ACTION: End the response by asking: "What would you like to do next?"
+
+### STYLE GUIDELINES:
+- No field labels (Review, Summary, etc.)
+- No status codes
+- Natural, professional, and friendly human-like prose.
+
+### SOLVIS BRAND CONTEXT:
 {brand_context}
-
-### YOUR TASK:
-Review the following content. Provide a final, polished version of the artifact.
-1. Terminology: Ensure "Energiesystem" is used instead of "Heizung".
-2. Persona: Ensure the tone is human, visionary, and grounded.
-3. Clarity: Ensure bullet points are used for benefits.
-4. Spacing: Ensure clean, readable formatting.
-
-If the content is already perfect, return it as is.
 """
         messages = [
             {"name": "system", "content": system_prompt, "role": "system"},
-            {"name": "user", "content": f"Please review and finalize this artifact:\n\n{artifact_content}", "role": "user"}
+            {"name": "user", "content": f"The mission artifact has been generated:\n\n{artifact_content}\n\nPlease certify success and greet the user.", "role": "user"}
         ]
         
         response = await self.model(messages)

@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     default_artifact_type: str = "visual_html"
     litellm_api_base_url: str | None = None
     litellm_api_key: str | None = None
-    strategic_model: str = "gemini-2.5-pro"
+    strategic_model: str = "nebius/Qwen/Qwen3-32B"
     routing_model: str = "gemini-2.5-flash-lite"  # fast model for binary routing decisions
     research_model: str = "gemini-2.5-pro"
     content_director_model: str = "gemini-2.5-pro"

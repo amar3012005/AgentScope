@@ -53,8 +53,9 @@ class BlaiqEnterpriseFleet:
                 "text_buddy": {"url": f"http://{buddy_host}:8092/process", "target": "TextBuddyV2"},
                 "content_director": {"url": f"http://{content_host}:8092/process", "target": "ContentDirectorV2"},
                 "van_gogh": {"url": f"http://{vangogh_host}:8092/process", "target": "VanGoghV2"},
-                "oracle": {"url": f"http://{oracle_host}:8092/process", "target": "OracleV2"},
-                "governance": {"url": f"http://{gov_host}:8092/process", "target": "GovernanceV2"}
+                "oracle": {"url": f"http://{oracle_host}:8094/process", "target": "OracleV2"},
+                "governance": {"url": f"http://{gov_host}:8092/process", "target": "GovernanceV2"},
+                "strategist": {"url": f"http://{os.environ.get('BLAIQ_SERVICE_HOST', 'strategist-service')}:8092/process", "target": "StrategistV2"}
             }
         
         # HIVE-MIND Component
@@ -63,6 +64,33 @@ class BlaiqEnterpriseFleet:
             api_key=settings.hivemind_api_key,
             timeout_seconds=settings.hivemind_timeout_seconds
         )
+
+    async def architect_mission(self, query: str, session_id: str, **kwargs: Any) -> str:
+        """
+        Triggers the Master Strategist to architect a mission plan and decide if a mission is needed.
+        Args:
+            query (str): The user goal.
+            session_id (str): The active session ID.
+        """
+        on_chunk = kwargs.get("on_chunk")
+        payload = {
+            "input": [{"role": "user", "content": [{"type": "text", "text": query}]}],
+            "session_id": session_id,
+            "user_id": "fleet-admin"
+        }
+        # Strategist is on port 8090 but in Docker it might be mapped differently.
+        # Based on strategist_v2.py, it runs on 8090.
+        # Let's check docker-compose.coolify.yml if possible.
+        # Assuming 8090 is the internal port.
+        config = self.fleet_configs.get("strategist")
+        if config and "localhost" in config["url"]:
+            config["url"] = "http://localhost:8090/process"
+        else:
+            host = os.environ.get("BLAIQ_SERVICE_HOST", "strategist-service")
+            config["url"] = f"http://{host}:8090/process"
+
+        res = await self._rpc_call("strategist", payload, on_chunk=on_chunk)
+        return res
 
     async def _rpc_call(self, service_key: str, payload: Dict[str, Any], use_recall: bool = False, on_chunk: Optional[Callable[[str], Any]] = None) -> str:
         """Helper to call remote AaaS nodes with explicit targeting and streaming support."""
@@ -343,34 +371,34 @@ class BlaiqEnterpriseFleet:
             "session_id": session_id,
             "user_id": "fleet-admin"
         }
+        # 1. Trigger the Oracle service to formulate the question/options
         res = await self._rpc_call("oracle", payload)
         
-        # Write to Redis and block until answer
+        # 2. Extract structured metadata from the Oracle response if available
+        # Some oracles might return JSON strings with options/why
+        options = []
+        why = ""
         try:
-            from agentscope_blaiq.persistence.redis_state import RedisStateStore
-            import asyncio
-            state_store = RedisStateStore()
-            if state_store.client:
-                # Store the question
-                await state_store.client.set(f"blaiq:session:{session_id}:hitl_question", res, ex=3600)
-                logger.info(f"Waiting for human input for session {session_id}")
-                
-                # Poll for answer
-                for _ in range(600): # 10 minute timeout
-                    await asyncio.sleep(1)
-                    answer = await state_store.client.get(f"blaiq:session:{session_id}:hitl_answer")
-                    if answer:
-                        await state_store.client.delete(f"blaiq:session:{session_id}:hitl_answer")
-                        ans_text = answer.decode('utf-8') if isinstance(answer, bytes) else str(answer)
-                        return ToolResponse(content=[TextBlock(type="text", text=f"Human answered: {ans_text}")])
-                
-                # If we timeout, remove the question to clear the queue
-                await state_store.client.delete(f"blaiq:session:{session_id}:hitl_question")
-                return ToolResponse(content=[TextBlock(type="text", text="Human timed out. Please proceed using your best judgment.")])
-        except Exception as e:
-            logger.warning(f"Redis HITL polling failed: {e}")
-            
-        return ToolResponse(content=[TextBlock(type="text", text=res)])
+            if "{" in res:
+                data = json.loads(res)
+                options = data.get("options", [])
+                why = data.get("why_it_matters", "")
+        except Exception:
+            pass
+
+        # 3. Return a structured signal that the orchestrator can intercept.
+        # We return this as text so the agent 'thinks' it called the tool successfully,
+        # but the orchestrator (strategist_v2) will see this and trigger the suspension.
+        return ToolResponse(content=[TextBlock(type="text", text=json.dumps({
+            "metadata": {
+                "kind": "hitl_request",
+                "session_id": session_id,
+                "requires_input": True,
+                "options": options,
+                "why_it_matters": why
+            },
+            "content": question
+        }))])
 
     async def ask_oracle_hitl(
         self,

@@ -83,7 +83,25 @@ Transform the BLAIQ Mission Workstation into a production-grade, distributed "Ag
 
 ## Strategic Cleanup (2026-04-28)
 *   **Folder Archival**: To eliminate developer confusion between the AaaS services and legacy local agents, all directories under `src/agentscope_blaiq/agents/` (except `backup/`) were moved to `src/agentscope_blaiq/agents/backup/`.
+*   **Git Purge**: Successfully removed 250MB+ of legacy `node_modules` and binary bloat from git history via `git filter-repo`, reducing push times from minutes to seconds.
 *   **Active Runtime**: The system now explicitly runs via the AaaS mesh defined in `src/agentscope_blaiq/app/services/` and orchestrated via `swarm_engine.py`.
+
+## Update: Dynamic Lifecycle Implementation (2026-04-28)
+
+Implemented end-to-end dynamic creation of skills and agents via the TUI Command Center.
+
+### 1. Natural Language Skill Creation (`/new-skill`)
+*   **Workflow**: User provides a prompt → Strategist AaaS service generates a structured `SKILL.md` → TUI writes it to `src/agentscope_blaiq/skills/<name>/` → `Toolkit` registers it immediately.
+*   **Impact**: New behaviors (e.g., Twitter threads, LinkedIn posts) can be added without modifying source code or restarting services.
+*   **Technical Detail**: The `Toolkit.register_agent_skill(path)` method was corrected to avoid invalid `register_middleware` calls.
+
+### 2. Genetic Agent Spawning (`/create`)
+*   **Workflow**: User provides a persona description → Factory AaaS service architecturally designs a JSON blueprint → Blueprint is stored in `data/blueprints/` → A shadow `SKILL.md` is created to notify the Strategist of the new specialist's existence.
+*   **Visibility**: Newly created agents are tracked in `workspace.engaged_agents` and listed in the `/list` command as **ACTIVE**.
+
+### 3. Service Mesh Hardening
+*   **RPC Synchronization**: Standardized all internal fleet communication on `localhost` port mapping (8091-8100) to ensure the TUI can control Docker containers during development.
+*   **Error Resilience**: Hardened `safe_text_extract` to handle diverse message types (Markdown, JSON, raw strings) and added `httpx` timeout handling for long-running architecture tasks.
 
 ## StrategistV2 Refactor (2026-04-28)
 *   **Problem**: The original StrategistV2 was a "Planner that gives up" — a ReActAgent with a 40+ line bloated system prompt that attempted orchestration via tool calls but never actually executed the pipeline. The handoff to `WorkflowEngineV2` was commented out.

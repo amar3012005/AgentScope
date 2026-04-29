@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from typing import Any, Callable, Optional
 
 from agentscope.agent import AgentBase
@@ -50,7 +51,7 @@ class ServiceProxyAgent(AgentBase):
         try:
             if self.role == "research":
                 result = await self.fleet.research_evidence(goal, self.session_id, on_chunk=on_chunk)
-                text = self._extract(result)
+                text = _extract(result)
                 return Msg(
                     name=self.name,
                     content=text,
@@ -68,7 +69,7 @@ class ServiceProxyAgent(AgentBase):
                     session_id=self.session_id,
                     on_chunk=on_chunk
                 )
-                text = self._extract(result)
+                text = _extract(result)
                 return Msg(
                     name=self.name,
                     content=text,
@@ -85,7 +86,7 @@ class ServiceProxyAgent(AgentBase):
                     session_id=self.session_id,
                     on_chunk=on_chunk
                 )
-                text = self._extract(result)
+                text = _extract(result)
                 return Msg(
                     name=self.name,
                     content=text,
@@ -109,7 +110,7 @@ class ServiceProxyAgent(AgentBase):
                     brand_dna=brand_dna,
                     on_chunk=on_chunk
                 )
-                text = self._extract(result)
+                text = _extract(result)
                 return Msg(
                     name=self.name,
                     content=text,
@@ -127,11 +128,19 @@ class ServiceProxyAgent(AgentBase):
                     evidence=evidence,
                     on_chunk=on_chunk,
                 )
-                text = self._extract(result)
+                text = _extract(result)
                 # Detect HITL metadata emitted by oracle service
                 oracle_meta: dict[str, Any] = {}
                 if hasattr(result, "metadata") and result.metadata:
                     oracle_meta = result.metadata
+                
+                # If the text itself looks like JSON (some services return raw JSON strings)
+                if not oracle_meta and "{" in text:
+                    try:
+                        oracle_meta = json.loads(text)
+                    except Exception:
+                        pass
+
                 return Msg(
                     name=self.name,
                     content=text,
@@ -153,12 +162,21 @@ class ServiceProxyAgent(AgentBase):
                     session_id=self.session_id,
                     on_chunk=on_chunk
                 )
-                text = self._extract(result)
+                text = _extract(result)
                 return Msg(
                     name=self.name,
                     content=text,
                     role="assistant",
                     metadata={"kind": "governance_report"},
+                )
+
+            elif self.role == "Strategist" or self.role == "strategist":
+                result = await self.fleet.architect_mission(goal, self.session_id, on_chunk=on_chunk)
+                text = _extract(result)
+                return Msg(
+                    name=self.name,
+                    content=text,
+                    role="assistant",
                 )
 
             else:
@@ -177,48 +195,55 @@ class ServiceProxyAgent(AgentBase):
                 metadata={"kind": "error"},
             )
 
-    @staticmethod
-    def _extract(result: Any) -> str:
-        if result is None:
-            return ""
-        
-        # If it's a ToolResponse/Msg-like object, pull the text
-        text = ""
-        if hasattr(result, "content") and result.content:
-            part = result.content[0]
-            if hasattr(part, "text"):
-                text = str(part.text)
-            elif isinstance(part, dict):
-                text = str(part.get("text", str(part)))
-        elif isinstance(result, str):
-            text = result
+def _extract(result: Any) -> str:
+    """Helper to extract text from Msg or strings."""
+    if not result:
+        return ""
+    if isinstance(result, str):
+        text = result
+    elif hasattr(result, "content"):
+        content = result.content
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list) and len(content) > 0:
+            # Handle AgentScope list of parts
+            text = ""
+            for part in content:
+                if isinstance(part, dict):
+                    text += part.get("text", "")
+                elif hasattr(part, "text"):
+                    text += str(part.text)
+                elif isinstance(part, str):
+                    text += part
         else:
-            text = str(result)
+            text = str(content)
+    elif hasattr(result, "get_text_content"):
+        text = result.get_text_content() or ""
+    else:
+        text = str(result)
 
-        # INTELLIGENT JSON EXTRACTION:
-        # If the text contains multiple JSON blocks (e.g. Phase 1 and Phase 2 concatenated),
-        # we must extract the LAST valid one, as that is the high-fidelity deliverable.
-        if "{" in text and "}" in text:
-            import re
-            # Find all top-level-ish JSON blocks
-            blocks = re.findall(r'\{.*\}', text, re.DOTALL)
-            if blocks:
-                # Try to parse the last one first
-                candidate = blocks[-1].strip()
-                try:
-                    # Verify it's actually JSON
-                    json.loads(candidate)
-                    return candidate
-                except Exception:
-                    # If the last block is partial, look for any valid JSON block from the end
-                    for block in reversed(blocks):
-                        try:
-                            json.loads(block)
-                            return block
-                        except Exception:
-                            continue
-        
-        return text
+    # INTELLIGENT JSON EXTRACTION:
+    # If the text contains multiple JSON blocks (e.g. Phase 1 and Phase 2 concatenated),
+    # we must extract the LAST valid one, as that is the high-fidelity deliverable.
+    if "{" in text and "}" in text:
+        # Find all top-level-ish JSON blocks
+        blocks = re.findall(r'\{.*\}', text, re.DOTALL)
+        if blocks:
+            # Try to parse the last one first
+            candidate = blocks[-1].strip()
+            try:
+                # Verify it's actually JSON
+                json.loads(candidate)
+                return candidate
+            except Exception:
+                # If the last block is partial, look for any valid JSON block from the end
+                for block in reversed(blocks):
+                    try:
+                        json.loads(block)
+                        return block
+                    except Exception:
+                        continue
+    return text
 
 
 class SwarmEngine:
@@ -288,15 +313,25 @@ class SwarmEngine:
 
         return False, ""
 
+    async def _safe_publish(self, publish: Optional[Callable], role: str, text: str, is_stream: bool = False):
+        """Safely call publish callback whether it is sync or async."""
+        if not publish:
+            return
+        if asyncio.iscoroutinefunction(publish):
+            await publish(role, text, is_stream=is_stream)
+        else:
+            publish(role, text, is_stream=is_stream)
+
     async def run(
         self,
         goal: str,
         session_id: str,
         artifact_family: str = "report",
         publish: Optional[Callable] = None,
-        with_oracle: bool = False,
-        prefilled_results: Optional[dict[str, str]] = None,
+        with_oracle: bool = True,
+        prefilled_results: Optional[dict[str, Any]] = None,
         start_from_role: Optional[str] = None,
+        skip_planning: bool = False,
     ) -> dict[str, Any]:
         """
         Execute swarm mission. Returns dict of {role: output_text}.
@@ -304,10 +339,62 @@ class SwarmEngine:
         with_oracle: enable event-driven Oracle (fires when context is insufficient).
         prefilled_results: results already completed (for resume after HITL).
         start_from_role: skip roles before this one (for resume after HITL).
-
-        AgentScope Pattern: Sequential Pipeline with dynamic Oracle insertion.
-        Oracle fires EVENT-DRIVEN when _should_fire_oracle() detects insufficient context.
+        skip_planning: whether to bypass the initial strategist assessment.
         """
+        # 1. Master Strategist Assessment (Fast Track)
+        # Check if this is a conversational query that can be answered directly
+        if not prefilled_results and not start_from_role and not skip_planning:
+            try:
+                if publish:
+                    await self._safe_publish(publish, "Strategist", json.dumps({
+                        "type": "agent_thought",
+                        "agent_name": "Strategist",
+                        "data": {"message": "Deconstructing mission requirements and architecting the swarm path..."}
+                    }))
+                
+                # Call strategist service with chunk-based streaming callback
+                async def on_strategist_chunk(chunk: str):
+                    if publish:
+                        # Only stream if it's not a JSON block (to avoid UI flicker)
+                        if not chunk.strip().startswith("{"):
+                            await self._safe_publish(publish, "Strategist", chunk, is_stream=True)
+
+                plan_raw = await self.fleet.architect_mission(goal, session_id, on_chunk=on_strategist_chunk)
+                logger.info(f"Strategist assessment received. Length: {len(plan_raw)}")
+                
+                # Robust JSON extraction for is_direct
+                if "is_direct" in plan_raw:
+                    try:
+                        # Extract JSON block if it's buried in text
+                        # Use findall to handle multiple JSON blocks if they exist
+                        matches = re.findall(r'\{[^{}]*"is_direct":\s*(true|True)[^{}]*\}', plan_raw, re.DOTALL | re.IGNORECASE)
+                        
+                        # Fallback to a more broad search if the specific one fails
+                        if not matches:
+                            matches = re.findall(r'\{[^{}]*\}', plan_raw, re.DOTALL)
+
+                        for m in matches:
+                            try:
+                                # Re-construct the full block if findall only got the group
+                                full_match = m if m.startswith("{") else next(match.group(0) for match in re.finditer(r'\{[^{}]*"is_direct":\s*(true|True)[^{}]*\}', plan_raw, re.DOTALL | re.IGNORECASE))
+                                plan_data = json.loads(full_match)
+                                if plan_data.get("is_direct"):
+                                    direct_answer = plan_data.get("direct_response") or "I am BLAIQ-CORE, your enterprise swarm intelligence."
+                                    logger.info(f"Direct response detected from strategist: {direct_answer[:50]}...")
+                                    if publish:
+                                        await self._safe_publish(publish, "Strategist", direct_answer)
+                                    return {"Strategist": direct_answer}
+                            except Exception:
+                                continue
+                        
+                        logger.info("Found 'is_direct' keyword but no matching JSON block with is_direct=True.")
+                    except Exception as e:
+                        logger.warning(f"Failed to parse direct response JSON: {e}")
+                else:
+                    logger.info("No 'is_direct' keyword found in strategist response.")
+            except Exception as e:
+                logger.warning(f"Strategist fast-track assessment failed: {e}")
+
         base_sequence = self._choose_sequence(artifact_family)
 
         proxies = self._build_proxies(base_sequence, session_id)
@@ -336,13 +423,28 @@ class SwarmEngine:
 
                 proxy = proxies[role]
 
-                if publish:
-                    await publish(role, f"Starting {role}...")
+                # Clear previous start_from_role if we reached it
+                if start_from_role == role:
+                    start_from_role = None
+
+                # 1. Emit START EVENT for the frontend progress/timeline
+                await self._safe_publish(publish, role, json.dumps({
+                    "type": "agent_started",
+                    "agent_name": role,
+                    "phase": role,
+                    "data": {"message": f"Starting {role.replace('_', ' ').title()}..."}
+                }))
 
                 evidence = results.get("research", "")
                 text_artifact = results.get("text_buddy", "")
                 visual_spec = results.get("content_director", "")
                 render_result = results.get("vangogh", "")
+
+                await self._safe_publish(publish, role, json.dumps({
+                    "type": "agent_thought",
+                    "agent_name": role,
+                    "data": {"message": f"Processing internal context for {role.replace('_', ' ')}..."}
+                }))
 
                 current_content = goal
                 if role == "content_director":
@@ -367,19 +469,46 @@ class SwarmEngine:
                 )
 
                 async def on_chunk(chunk: str, _role: str = role):
-                    if publish:
-                        await publish(_role, chunk, is_stream=True)
+                    await self._safe_publish(publish, _role, chunk, is_stream=True)
 
                 reply = await proxy(active_msg, on_chunk=on_chunk)
+                reply_text = _extract(reply)
                 reply_meta = getattr(reply, "metadata", {}) or {}
 
-                # HITL suspension: oracle signals requires_input
+                # 3. Emit COMPLETION EVENT with final metadata (triggers Oracle dropup if kind=hitl_request)
+                if publish:
+                    await self._safe_publish(publish, role, json.dumps({
+                        "type": "agent_completed",
+                        "agent_name": role,
+                        "phase": role,
+                        "data": {
+                            "message": f"{role.replace('_', ' ').title()} finished.",
+                            "content": reply_text,
+                            **reply_meta
+                        }
+                    }))
+
+                # 4. Handle HITL suspension: oracle or strategist signals hitl_request
                 if reply_meta.get("kind") == "hitl_request" and reply_meta.get("requires_input"):
+                    # Emit BLOCKED EVENT for UI dropup
+                    await self._safe_publish(publish, role, json.dumps({
+                        "type": "workflow_blocked",
+                        "agent_name": role,
+                        "phase": role,
+                        "data": {
+                            "blocked_question": reply_text,
+                            **reply_meta
+                        }
+                    }))
                     # Find what role comes after oracle to resume from
                     try:
                         next_role = sequence[sequence.index(role) + 1]
                     except (ValueError, IndexError):
-                        next_role = role
+                        # If oracle was inserted dynamically, the next role is whatever was supposed to run after research
+                        if role == "oracle":
+                            next_role = "text_buddy" if artifact_family not in {"pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page"} else "content_director"
+                        else:
+                            next_role = role
 
                     suspension = SwarmSuspendedState(
                         session_id=session_id,
@@ -402,25 +531,21 @@ class SwarmEngine:
 
                 results[role] = reply.get_text_content() or ""
 
-                if publish:
-                    await publish(role, results[role])
 
                 # EVENT-DRIVEN ORACLE: Check if context is insufficient after research
                 if with_oracle and role == "research" and not oracle_inserted:
                     should_fire, reason = self._should_fire_oracle(results["research"], "Research")
                     if should_fire:
-                        if publish:
-                            await publish("oracle", f"[Event-Driven] Oracle triggered: {reason}")
+                        await self._safe_publish(publish, "oracle", f"[Event-Driven] Oracle triggered: {reason}")
 
-                        # Insert oracle into sequence dynamically
+                        # Create oracle proxy
                         oracle_proxy = ServiceProxyAgent(
                             name="Oracle",
                             role="oracle",
                             fleet=self.fleet,
                             session_id=session_id,
                         )
-                        # Add to MsgHub participants
-                        # Note: MsgHub is already active, we call oracle directly
+                        
                         oracle_msg = Msg(
                             name="user",
                             content=f"Context insufficient after research: {reason}\n\nOriginal goal: {goal}\n\nEvidence so far: {results.get('research', '')}",
@@ -433,8 +558,7 @@ class SwarmEngine:
                         )
 
                         async def oracle_on_chunk(chunk: str):
-                            if publish:
-                                await publish("oracle", chunk, is_stream=True)
+                            await self._safe_publish(publish, "oracle", chunk, is_stream=True)
 
                         oracle_reply = await oracle_proxy(oracle_msg, on_chunk=oracle_on_chunk)
                         oracle_reply_meta = getattr(oracle_reply, "metadata", {}) or {}
@@ -461,8 +585,7 @@ class SwarmEngine:
                             )
 
                         results["oracle"] = oracle_reply.get_text_content() or ""
-                        if publish:
-                            await publish("oracle", results["oracle"])
+                        await self._safe_publish(publish, "oracle", results["oracle"])
 
                         oracle_inserted = True
 

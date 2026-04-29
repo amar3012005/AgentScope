@@ -35,7 +35,7 @@ from agentscope_blaiq.runtime.hivemind_mcp import HivemindMCPError
 from agentscope_blaiq.runtime.registry import AgentRegistry
 from agentscope_blaiq.tools.docs import validate_uploaded_document
 from agentscope_blaiq.streaming.sse import encode_sse
-from agentscope_blaiq.workflows.engine import WorkflowEngine
+from agentscope_blaiq.workflows.swarm_workflow_engine import SwarmWorkflowEngine
 from agentscope_blaiq.runtime.hivemind_client import _stored_credentials as hivemind_stored_creds
 from agentscope_blaiq.contracts.tool_telemetry import (
     _EXECUTED_TOOL_EVENT_TYPES,
@@ -103,7 +103,7 @@ app.add_middleware(
 )
 
 registry = AgentRegistry()
-engine_runner = WorkflowEngine(registry)
+engine_runner = SwarmWorkflowEngine(registry)
 
 
 def _get_user_agent_registry() -> UserAgentRegistry:
@@ -605,41 +605,59 @@ async def resume_swarm(request: HITLResumeRequest) -> EventSourceResponse:
     """Resume a suspended swarm after HITL answer. Streams results as SSE."""
     from agentscope_blaiq.workflows.swarm_engine import SwarmEngine
     from agentscope_blaiq.contracts.hitl import WorkflowSuspended
-    from agentscope_blaiq.streaming.sse import encode_sse
 
     swarm = SwarmEngine()
+    event_queue = asyncio.Queue()
+
+    def publish_sync(role: str, text: str, is_stream: bool = False):
+        event_queue.put_nowait((role, text, is_stream))
 
     async def event_stream():
-        published: list[dict] = []
+        # Run resume in a background task
+        resume_task = asyncio.create_task(swarm.resume(request, publish=publish_sync))
 
-        async def publish(role: str, text: str, is_stream: bool = False):
-            published.append({"role": role, "text": text, "is_stream": is_stream})
-            yield {"event": "message", "data": json.dumps({"role": role, "text": text, "is_stream": is_stream})}
+        while not resume_task.done() or not event_queue.empty():
+            try:
+                role, text, is_stream = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                
+                # Check if text is structured JSON (AgentActivity)
+                data_payload = {"role": role, "text": text, "is_stream": is_stream}
+                if text.startswith("{") and "metadata" in text:
+                    try:
+                        data_payload = json.loads(text)
+                    except Exception:
+                        pass
+                
+                yield f"data: {json.dumps(data_payload)}\n\n"
+            except asyncio.TimeoutError:
+                if resume_task.done():
+                    break
+                continue
+            except Exception as e:
+                yield f"data: {json.dumps({'status': 'error', 'detail': str(e)})}\n\n"
+                break
 
         try:
-            async def _publish(role: str, text: str, is_stream: bool = False):
-                yield {"event": "message", "data": json.dumps({"role": role, "text": text, "is_stream": is_stream})}
-
-            results = await swarm.resume(request)
-            yield {"event": "message", "data": json.dumps({"status": "complete", "results": results})}
+            results = await resume_task
+            yield f"data: {json.dumps({'status': 'complete', 'results': results})}\n\n"
         except WorkflowSuspended as exc:
-            yield {"event": "message", "data": json.dumps({
-                "status": "suspended",
-                "session_id": exc.session_id,
-                "hitl": {"question": exc.question, "options": exc.options, "why": exc.why},
-            })}
+            payload = {
+                'status': 'suspended',
+                'session_id': exc.session_id,
+                'hitl': {'question': exc.question, 'options': exc.options, 'why': exc.why},
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
         except Exception as exc:
-            yield {"event": "message", "data": json.dumps({"status": "error", "detail": str(exc)})}
-
-    async def _sse_stream():
-        async for event in event_stream():
-            data = event.get("data", "")
-            yield f"data: {data}\n\n"
+            yield f"data: {json.dumps({'status': 'error', 'detail': str(exc)})}\n\n"
 
     return EventSourceResponse(
-        _sse_stream(),
+        event_stream(),
         ping=10,
-        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache, no-transform", 
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        },
     )
 
 

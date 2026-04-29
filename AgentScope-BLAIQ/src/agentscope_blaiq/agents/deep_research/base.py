@@ -370,6 +370,11 @@ class BlaiqDeepResearchAgent:
         all_web_citations: list[Citation] = []
 
         # Phase 1: Initial HIVE-MIND recall for context
+        await self._log(json.dumps({
+            "type": "agent_thought",
+            "agent_name": "Researcher",
+            "data": {"message": "Accessing HIVE-MIND enterprise memory for initial context..."}
+        }))
         phase1_findings, phase1_sources, phase1_citations, synthesis = (
             await self._phase1_deep_recall(user_query)
         )
@@ -434,12 +439,14 @@ class BlaiqDeepResearchAgent:
             # Skip if we've already processed this objective (prevent infinite loops)
             objective_key = normalize_objective(current.objective)
             if objective_key in processed_objectives:
-                await self._log(
-                    f"Skipping duplicate task: {current.objective[:50]}...",
-                    kind="status",
-                    visibility="debug",
-                )
                 continue
+            
+            await self._log(json.dumps({
+                "type": "agent_thought",
+                "agent_name": "Researcher",
+                "data": {"message": f"Expanding research branch: {current.objective[:50]}..."}
+            }))
+            
             processed_objectives.add(objective_key)
 
             await self._log(

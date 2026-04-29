@@ -10,9 +10,11 @@ Uses AgentScope's Master-Worker Pattern with:
 """
 import asyncio
 import logging
+import json
 import os
 import uuid
 from contextlib import asynccontextmanager
+from enum import Enum
 from typing import Literal, Optional
 
 from fastapi import FastAPI
@@ -43,6 +45,7 @@ except ImportError:
         host: str = "0.0.0.0"
 
 # BLAIQ Internal
+from agentscope_blaiq.contracts.hitl import WorkflowSuspended
 from agentscope_blaiq.contracts.aaas import MissionPlan, MissionNode, NodeRole
 from agentscope_blaiq.runtime.model_resolver import LiteLLMModelResolver
 from agentscope_blaiq.runtime.config import settings
@@ -108,6 +111,8 @@ class RequirementsChecklist(BaseModel):
 
 class MissionPlanOutput(BaseModel):
     """Schema-validated mission plan produced by the Strategist."""
+    is_direct: bool = Field(default=False, description="Whether this is a direct response (no mission needed)")
+    direct_response: Optional[str] = Field(default=None, description="The content for the direct response if is_direct is True")
     workflow_mode: WorkflowMode = Field(description="How to execute the pipeline")
     artifact_family: ArtifactFamily = Field(description="What type of artifact to produce")
     task_graph: TaskGraph = Field(description="Decomposed task graph with node ordering")
@@ -209,15 +214,18 @@ async def build_mission_plan(
     user_goal = msgs[0].content if msgs else ""
 
     # 2. Instantiate the Master Orchestrator Agent
-    # Minimal system prompt — orchestration logic is handled by structured_model and framework
     agent = ReActAgent(
         name="StrategistMaster",
         model=model,
         sys_prompt=(
-            "You are the BLAIQ Master Orchestrator. "
+            "You are BLAIQ-CORE, a high-performance multi-agentic workspace built by B&B and Davinci AI. "
+            "You are here to help users with their making and branding tasks. "
+            "Always respond as BLAIQ-CORE, a professional orchestrator willing to help. "
             "Analyze the user's goal and produce a structured MissionPlan. "
-            "Always require research before synthesis. "
-            "Enable Oracle escalation when evidence may be ambiguous. "
+            "If the query is a simple conversational question (like 'who are you', 'hello'), "
+            "set is_direct=True, introduce yourself as BLAIQ-CORE, explain your purpose, "
+            "and ask the user what they want to do first. "
+            "Otherwise, always require research before synthesis. "
             "Decompose the task into an ordered list of specialist nodes."
         ),
         memory=InMemoryMemory(),
@@ -242,6 +250,30 @@ async def build_mission_plan(
             structured_model=MissionPlanOutput,
         )
 
+        # 4.1 INTERCEPT HITL SIGNAL:
+        # ReActAgent might return a JSON string if ask_human was called.
+        content = str(plan_response.content)
+        if "hitl_request" in content:
+            try:
+                # Try to parse as JSON to get the structured data
+                # ReActAgent sometimes wraps tool results in its own text
+                json_start = content.find('{"')
+                json_end = content.rfind('"}') + 2
+                if json_start != -1 and json_end != -1:
+                    hitl_data = json.loads(content[json_start:json_end])
+                    if hitl_data.get("metadata", {}).get("kind") == "hitl_request":
+                        logger.info(f"Intercepted structured HITL signal for {session_id}")
+                        raise WorkflowSuspended(
+                            session_id=session_id,
+                            question=hitl_data.get("content", "I need your input to proceed."),
+                            options=hitl_data.get("metadata", {}).get("options", []),
+                            why=hitl_data.get("metadata", {}).get("why_it_matters", "Strategic Planner requires clarification.")
+                        )
+            except WorkflowSuspended:
+                raise
+            except Exception as e:
+                logger.warning(f"Failed to parse HITL signal JSON: {e}")
+
         # Extract the structured plan from metadata
         plan_data = plan_response.metadata
         if not plan_data:
@@ -252,11 +284,30 @@ async def build_mission_plan(
             ), True
             return
 
-        # 5. Convert structured plan to MissionPlan contract
+        # 5. Handle Direct Response (Bypass Swarm)
+        if plan_data.get("is_direct"):
+            response_text = plan_data.get("direct_response") or "Hello! How can I help you today?"
+            
+            # Stream the response text for low latency UI
+            # We split by words to simulate streaming if the LLM already finished
+            words = response_text.split(" ")
+            for i, word in enumerate(words):
+                yield Msg("StrategistMaster", word + (" " if i < len(words)-1 else ""), "assistant"), False
+                await asyncio.sleep(0.01)
+
+            # Finally, emit structured JSON so the SwarmEngine can detect is_direct
+            direct_payload = json.dumps({
+                "is_direct": True,
+                "direct_response": response_text
+            })
+            yield Msg("StrategistMaster", direct_payload, "assistant"), True
+            return
+
+        # 6. Convert structured plan to MissionPlan contract
         mission_plan = _build_mission_contract(plan_data, session_id)
 
         # 6. Evaluate evidence quality (if research already ran)
-        evidence_text = _extract_evidence_from_memory(agent)
+        evidence_text = await _extract_evidence_from_memory(agent)
         should_fire_oracle, oracle_reason = EvidenceEvaluator.evaluate(evidence_text)
 
         if should_fire_oracle:
@@ -275,36 +326,55 @@ async def build_mission_plan(
         # 8. Handoff to SwarmEngine for execution (MsgHub + ServiceProxyAgent pattern)
         logger.info(f"Handoff to SwarmEngine for session {session_id}")
         engine = SwarmEngine()
+        event_queue = asyncio.Queue()
 
-        async def swarm_publisher(role: str, text: str, is_stream: bool = False):
-            """Publish SwarmEngine events back to the streaming client."""
-            if is_stream:
-                return  # Skip streaming chunks for now
-            if text.startswith("Starting"):
-                yield Msg("Engine", f"▶ {role}: {text}", "assistant"), False
-            else:
-                yield Msg("Engine", f"✔ {role}: Completed", "assistant"), False
+        def swarm_publish_sync(role: str, text: str, is_stream: bool = False):
+            """Sync callback to bridge SwarmEngine to the async queue."""
+            event_queue.put_nowait((role, text, is_stream))
 
+        # Run engine in a background task so we can yield from the queue
+        swarm_task = asyncio.create_task(engine.run(
+            goal=user_goal,
+            session_id=session_id,
+            artifact_family=mission_plan.artifact_type,
+            publish=swarm_publish_sync,
+            with_oracle=True,
+            skip_planning=True,  # Prevent recursive planning calls
+        ))
+
+        while not swarm_task.done() or not event_queue.empty():
+            try:
+                # Wait for an event with a timeout to check if the task failed
+                role, text, is_stream = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                
+                # Check for structured metadata or events (JSON)
+                if text.strip().startswith("{"):
+                    try:
+                        # Validate it's JSON before yielding
+                        json.loads(text)
+                        yield Msg(role.replace("_", " ").title(), text, "assistant"), False
+                        continue
+                    except Exception:
+                        pass
+
+                if is_stream:
+                    # Stream raw chunks
+                    yield Msg(role.replace("_", " ").title(), text, "assistant"), False
+                else:
+                    # Final result for a role
+                    yield Msg(role.replace("_", " ").title(), text, "assistant"), False
+            except asyncio.TimeoutError:
+                if swarm_task.done():
+                    break
+                continue
+            except Exception as e:
+                logger.error(f"Error yielding from swarm queue: {e}")
+                break
+
+        # Check for task result/exceptions
         try:
-            results = await engine.run(
-                goal=user_goal,
-                session_id=session_id,
-                artifact_family=mission_plan.artifact_type,
-                publish=lambda role, text, is_stream=False: asyncio.create_task(
-                    _async_yield_from_publisher(swarm_publisher, role, text, is_stream)
-                ),
-                with_oracle=True,
-            )
-
-            # Stream final results
-            for role, output in results.items():
-                if output:
-                    yield Msg(
-                        role.replace("_", " ").title(),
-                        output,
-                        "assistant"
-                    ), False
-
+            results = await swarm_task
+            
             # Final status
             yield Msg(
                 "StrategistMaster",
@@ -314,11 +384,50 @@ async def build_mission_plan(
                 "assistant"
             ), True
 
+        except WorkflowSuspended as exc:
+            logger.info(f"Swarm suspended for HITL (Strategist): {exc.session_id}")
+            
+            # Persist state if not already saved (e.g. if triggered during planning)
+            # This ensures resume_mission can find it.
+            try:
+                from agentscope_blaiq.contracts.hitl import SwarmSuspendedState
+                store = RedisStateStore()
+                # Check if it's already there
+                existing = await store.get_swarm_suspension(exc.session_id)
+                if not existing:
+                    suspension = SwarmSuspendedState(
+                        session_id=exc.session_id,
+                        goal=user_goal,
+                        artifact_family="report", # Default
+                        completed_results={},
+                        resume_from_role="research", # Start from scratch with new info
+                        hitl_question=exc.question,
+                        hitl_options=exc.options,
+                        hitl_why=exc.why,
+                    )
+                    await store.save_swarm_suspension(suspension)
+                    logger.info(f"Saved planning-phase suspension state for {exc.session_id}")
+            except Exception as e:
+                logger.warning(f"Failed to save backup suspension state: {e}")
+
+            # Emit a structured HITL request message for the frontend
+            hitl_payload = json.dumps({
+                "metadata": {
+                    "kind": "hitl_request",
+                    "session_id": exc.session_id,
+                    "requires_input": True,
+                    "options": exc.options,
+                    "why_it_matters": exc.why
+                },
+                "content": exc.question
+            })
+            yield Msg("Oracle", hitl_payload, "assistant"), True
+
         except Exception as e:
             logger.error(f"SwarmEngine execution failed: {e}")
             yield Msg(
                 "StrategistMaster",
-                f"MISSION FAILED: {e}",
+                f"MISSION FAILED: {str(e)}",
                 "assistant"
             ), True
 
@@ -342,9 +451,8 @@ async def build_mission_plan(
 # ─────────────────────────────────────────────
 
 async def _async_yield_from_publisher(publisher, role: str, text: str, is_stream: bool = False):
-    """Bridge between SwarmEngine's publish callback and the async generator yield."""
-    async for msg, is_last in publisher(role, text, is_stream):
-        pass  # Publisher handles yielding internally
+    """OBSOLETE: Replaced by Queue pattern in build_mission_plan."""
+    pass
 
 
 def _build_mission_contract(plan_data: dict, session_id: str) -> MissionPlan:
@@ -394,7 +502,7 @@ def _build_mission_contract(plan_data: dict, session_id: str) -> MissionPlan:
     )
 
 
-def _extract_evidence_from_memory(agent: ReActAgent) -> str:
+async def _extract_evidence_from_memory(agent: ReActAgent) -> str:
     """Extract research evidence from agent memory for quality evaluation."""
     if not hasattr(agent, "memory") or not agent.memory:
         return ""
@@ -402,8 +510,11 @@ def _extract_evidence_from_memory(agent: ReActAgent) -> str:
     # Get recent messages from memory
     try:
         memory_content = agent.memory.get_memory()
+        # AgentScope InMemoryMemory.get_memory() is async — await if needed
+        if asyncio.iscoroutine(memory_content):
+            memory_content = await memory_content
         evidence_parts = []
-        for msg in memory_content:
+        for msg in (memory_content or []):
             content = msg.content if hasattr(msg, "content") else str(msg)
             if any(kw in str(content).lower() for kw in ["evidence", "research", "findings", "data"]):
                 evidence_parts.append(str(content))

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from agentscope.message import Msg
@@ -11,7 +11,7 @@ try:
     from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
     from agentscope_runtime.engine.deployers.adapter.a2a import AgentCardWithRuntimeConfig
 except ImportError:
-    from fastapi import FastAPI as AgentApp
+    from fastapi import FastAPI
     from pydantic import BaseModel
     class AgentRequest(BaseModel):
         input: list
@@ -19,6 +19,22 @@ except ImportError:
         user_id: str
     class AgentCardWithRuntimeConfig(BaseModel):
         host: str = "0.0.0.0"
+    class AgentApp(FastAPI):
+        def __init__(
+            self,
+            *args,
+            app_name: str | None = None,
+            app_description: str | None = None,
+            a2a_config=None,
+            **kwargs,
+        ):
+            del args, a2a_config
+            super().__init__(title=app_name, description=app_description, **kwargs)
+
+        def query(self, *args, **kwargs):
+            def _decorator(fn):
+                return fn
+            return _decorator
 from typing import AsyncGenerator
 import json
 from agentscope_blaiq.runtime.model_resolver import LiteLLMModelResolver
@@ -35,7 +51,8 @@ class VanGogh:
     async def render_artifact(
         self,
         visual_spec: str,
-        brand_dna: str
+        brand_dna: str,
+        metadata: dict | None = None,
     ) -> AsyncGenerator[Msg, None]:
         
         system_prompt = f"""
@@ -99,7 +116,7 @@ You MUST output a valid JSON object:
                 content=json.dumps(data, indent=2),
                 role="assistant",
                 metadata={"kind": "design_spec", "artifact_type": metadata.get("artifact_type"), "detail": data}
-            ), True
+            )
             return # Ensure we never yield twice
         except Exception as e:
             logger.error(f"VanGogh JSON parse failed: {e}")
@@ -109,7 +126,7 @@ You MUST output a valid JSON object:
                 content=content,
                 role="assistant",
                 metadata={"kind": "design_spec", "artifact_type": metadata.get("artifact_type")}
-            ), True
+            )
             return
 
 # Setup logging
@@ -147,14 +164,16 @@ async def render(
     if isinstance(latest_msg, dict):
         latest_msg = Msg(**latest_msg)
         
+    metadata = latest_msg.metadata or {}
     visual_spec = latest_msg.content
-    brand_dna = latest_msg.metadata.get("brand_dna", "")
+    brand_dna = metadata.get("brand_dna", "")
 
     logger.info(f"Rendering design for session {request.session_id}")
 
     async for item in designer.render_artifact(
         visual_spec=visual_spec,
-        brand_dna=brand_dna
+        brand_dna=brand_dna,
+        metadata=metadata,
     ):
         yield item, True
 

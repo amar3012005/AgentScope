@@ -19,7 +19,7 @@ services:
       DEFAULT_TENANT: ${DEFAULT_TENANT:-default}
       DEFAULT_SOURCE_SCOPE: ${DEFAULT_SOURCE_SCOPE:-web}
       DEFAULT_ARTIFACT_TYPE: ${DEFAULT_ARTIFACT_TYPE:-visual_html}
-      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-gemini-2.5-pro}
+      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-nebius/Qwen/Qwen3-32B}
       LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-gemini-2.5-pro}
       LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-gemini-2.5-pro}
       LITELLM_REFORMAT_MODEL: ${LITELLM_REFORMAT_MODEL:-gemini-2.5-pro}
@@ -32,7 +32,7 @@ services:
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
       NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
       MODEL_REASONING_EFFORT: ${MODEL_REASONING_EFFORT:-}
-      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-gemini-2.5-pro}
+      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-nebius/Qwen/Qwen3-32B}
       ROUTING_MODEL: ${ROUTING_MODEL:-gemini-2.5-flash-lite}
       RESEARCH_MODEL: ${RESEARCH_MODEL:-gemini-2.5-pro}
       HITL_MODEL: ${HITL_MODEL:-gemini-2.5-pro}
@@ -132,7 +132,7 @@ services:
       context: ..
       dockerfile: deployment/Dockerfile
     environment:
-      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-gemini-2.5-pro}
+      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-nebius/Qwen/Qwen3-32B}
       REDIS_URL: redis://redis:6379/0
       LITELLM_API_KEY: ${LITELLM_API_KEY:-}
       HIVEMIND_API_KEY: ${HIVEMIND_API_KEY:-}
@@ -373,7 +373,7 @@ services:
       - .env
     environment:
       REDIS_URL: redis://redis:6379/0
-      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-gemini-2.5-pro}
+      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-nebius/Qwen/Qwen3-32B}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LITELLM_API_KEY: ${LITELLM_API_KEY:-}
       DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
