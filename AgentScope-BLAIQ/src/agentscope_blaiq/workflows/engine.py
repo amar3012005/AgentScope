@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from agentscope_blaiq.contracts.artifact import ArtifactSection, TextArtifact, VisualArtifact
 from agentscope_blaiq.contracts.events import StreamEvent
 from agentscope_blaiq.contracts.evidence import EvidencePack, EvidenceFinding, SourceRecord, Citation
-from agentscope_blaiq.agents.clarification import ClarificationPrompt
+from agentscope_blaiq.agents.backup.clarification import ClarificationPrompt
 from agentscope_blaiq.persistence.database import get_session_local
 from agentscope_blaiq.contracts.workflow import (
     AgentType,
@@ -2518,7 +2518,7 @@ class WorkflowEngine:
                 ctx.resume_answers = {"field:response_depth": f"Detailed product summary — cover all {source_count} sources"}
             logger.info("direct_answer: auto-selected depth for %d sources, skipping HITL", source_count)
         if not ctx.resume_answers and source_count > 0:
-            from agentscope_blaiq.agents.clarification import ClarificationPrompt, ClarificationQuestion
+            from agentscope_blaiq.agents.backup.clarification import ClarificationPrompt, ClarificationQuestion
 
             depth_question = ClarificationQuestion(
                 requirement_id="field:response_depth",

@@ -19,15 +19,6 @@ from agentscope_blaiq.contracts.registry import get_registry, HarnessRegistry
 from agentscope_blaiq.contracts.user_agent_registry import UserAgentRegistry
 from agentscope_blaiq.runtime.agent_profile_store import AgentProfileDocumentStore
 from agentscope_blaiq.runtime.model_resolver import LiteLLMModelResolver
-from agentscope_blaiq.agents.clarification import ClarificationAgent
-from agentscope_blaiq.agents.content_director import ContentDirectorAgent
-from agentscope_blaiq.agents.governance import GovernanceAgent
-from agentscope_blaiq.agents.deep_research import BlaiqDeepResearchAgent, FinanceDeepResearchAgent
-from agentscope_blaiq.agents.data_science import DataScienceAgent
-from agentscope_blaiq.agents.graph_stub import GraphKnowledgeAgent
-from agentscope_blaiq.agents.strategic import StrategicAgent
-from agentscope_blaiq.agents.text_buddy import TextBuddyAgent
-from agentscope_blaiq.agents.vangogh import VangoghAgent
 from agentscope_blaiq.agents.remote_proxy import RemoteA2AProxy
 from agentscope_blaiq.runtime.config import settings
 from agentscope_blaiq.runtime.hivemind_mcp import HivemindMCPClient
@@ -52,42 +43,12 @@ class AgentRegistry:
             poll_interval_seconds=settings.hivemind_web_poll_interval_seconds,
             poll_attempts=settings.hivemind_web_poll_attempts,
         )
-        self.strategist = StrategicAgent(resolver=self.resolver, catalog_provider=self.list_live_profiles)
-        self.hitl = ClarificationAgent(resolver=self.resolver)
-        self.deep_research = BlaiqDeepResearchAgent(
-            hivemind=self.hivemind,
-            resolver=self.resolver,
-        )
-        self.research = self.deep_research  # Legacy alias
-        self.finance_research = FinanceDeepResearchAgent(
-            hivemind=self.hivemind,
-            resolver=self.resolver,
-        )
-        self.data_science = DataScienceAgent(
-            hivemind=self.hivemind,
-            resolver=self.resolver,
-        )
-        self.content_director = ContentDirectorAgent(resolver=self.resolver)
-        self.vangogh = VangoghAgent(resolver=self.resolver)
-        self.text_buddy = TextBuddyAgent(resolver=self.resolver)
-        self.governance = GovernanceAgent(resolver=self.resolver)
-        self.graph_knowledge = GraphKnowledgeAgent() if settings.enable_graph_agent else None
+        self.graph_knowledge = None
         self._runtime_state: dict[str, dict[str, object]] = {}
         self.profile_store = AgentProfileDocumentStore(settings.agent_profile_dir)
         self._remote_profiles: dict[str, LiveAgentProfile] = {}
         self._load_persisted_profiles()
-        self._builtin_agent_factories: dict[str, Any] = {
-            "strategist": lambda: self.strategist,
-            "hitl": lambda: self.hitl,
-            "research": lambda: self.research,
-            "deep_research": lambda: self.deep_research,
-            "finance_research": lambda: self.finance_research,
-            "data_science": lambda: self.data_science,
-            "content_director": lambda: self.content_director,
-            "vangogh": lambda: self.vangogh,
-            "text_buddy": lambda: self.text_buddy,
-            "governance": lambda: self.governance,
-        }
+        self._builtin_agent_factories: dict[str, Any] = {}
         self._builtin_agents: dict[str, Any] = {
             key: factory()
             for key, factory in self._builtin_agent_factories.items()
@@ -292,34 +253,50 @@ class AgentRegistry:
                 status=AgentStatus.ready,
                 model=self.resolver.resolve("content_director").model_name,
                 runtime_kind=RuntimeKind.custom_base,
-                capabilities=ContentDirectorAgent.CAPABILITIES,
-                skills=ContentDirectorAgent.SKILLS,
-                tools=ContentDirectorAgent.TOOLS,
-                planner_roles=ContentDirectorAgent.PLANNER_ROLES,
+                capabilities=[
+                    AgentCapability(name="artifact_briefing", description="Produce structured artifact briefs with section plans from requirements and evidence.", supported_task_types=["planning", "briefing"], supported_task_roles=["content_director"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis"]),
+                    AgentCapability(name="section_planning", description="Decompose artifacts into ordered sections with intent, evidence, and visual directives.", supported_task_types=["planning"], supported_task_roles=["content_director"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report"]),
+                ],
+                skills=[
+                    AgentSkill(name="brief_authoring", level="core"),
+                    AgentSkill(name="narrative_structuring", level="core"),
+                ],
+                tools=["generate_brief", "plan_sections"],
+                planner_roles=["content_director"],
             ),
             LiveAgentProfile(
                 name="vangogh",
                 role="visual artifact generation",
-                description="Renders visual artifact structures and previews.",
+                description="Renders visual artifact structures and HTML previews.",
                 status=AgentStatus.ready,
                 model=self.resolver.resolve("vangogh").model_name,
                 runtime_kind=RuntimeKind.custom_base,
-                capabilities=VangoghAgent.CAPABILITIES,
-                skills=VangoghAgent.SKILLS,
-                tools=VangoghAgent.TOOLS,
-                planner_roles=VangoghAgent.PLANNER_ROLES,
+                capabilities=[
+                    AgentCapability(name="visual_rendering", description="Render pitch decks, posters, and visual HTML artifacts from briefs.", supported_task_types=["rendering", "visual"], supported_task_roles=["vangogh"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page"]),
+                ],
+                skills=[
+                    AgentSkill(name="html_rendering", level="core"),
+                    AgentSkill(name="brand_application", level="core"),
+                ],
+                tools=["render_visual_artifact"],
+                planner_roles=["vangogh"],
             ),
             LiveAgentProfile(
                 name="text_buddy",
                 role="brand-voice text composition",
-                description="Writes text artifacts using templates and brand voice.",
+                description="Writes text artifacts using AgentScope skills and brand voice.",
                 status=AgentStatus.ready,
                 model=self.resolver.resolve("text_buddy").model_name,
                 runtime_kind=RuntimeKind.custom_base,
-                capabilities=TextBuddyAgent.CAPABILITIES,
-                skills=TextBuddyAgent.SKILLS,
-                tools=TextBuddyAgent.TOOLS,
-                planner_roles=TextBuddyAgent.PLANNER_ROLES,
+                capabilities=[
+                    AgentCapability(name="text_artifact_generation", description="Write professional text artifacts (emails, posts, memos, proposals) in brand voice.", supported_task_types=["writing", "composition"], supported_task_roles=["text_buddy"], supported_artifact_families=["email", "summary", "social_post", "memo", "proposal", "letter", "invoice", "report"]),
+                ],
+                skills=[
+                    AgentSkill(name="brand_voice_writing", level="core"),
+                    AgentSkill(name="template_synthesis", level="core"),
+                ],
+                tools=["write_text_artifact"],
+                planner_roles=["text_buddy"],
                 notes=["Text counterpart to VanGogh — handles all non-visual artifact output in brand voice."],
             ),
             LiveAgentProfile(

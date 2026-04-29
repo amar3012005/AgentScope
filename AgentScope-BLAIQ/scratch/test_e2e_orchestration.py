@@ -3,7 +3,7 @@ import asyncio
 import json
 import logging
 from agentscope.message import Msg
-from agentscope_blaiq.agents.strategic.agent import StrategicAgent
+from agentscope_blaiq.agents.backup.strategic.agent import StrategicAgent
 
 logging.basicConfig(level=logging.INFO)
 

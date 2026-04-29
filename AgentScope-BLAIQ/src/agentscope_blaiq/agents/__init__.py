@@ -45,8 +45,8 @@ if TYPE_CHECKING:  # pragma: no cover - import-only typing aid
     from agentscope_blaiq.agents.strategic import StrategicAgent
     from agentscope_blaiq.agents.text_buddy import TextBuddyAgent
     from agentscope_blaiq.agents.vangogh import VangoghAgent
-    from agentscope_blaiq.agents.deep_research import BlaiqDeepResearchAgent, FinanceDeepResearchAgent
-    from agentscope_blaiq.agents.clarification import ClarificationAgent
+    from agentscope_blaiq.agents.backup.deep_research import BlaiqDeepResearchAgent, FinanceDeepResearchAgent
+    from agentscope_blaiq.agents.backup.clarification import ClarificationAgent
 
 
 def __getattr__(name: str) -> Any:

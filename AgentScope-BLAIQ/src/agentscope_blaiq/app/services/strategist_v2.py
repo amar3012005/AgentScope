@@ -11,6 +11,7 @@ Uses AgentScope's Master-Worker Pattern with:
 import asyncio
 import logging
 import json
+import re
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -57,6 +58,43 @@ from agentscope_blaiq.tools.enterprise_fleet import get_enterprise_toolkit, get_
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("strategist-v2")
+
+_DIRECT_GREETING_PATTERN = re.compile(
+    r"^\s*(hi|hello|hey|yo|good\s+(morning|afternoon|evening)|who\s+are\s+you)\s*[!.?]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def _stringify_agent_event_content(content: object) -> str:
+    """Normalize AgentScope message content into a user-visible string."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                text = (
+                    block.get("text")
+                    or block.get("thinking")
+                    or block.get("output")
+                    or block.get("name")
+                )
+                if text:
+                    parts.append(str(text))
+                continue
+            text = (
+                getattr(block, "text", None)
+                or getattr(block, "thinking", None)
+                or getattr(block, "output", None)
+            )
+            if text:
+                parts.append(str(text))
+        return "\n".join(part for part in parts if part).strip()
+    return str(content)
+
+
+def _is_direct_greeting(user_goal: str) -> bool:
+    return bool(_DIRECT_GREETING_PATTERN.match(user_goal or ""))
 
 # Register global pre-flight hook for all ReActAgents in the cluster
 ReActAgent.register_class_hook(
@@ -187,6 +225,42 @@ app = AgentApp(
 # Master Orchestrator Query Handler
 # ─────────────────────────────────────────────
 
+_PLANNING_SYSTEM_PROMPT = """\
+You are BLAIQ-CORE, the high-level Mission Architect for an enterprise AI swarm.
+
+Your ONLY job: analyse the user goal and output a JSON MissionPlan. NEVER write the artifact itself.
+
+OUTPUT FORMAT — respond with ONLY valid JSON matching this schema exactly:
+{
+  "is_direct": false,
+  "direct_response": null,
+  "workflow_mode": "sequential",
+  "artifact_family": "text",
+  "task_graph": {
+    "mode": "sequential",
+    "artifact_family": "text",
+    "required_nodes": ["research", "text_buddy", "governance"],
+    "hitl_gates": []
+  },
+  "requirements_checklist": {
+    "research_required": true,
+    "evidence_threshold": "sufficient",
+    "oracle_on_ambiguous": true
+  },
+  "success_criteria": ["Artifact produced", "Brand-aligned"],
+  "notes": []
+}
+
+Rules:
+- artifact_family: "text" | "visual" | "code" | "report"
+- required_nodes: ordered list from ["research","text_buddy","content_director","vangogh","governance","oracle"]
+- For emails/summaries/posts: ["research","text_buddy","governance"]
+- For pitch decks/landing pages/visuals: ["research","content_director","vangogh","governance"]
+- If user says hello/who are you: set is_direct=true, direct_response="brief greeting", required_nodes=[]
+- Output ONLY JSON. No markdown. No explanation.
+"""
+
+
 @app.query(framework="agentscope")
 async def build_mission_plan(
     self,
@@ -195,200 +269,147 @@ async def build_mission_plan(
     **kwargs,
 ):
     """
-    Master Orchestrator Query Handler.
-
-    1. Produces a schema-validated MissionPlan via structured_model
-    2. Evaluates evidence quality for Oracle escalation
-    3. Hands off execution to WorkflowEngineV2
-    4. Streams events back to the client
+    Master Orchestrator — streams planning tokens in real-time via resolver.acompletion(stream=True).
+    Removes ReActAgent+structured_model silent 49s gap. Events flow immediately.
     """
     session_id = request.session_id
-    user_id = request.user_id or "default_user"
-
-    # 1. Setup model
     resolver = LiteLLMModelResolver.from_settings(settings)
-    model = resolver.build_agentscope_model("strategic")
 
-    # Cast messages to Msg objects
     msgs = [Msg(**m) if isinstance(m, dict) else m for m in msgs]
-    user_goal = msgs[0].content if msgs else ""
+    user_goal = msgs[0].get_text_content() if msgs else ""
 
-    # 2. Instantiate the Master Orchestrator Agent
-    agent = ReActAgent(
-        name="StrategistMaster",
-        model=model,
-        sys_prompt=(
-            "You are BLAIQ-CORE, a high-performance multi-agentic workspace built by B&B and Davinci AI. "
-            "You are here to help users with their making and branding tasks. "
-            "Always respond as BLAIQ-CORE, a professional orchestrator willing to help. "
-            "Analyze the user's goal and produce a structured MissionPlan. "
-            "If the query is a simple conversational question (like 'who are you', 'hello'), "
-            "set is_direct=True, introduce yourself as BLAIQ-CORE, explain your purpose, "
-            "and ask the user what they want to do first. "
-            "Otherwise, always require research before synthesis. "
-            "Decompose the task into an ordered list of specialist nodes."
-        ),
-        memory=InMemoryMemory(),
-        formatter=OpenAIChatFormatter(),
-        toolkit=get_strategist_toolkit(),
-    )
+    # ── 1. Immediate start signal ──────────────────────────────────────────
+    yield Msg("StrategistMaster", json.dumps({
+        "type": "agent_started",
+        "agent_name": "Strategist",
+        "phase": "planning",
+        "data": {"message": "BLAIQ-CORE is architecting the mission..."}
+    }), "assistant"), False
 
-    # 3. Load session state from Redis
-    await app.state.session.load_session_state(
-        session_id=session_id,
-        user_id=user_id,
-        agent=agent,
-    )
+    # ── 2. Greeting fast path (instant, no LLM call) ───────────────────────
+    if _is_direct_greeting(user_goal):
+        direct_response = "Hello! I'm BLAIQ-CORE, your Mission Architect. How can I help?"
+        for word in direct_response.split():
+            yield Msg("StrategistMaster", json.dumps({
+                "type": "workflow_event",
+                "agent_name": "Strategist",
+                "phase": "planning",
+                "data": {"content": word + " ", "streaming": True}
+            }), "assistant"), False
+        yield Msg("StrategistMaster", json.dumps({
+            "type": "agent_completed",
+            "agent_name": "Strategist",
+            "data": {"is_direct": True, "direct_response": direct_response}
+        }), "assistant"), True
+        return
 
-    # Set session context for tool calls
-    token = active_session_id.set(session_id)
+    # ── 3. Stream planning LLM call — real-time token emission ────────────
+    messages = [
+        {"role": "system", "content": _PLANNING_SYSTEM_PROMPT},
+        {"role": "user", "content": user_goal},
+    ]
 
+    accumulated = ""
     try:
-        # 4. Produce structured MissionPlan
-        plan_response = await agent(
-            Msg("user", user_goal, "user"),
-            structured_model=MissionPlanOutput,
-        )
+        response = await resolver.acompletion("strategic", messages, stream=True)
+        async for chunk in response:
+            delta = chunk.choices[0].delta
+            token = getattr(delta, "content", "") or ""
+            if token:
+                accumulated += token
+                yield Msg("StrategistMaster", json.dumps({
+                    "type": "workflow_event",
+                    "agent_name": "Strategist",
+                    "phase": "planning",
+                    "data": {"content": token, "streaming": True, "is_reflection": True}
+                }), "assistant"), False
+    except Exception as e:
+        logger.error(f"Planning LLM call failed: {e}")
+        yield Msg("StrategistMaster", f"ERROR: Planning failed: {e}", "assistant"), True
+        return
 
-        # 4.1 INTERCEPT HITL SIGNAL:
-        # ReActAgent might return a JSON string if ask_human was called.
-        content = str(plan_response.content)
-        if "hitl_request" in content:
-            try:
-                # Try to parse as JSON to get the structured data
-                # ReActAgent sometimes wraps tool results in its own text
-                json_start = content.find('{"')
-                json_end = content.rfind('"}') + 2
-                if json_start != -1 and json_end != -1:
-                    hitl_data = json.loads(content[json_start:json_end])
-                    if hitl_data.get("metadata", {}).get("kind") == "hitl_request":
-                        logger.info(f"Intercepted structured HITL signal for {session_id}")
-                        raise WorkflowSuspended(
-                            session_id=session_id,
-                            question=hitl_data.get("content", "I need your input to proceed."),
-                            options=hitl_data.get("metadata", {}).get("options", []),
-                            why=hitl_data.get("metadata", {}).get("why_it_matters", "Strategic Planner requires clarification.")
-                        )
-            except WorkflowSuspended:
-                raise
-            except Exception as e:
-                logger.warning(f"Failed to parse HITL signal JSON: {e}")
+    # ── 4. Parse plan from streamed response ──────────────────────────────
+    try:
+        plan_data = resolver.safe_json_loads(accumulated)
+    except Exception:
+        plan_data = None
 
-        # Extract the structured plan from metadata
-        plan_data = plan_response.metadata
-        if not plan_data:
-            yield Msg(
-                "StrategistMaster",
-                "ERROR: Failed to produce a structured mission plan.",
-                "assistant"
-            ), True
-            return
+    if not plan_data:
+        yield Msg("StrategistMaster", "ERROR: Failed to parse mission plan from LLM response.", "assistant"), True
+        return
 
-        # 5. Handle Direct Response (Bypass Swarm)
-        if plan_data.get("is_direct"):
-            response_text = plan_data.get("direct_response") or "Hello! How can I help you today?"
-            
-            # Stream the response text for low latency UI
-            # We split by words to simulate streaming if the LLM already finished
-            words = response_text.split(" ")
-            for i, word in enumerate(words):
-                yield Msg("StrategistMaster", word + (" " if i < len(words)-1 else ""), "assistant"), False
-                await asyncio.sleep(0.01)
+    # ── 5. Direct response: stream word-by-word then signal completion ─────
+    if plan_data.get("is_direct"):
+        response_text = plan_data.get("direct_response") or "How can I help you today?"
+        for word in response_text.split():
+            yield Msg("StrategistMaster", json.dumps({
+                "type": "workflow_event",
+                "agent_name": "Strategist",
+                "phase": "planning",
+                "data": {"content": word + " ", "streaming": True}
+            }), "assistant"), False
+        yield Msg("StrategistMaster", json.dumps({
+            "type": "agent_completed",
+            "agent_name": "Strategist",
+            "data": {"is_direct": True, "direct_response": response_text}
+        }), "assistant"), True
+        return
 
-            # Finally, emit structured JSON so the SwarmEngine can detect is_direct
-            direct_payload = json.dumps({
-                "is_direct": True,
-                "direct_response": response_text
-            })
-            yield Msg("StrategistMaster", direct_payload, "assistant"), True
-            return
+    # ── 6. Build MissionPlan contract and emit planning_complete ──────────
+    mission_plan = _build_mission_contract(plan_data, session_id)
 
-        # 6. Convert structured plan to MissionPlan contract
-        mission_plan = _build_mission_contract(plan_data, session_id)
-
-        # 6.1 Emit planning_complete event for the UI to update steps
-        planning_complete_payload = json.dumps({
-            "type": "planning_complete",
-            "data": {
-                "plan": {
-                    "title": mission_plan.title,
-                    "artifact_type": mission_plan.artifact_type,
-                    "tasks": [
-                        {
-                            "id": node.node_id,
-                            "label": node.role.value.replace("_", " ").title(),
-                            "status": "pending"
-                        } for node in mission_plan.topology
-                    ]
-                }
+    yield Msg("StrategistMaster", json.dumps({
+        "type": "planning_complete",
+        "data": {
+            "plan": {
+                "title": mission_plan.title,
+                "artifact_type": mission_plan.artifact_type,
+                "tasks": [
+                    {"id": node.node_id, "label": node.role.value.replace("_", " ").title(), "status": "pending"}
+                    for node in mission_plan.topology
+                ]
             }
-        })
-        yield Msg("StrategistMaster", planning_complete_payload, "assistant"), False
+        }
+    }), "assistant"), False
 
-        # 6. Evaluate evidence quality (if research already ran)
-        evidence_text = await _extract_evidence_from_memory(agent)
-        should_fire_oracle, oracle_reason = EvidenceEvaluator.evaluate(evidence_text)
+    # ── 7. Handoff to SwarmEngine ─────────────────────────────────────────
+    logger.info(f"Handoff to SwarmEngine for session {session_id}")
+    engine = SwarmEngine()
+    event_queue = asyncio.Queue()
 
-        if should_fire_oracle:
-            logger.info(f"Oracle escalation triggered: {oracle_reason}")
-            # Inject Oracle node into the task graph
-            _inject_oracle_node(mission_plan, oracle_reason)
+    def swarm_publish_sync(role: str, text: str, is_stream: bool = False):
+        event_queue.put_nowait((role, text, is_stream))
 
-        # 7. Stream the plan back to the client
-        yield Msg(
-            "StrategistMaster",
-            f"Mission plan created: {mission_plan.title} "
-            f"(Nodes: {[n.role.value for n in mission_plan.topology]})",
-            "assistant"
-        ), False
+    # Run engine in a background task so we can yield from the queue
+    swarm_task = asyncio.create_task(engine.run(
+        goal=user_goal,
+        session_id=session_id,
+        artifact_family=mission_plan.artifact_type,
+        publish=swarm_publish_sync,
+        with_oracle=True,
+        skip_planning=True,
+    ))
 
-        # 8. Handoff to SwarmEngine for execution (MsgHub + ServiceProxyAgent pattern)
-        logger.info(f"Handoff to SwarmEngine for session {session_id}")
-        engine = SwarmEngine()
-        event_queue = asyncio.Queue()
+    while not swarm_task.done() or not event_queue.empty():
+        try:
+            role, text, is_stream = await asyncio.wait_for(event_queue.get(), timeout=0.1)
 
-        def swarm_publish_sync(role: str, text: str, is_stream: bool = False):
-            """Sync callback to bridge SwarmEngine to the async queue."""
-            event_queue.put_nowait((role, text, is_stream))
-
-        # Run engine in a background task so we can yield from the queue
-        swarm_task = asyncio.create_task(engine.run(
-            goal=user_goal,
-            session_id=session_id,
-            artifact_family=mission_plan.artifact_type,
-            publish=swarm_publish_sync,
-            with_oracle=True,
-            skip_planning=True,  # Prevent recursive planning calls
-        ))
-
-        while not swarm_task.done() or not event_queue.empty():
-            try:
-                # Wait for an event with a timeout to check if the task failed
-                role, text, is_stream = await asyncio.wait_for(event_queue.get(), timeout=0.1)
-                
-                # Check for structured metadata or events (JSON)
-                if text.strip().startswith("{"):
-                    try:
-                        # Validate it's JSON before yielding
-                        json.loads(text)
-                        yield Msg(role.replace("_", " ").title(), text, "assistant"), False
-                        continue
-                    except Exception:
-                        pass
-
-                if is_stream:
-                    # Stream raw chunks
+            if text.strip().startswith("{"):
+                try:
+                    json.loads(text)
                     yield Msg(role.replace("_", " ").title(), text, "assistant"), False
-                else:
-                    # Final result for a role
-                    yield Msg(role.replace("_", " ").title(), text, "assistant"), False
-            except asyncio.TimeoutError:
-                if swarm_task.done():
-                    break
-                continue
-            except Exception as e:
-                logger.error(f"Error yielding from swarm queue: {e}")
+                    continue
+                except Exception:
+                    pass
+
+            yield Msg(role.replace("_", " ").title(), text, "assistant"), is_stream
+        except asyncio.TimeoutError:
+            if swarm_task.done():
                 break
+            continue
+        except Exception as e:
+            logger.error(f"Error yielding from swarm queue: {e}")
+            break
 
         # Check for task result/exceptions
         try:
@@ -449,20 +470,6 @@ async def build_mission_plan(
                 f"MISSION FAILED: {str(e)}",
                 "assistant"
             ), True
-
-    except asyncio.CancelledError:
-        logger.warning(f"Strategist session {session_id} was interrupted by user.")
-        await agent.interrupt()
-        raise
-
-    finally:
-        # Save session state back to Redis
-        await app.state.session.save_session_state(
-            session_id=session_id,
-            user_id=user_id,
-            agent=agent,
-        )
-        active_session_id.reset(token)
 
 
 # ─────────────────────────────────────────────

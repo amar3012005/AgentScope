@@ -52,3 +52,28 @@ def pre_flight_variable_check_hook(
         msg.metadata["missing_data"] = missing
         
     return kwargs
+
+def tool_chunk_forwarding_hook(
+    self: Any,
+    kwargs: Dict[str, Any],
+    output: Any
+) -> Any:
+    """
+    POST-ACTING Hook.
+    Forwards chunks or final output from a tool call to the agent's internal state
+    or a logging system for real-time visibility.
+    """
+    logger.debug(f"[HOOK] {self.name} completed tool-call with output: {str(output)[:100]}...")
+    return output
+
+def agent_thought_forwarding_hook(
+    self: Any,
+    kwargs: Dict[str, Any],
+    output: Any
+) -> Any:
+    """
+    POST-REASONING Hook.
+    Captures the agent's 'thought' or 'reasoning' step for real-time streaming.
+    """
+    logger.debug(f"[HOOK] {self.name} reflection: {str(output)[:100]}...")
+    return output

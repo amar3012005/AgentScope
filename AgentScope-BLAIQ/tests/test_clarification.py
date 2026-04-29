@@ -1,6 +1,6 @@
 import pytest
 
-from agentscope_blaiq.agents.clarification import ClarificationAgent
+from agentscope_blaiq.agents.backup.clarification import ClarificationAgent
 from agentscope_blaiq.contracts.evidence import EvidenceFinding, EvidencePack, SourceRecord
 from agentscope_blaiq.contracts.workflow import ArtifactFamily, RequirementItem, RequirementStage, RequirementsChecklist
 

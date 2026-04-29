@@ -79,10 +79,22 @@ class BranchRedisState(BaseModel):
 
 
 class RedisStateStore:
-    def __init__(self) -> None:
-        self.client = Redis.from_url(settings.redis_url, decode_responses=True) if Redis is not None else None
+    def __init__(self, client: Redis | None = None) -> None:
+        self.client = client
         self._memory_workflows: dict[str, str] = {}
         self._memory_branches: dict[str, str] = {}
+
+    @classmethod
+    async def create(cls) -> RedisStateStore:
+        if Redis is None:
+            return cls()
+        client = Redis.from_url(settings.redis_url, decode_responses=True)
+        return cls(client=client)
+
+    async def close(self) -> None:
+        if self.client:
+            await self.client.aclose()
+            self.client = None
 
     def workflow_key(self, thread_id: str) -> str:
         return f"agentscope-blaiq:workflow:{thread_id}"

@@ -1,1 +1,0 @@
-"""Content Director prompt assets."""

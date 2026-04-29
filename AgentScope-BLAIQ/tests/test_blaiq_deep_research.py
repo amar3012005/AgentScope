@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agentscope_blaiq.agents.deep_research.base import (
+from agentscope_blaiq.agents.backup.deep_research.base import (
     BlaiqDeepResearchAgent,
     _finding_dedup_key,
     _is_usable_finding,

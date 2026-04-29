@@ -32,7 +32,7 @@ class GovernanceAgent:
     Ensures safety, brand alignment, and structural integrity of the final artifact.
     """
     def __init__(self, resolver: LiteLLMModelResolver, blueprint_dir: str):
-        self.model = resolver.build_agentscope_model("governance")
+        self.resolver = resolver
         self.blueprint_dir = blueprint_dir
 
     async def review_artifact(
@@ -71,45 +71,27 @@ You are the BLAIQ Task Success Agent. Your mission is to confirm mission complet
 {brand_context}
 """
         messages = [
-            {"name": "system", "content": system_prompt, "role": "system"},
-            {"name": "user", "content": f"The mission artifact has been generated:\n\n{artifact_content}\n\nPlease certify success and greet the user.", "role": "user"}
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"The mission artifact has been generated:\n\n{artifact_content}\n\nPlease certify success and greet the user."}
         ]
         
-        response = await self.model(messages)
-        
-        # Bulletproof extraction
-        content = ""
-        if isinstance(response, dict):
-            content = response.get("text") or response.get("content") or str(response)
-        else:
-            content = getattr(response, "text", None) or getattr(response, "content", str(response))
-        
-        if isinstance(content, list):
-            try:
-                parts = []
-                for c in content:
-                    text_part = ""
-                    if isinstance(c, dict):
-                        text_part = c.get("text") or c.get("content", "")
-                    else:
-                        text_part = str(c)
-                    
-                    if text_part and text_part not in parts:
-                        parts.append(text_part)
-                # Use double newline to prevent clumping
-                content = "\n\n".join(parts)
-            except Exception:
-                content = str(content)
-        elif not isinstance(content, str):
-            content = str(content)
-            
-        clean_content = content.strip()
+        response = await self.resolver.acompletion("governance", messages, stream=True)
+
+        full_content = ""
+        async for chunk in response:
+            delta = chunk.choices[0].delta
+            text = getattr(delta, "content", "") or ""
+            if text:
+                full_content += text
+                yield Msg(name="GovernanceAgent", content=text, role="assistant", metadata={"is_stream": True})
+
+        clean_content = full_content.strip()
         
         yield Msg(
             name="GovernanceAgent",
             content=clean_content,
             role="assistant",
-            metadata={"kind": "governance_review"}
+            metadata={"kind": "governance_review", "is_stream": False}
         )
 
 # Setup logging
@@ -160,4 +142,4 @@ async def process(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8092)
+    uvicorn.run(app, host="0.0.0.0", port=8094)

@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from pathlib import Path
 from typing import AsyncGenerator
 
 # AgentScope Core
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
+
+# FastAPI Middleware
+from fastapi.middleware.cors import CORSMiddleware
 
 # AgentScope Runtime (AaaS)
 try:
@@ -52,7 +55,7 @@ class TextBuddy:
     Synthesizes text artifacts using AgentScope Skills.
     """
     def __init__(self, resolver: LiteLLMModelResolver):
-        self.model = resolver.build_agentscope_model("text_buddy")
+        self.resolver = resolver
 
     async def generate_artifact(
         self,
@@ -95,51 +98,28 @@ FEEDBACK (IF ANY):
 MISSION: Generate a professional {artifact_type} based on the user request.
 """
         messages = [
-            {"name": "system", "content": system_prompt, "role": "system"},
-            {"name": "user", "content": request_text, "role": "user"}
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": request_text}
         ]
 
-        response = await self.model(messages)
-        
-        # Bulletproof extraction to prevent double-dipping
-        content = ""
-        if isinstance(response, dict):
-            content = response.get("text") or response.get("content") or str(response)
-        else:
-            # Prefer 'text' then 'content'
-            content = getattr(response, "text", None)
-            if not content:
-                content = getattr(response, "content", str(response))
-        
-        # If it's a list, it might be a list of Message blocks or fragments
-        if isinstance(content, list):
-            try:
-                # Only join unique text fragments if they are multi-part messages
-                # or just take the first if it looks like a choice list
-                parts = []
-                for c in content:
-                    text_part = ""
-                    if isinstance(c, dict):
-                        text_part = c.get("text") or c.get("content", "")
-                    else:
-                        text_part = str(c)
-                    
-                    if text_part and text_part not in parts:
-                        parts.append(text_part)
-                content = " ".join(parts)
-            except Exception:
-                content = str(content)
-        elif not isinstance(content, str):
-            content = str(content)
-            
+        response = await self.resolver.acompletion("text_buddy", messages, stream=True)
+
+        full_content = ""
+        async for chunk in response:
+            delta = chunk.choices[0].delta
+            text = getattr(delta, "content", "") or ""
+            if text:
+                full_content += text
+                yield Msg(name="TextBuddy", content=text, role="assistant", metadata={"is_stream": True})
+
         # Strip markdown json block if model decided to wrap it
-        clean_content = content.strip()
+        clean_content = full_content.strip()
         
         yield Msg(
             name="TextBuddy",
             content=clean_content,
             role="assistant",
-            metadata={"kind": "text_artifact", "artifact_type": artifact_type}
+            metadata={"kind": "text_artifact", "artifact_type": artifact_type, "is_stream": False}
         )
 
 # Setup logging
@@ -159,6 +139,36 @@ app = AgentApp(
     lifespan=lifespan,
     a2a_config=AgentCardWithRuntimeConfig(host="0.0.0.0")
 )
+
+# Fix 403 Forbidden for WebSockets/AaaS by allowing origins
+_allowed_origins = [
+    origin.strip()
+    for origin in settings.allowed_origins.split(",")
+    if origin.strip()
+] or ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=len(_allowed_origins) > 0 and _allowed_origins != ["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class _SuppressWSProbeFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not ("WebSocket /" in msg or "connection open" == msg.strip() or "connection closed" == msg.strip())
+
+for _log_name in ("uvicorn.access", "uvicorn.error"):
+    logging.getLogger(_log_name).addFilter(_SuppressWSProbeFilter())
+
+
+@app.websocket("/")
+async def ws_health(websocket: WebSocket) -> None:
+    await websocket.accept()
+    await websocket.close()
+
 
 @app.query(framework="agentscope")
 async def write_artifact(
@@ -197,4 +207,4 @@ async def write_artifact(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8092)
+    uvicorn.run(app, host="0.0.0.0", port=8093)

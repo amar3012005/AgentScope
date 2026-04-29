@@ -243,7 +243,7 @@ class LiteLLMModelResolver:
             fallback_model=resolved.fallback_model,
         )
 
-    def build_agentscope_model(self, role: str) -> OpenAIChatModel:
+    def build_agentscope_model(self, role: str, *, stream: bool = False) -> OpenAIChatModel:
         if OpenAIChatModel is None:  # pragma: no cover
             raise RuntimeError("agentscope is required to construct runtime models")
 
@@ -256,7 +256,7 @@ class LiteLLMModelResolver:
         return OpenAIChatModel(
             model_name=model_name,
             api_key=resolved.api_key,
-            stream=False,
+            stream=stream,
             reasoning_effort=resolved.reasoning_effort,  # type: ignore[arg-type]
             client_kwargs=client_kwargs or None,
             generate_kwargs={

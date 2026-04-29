@@ -347,53 +347,59 @@ class SwarmEngine:
             try:
                 if publish:
                     await self._safe_publish(publish, "Strategist", json.dumps({
-                        "type": "agent_thought",
+                        "type": "agent_started",
                         "agent_name": "Strategist",
+                        "phase": "strategic_alignment",
                         "data": {"message": "Deconstructing mission requirements and architecting the swarm path..."}
                     }))
                 
-                # Call strategist service with chunk-based streaming callback
+                # Forward ALL events from the strategist service — JSON structured events
+                # (agent_started/thought/completed for each sub-agent) AND raw text chunks.
+                # Previously this dropped JSON events, causing the frontend to never see
+                # sub-agent cards and the strategist to appear to "do everything."
                 async def on_strategist_chunk(chunk: str):
-                    if publish:
-                        # Only stream if it's not a JSON block (to avoid UI flicker)
-                        if not chunk.strip().startswith("{"):
-                            await self._safe_publish(publish, "Strategist", chunk, is_stream=True)
+                    if not publish:
+                        return
+                    stripped = chunk.strip()
+                    if stripped.startswith("{") and stripped.endswith("}"):
+                        # Structured event from strategist (planning_complete, agent_started, etc.)
+                        # Forward as-is so publish_callback can route it to the correct event type.
+                        await self._safe_publish(publish, "Strategist", stripped)
+                    elif stripped:
+                        await self._safe_publish(publish, "Strategist", chunk, is_stream=True)
 
                 plan_raw = await self.fleet.architect_mission(goal, session_id, on_chunk=on_strategist_chunk)
-                logger.info(f"Strategist assessment received. Length: {len(plan_raw)}")
-                
-                # Robust JSON extraction for is_direct
-                if "is_direct" in plan_raw:
-                    try:
-                        # Extract JSON block if it's buried in text
-                        # Use findall to handle multiple JSON blocks if they exist
-                        matches = re.findall(r'\{[^{}]*"is_direct":\s*(true|True)[^{}]*\}', plan_raw, re.DOTALL | re.IGNORECASE)
-                        
-                        # Fallback to a more broad search if the specific one fails
-                        if not matches:
-                            matches = re.findall(r'\{[^{}]*\}', plan_raw, re.DOTALL)
+                logger.info(f"Strategist service response received. Length: {len(plan_raw)}")
 
-                        for m in matches:
-                            try:
-                                # Re-construct the full block if findall only got the group
-                                full_match = m if m.startswith("{") else next(match.group(0) for match in re.finditer(r'\{[^{}]*"is_direct":\s*(true|True)[^{}]*\}', plan_raw, re.DOTALL | re.IGNORECASE))
-                                plan_data = json.loads(full_match)
-                                if plan_data.get("is_direct"):
-                                    direct_answer = plan_data.get("direct_response") or "I am BLAIQ-CORE, your enterprise swarm intelligence."
-                                    logger.info(f"Direct response detected from strategist: {direct_answer[:50]}...")
-                                    if publish:
-                                        await self._safe_publish(publish, "Strategist", direct_answer)
-                                    return {"Strategist": direct_answer}
-                            except Exception:
-                                continue
-                        
-                        logger.info("Found 'is_direct' keyword but no matching JSON block with is_direct=True.")
-                    except Exception as e:
-                        logger.warning(f"Failed to parse direct response JSON: {e}")
-                else:
-                    logger.info("No 'is_direct' keyword found in strategist response.")
+                # Parse is_direct signal from the concatenated output.
+                blocks = re.findall(r'\{[^{}]*\}', plan_raw, re.DOTALL)
+                for block in reversed(blocks):
+                    try:
+                        plan_data = json.loads(block)
+                        if "is_direct" in plan_data:
+                            if plan_data.get("is_direct"):
+                                direct_answer = plan_data.get("direct_response") or "I am BLAIQ-CORE, your enterprise swarm intelligence."
+                                logger.info("Direct response from strategist, returning early.")
+                                if publish:
+                                    await self._safe_publish(publish, "Strategist", json.dumps({
+                                        "type": "agent_completed",
+                                        "agent_name": "Strategist",
+                                        "data": {"content": direct_answer, "is_direct": True}
+                                    }))
+                                    await self._safe_publish(publish, "Strategist", direct_answer)
+                                return {"Strategist": direct_answer}
+                            break
+                    except Exception:
+                        continue
+
+                # The strategist service already orchestrated the full workflow internally
+                # (research → text_buddy/content_director → governance). All agent events
+                # were forwarded via on_strategist_chunk above. Return without double-executing.
+                logger.info("Strategist service completed full orchestration — skipping hardcoded sequence.")
+                return {"workflow": "delegated_to_strategist", "raw": plan_raw}
+
             except Exception as e:
-                logger.warning(f"Strategist fast-track assessment failed: {e}")
+                logger.warning(f"Strategist fast-track assessment failed: {e}. Falling back to hardcoded sequence.")
 
         base_sequence = self._choose_sequence(artifact_family)
 
@@ -432,7 +438,7 @@ class SwarmEngine:
                     "type": "agent_started",
                     "agent_name": role,
                     "phase": role,
-                    "data": {"message": f"Starting {role.replace('_', ' ').title()}..."}
+                    "data": {"message": f"Orchestrating {role.replace('_', ' ').title()} specialist..."}
                 }))
 
                 evidence = results.get("research", "")
@@ -469,7 +475,20 @@ class SwarmEngine:
                 )
 
                 async def on_chunk(chunk: str, _role: str = role):
-                    await self._safe_publish(publish, _role, chunk, is_stream=True)
+                    # Robust chunk handling: check if it contains a tool call indicator
+                    # We detect standard AgentScope tool call formats and thought blocks
+                    if "Executing tool:" in chunk or "Thought:" in chunk or "Reflection:" in chunk or "Call tool" in chunk:
+                         await self._safe_publish(publish, _role, json.dumps({
+                            "type": "agent_thought",
+                            "agent_name": _role,
+                            "data": {
+                                "message": chunk.strip(),
+                                "is_tool_call": "tool" in chunk.lower()
+                            }
+                        }))
+                    else:
+                        # Standard stream chunk
+                        await self._safe_publish(publish, _role, chunk, is_stream=True)
 
                 reply = await proxy(active_msg, on_chunk=on_chunk)
                 reply_text = _extract(reply)

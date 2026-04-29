@@ -162,4 +162,4 @@ async def orchestrate(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8092)
+    uvicorn.run(app, host="0.0.0.0", port=8095)

@@ -12,25 +12,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agentscope_blaiq.contracts.events import StreamEvent
 from agentscope_blaiq.contracts.workflow import SubmitWorkflowRequest, WorkflowStatus
 from agentscope_blaiq.workflows.swarm_engine import SwarmEngine
+from agentscope_blaiq.persistence.redis_state import RedisStateStore
 from agentscope_blaiq.persistence.repositories import WorkflowRepository
 
 logger = logging.getLogger("agentscope_blaiq.swarm_workflow_engine")
 
 class SwarmWorkflowEngine:
-    """
-    Bridge between BLAIQ's Gateway (main.py) and the AgentScope Swarm Architecture.
-    
-    This class implements the same 'run' and 'resume' interface as the legacy WorkflowEngine
-    but delegates the actual execution to SwarmEngine.
-    """
-
     def __init__(self, registry: Any = None) -> None:
         self.registry = registry
         self.swarm = SwarmEngine()
-        # Stub for state store compatibility
-        from agentscope_blaiq.persistence.redis_state import RedisStateStore
-        from agentscope_blaiq.runtime.config import settings
-        self.state_store = RedisStateStore()
+        self._state_store: RedisStateStore | None = None
+        # Active session guard: prevents duplicate parallel executions for the same session
+        self._active_sessions: set[str] = set()
+
+    @property
+    def state_store(self) -> RedisStateStore:
+        if self._state_store is None:
+            self._state_store = RedisStateStore()
+        return self._state_store
+
+    @state_store.setter
+    def state_store(self, value: RedisStateStore):
+        self._state_store = value
 
     async def cancel(self, thread_id: str):
         """Cancel the workflow execution."""
@@ -42,13 +45,20 @@ class SwarmWorkflowEngine:
         return []
 
     async def run(
-        self, 
-        session: AsyncSession, 
+        self,
+        session: AsyncSession,
         request: SubmitWorkflowRequest
     ) -> AsyncIterator[StreamEvent]:
         """
         Main entry point for workflow execution via the Swarm Engine.
         """
+        # Deduplicate concurrent requests for the same session (e.g. Nginx retry on timeout)
+        dedup_key = request.session_id or request.thread_id
+        if dedup_key in self._active_sessions:
+            logger.warning(f"Duplicate run request for session {dedup_key} — dropping")
+            return
+        self._active_sessions.add(dedup_key)
+
         run_id = str(uuid4())
         sequence = 0
         repo = WorkflowRepository(session)
@@ -96,11 +106,25 @@ class SwarmWorkflowEngine:
 
             # 2. Handle real-time token streaming
             if is_stream:
+                # OPTIMIZATION: Combine agent_thought and token_chunk for cleaner frontend state
+                # If the text looks like an internal reflection vs actual output
+                reflection_keywords = ["thinking", "thought", "analysis", "reflection", "executing"]
+                is_reflection = any(kw in text.lower() for kw in reflection_keywords)
+                
+                # BLAIQ CORE FIX: Use 'workflow_event' as the unified streaming type for AgentActivityStack cards
+                event_type = "workflow_event"
+                
                 event = build_event(
-                    "token_chunk",
+                    event_type,
                     agent_name=role,
                     phase=phase,
-                    data={"content": text, "role": role}
+                    data={
+                        "content": text, 
+                        "role": role, 
+                        "is_reflection": is_reflection,
+                        "streaming": True,
+                        "message": text # Ensure compatibility with getMsgText()
+                    }
                 )
                 queue.put_nowait(event)
                 return
@@ -159,9 +183,33 @@ class SwarmWorkflowEngine:
                 )
 
                 logger.info("Swarm execution successful, processing results")
-                # Check if it was a direct response (fast track)
+                # Detect result mode:
+                # - direct: strategist answered without delegating (single-turn chat)
+                # - delegated: strategist service orchestrated full workflow internally
+                # - sequential: fallback hardcoded sequence (research→text_buddy→governance)
                 is_direct = "Strategist" in results and len(results) == 1
-                final_answer = results.get("Strategist") if is_direct else "The mission has been successfully completed and the final artifact has been governed."
+                is_delegated = results.get("workflow") == "delegated_to_strategist"
+
+                if is_direct:
+                    final_answer = results.get("Strategist", "")
+                    artifact_title = "Direct Response"
+                    artifact_phase = "chat"
+                    artifact_html = ""
+                    artifact_md = ""
+                elif is_delegated:
+                    # Full workflow already streamed via on_strategist_chunk events.
+                    # Frontend collected artifacts from streaming. Signal completion only.
+                    final_answer = "The mission has been completed by the BLAIQ-CORE swarm."
+                    artifact_title = "Swarm Intelligence Report"
+                    artifact_phase = "artifact"
+                    artifact_html = ""
+                    artifact_md = ""
+                else:
+                    final_answer = "The mission has been successfully completed and the final artifact has been governed."
+                    artifact_title = "Swarm Intelligence Report"
+                    artifact_phase = "text_buddy" if results.get("text_buddy") else "artifact"
+                    artifact_html = results.get("vangogh", "")
+                    artifact_md = results.get("text_buddy", "")
 
                 # Emit completion
                 queue.put_nowait(build_event(
@@ -172,11 +220,11 @@ class SwarmWorkflowEngine:
                         "governance_report": results.get("governance") if not is_direct else None,
                         "final_artifact": {
                             "artifact_id": f"artifact-{run_id}",
-                            "title": "Direct Response" if is_direct else "Swarm Intelligence Report",
+                            "title": artifact_title,
                             "sections": [],
-                            "html": results.get("vangogh", "") if not is_direct else "",
-                            "markdown": results.get("text_buddy", "") if not is_direct else "",
-                            "phase": "chat" if is_direct else ("text_buddy" if results.get("text_buddy") else "artifact")
+                            "html": artifact_html,
+                            "markdown": artifact_md,
+                            "phase": artifact_phase,
                         }
                     }
                 ))
@@ -194,6 +242,7 @@ class SwarmWorkflowEngine:
                 ))
                 await repo.update_status(request.thread_id, WorkflowStatus.error, error_message=str(e))
             finally:
+                self._active_sessions.discard(dedup_key)
                 queue.put_nowait(done_marker)
 
         # Start background task

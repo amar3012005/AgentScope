@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     tavily_api_key: str | None = None
     research_max_depth: int = 3
     research_max_iters: int = 15
+    allowed_origins: str = "http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002"
 
 
 settings = Settings()

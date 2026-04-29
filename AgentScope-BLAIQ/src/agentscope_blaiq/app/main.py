@@ -24,8 +24,9 @@ from agentscope_blaiq.contracts.hitl import HITLResumeRequest
 from agentscope_blaiq.contracts.workflow import ResumeWorkflowRequest, SubmitWorkflowRequest, WorkflowStatus
 from agentscope_blaiq.contracts.custom_agents import CustomAgentSpec, validate_custom_agent_spec
 from agentscope_blaiq.contracts.user_agent_registry import UserAgentRegistry
-from agentscope_blaiq.persistence.database import get_db
+from agentscope_blaiq.persistence.database import get_db, init_engine, close_engine
 from agentscope_blaiq.persistence.migrations import bootstrap_database
+from agentscope_blaiq.persistence.redis_state import RedisStateStore
 from agentscope_blaiq.persistence.repositories import ArtifactRepository, UploadRepository, WorkflowRepository, UserRepository
 from agentscope_blaiq.app.bootstrap_service import BootstrapService
 from agentscope_blaiq.app.policy_service import PolicyService
@@ -49,12 +50,24 @@ from .runtime_checks import check_runtime_ready, check_storage_paths
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 1. Ensure Directories
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     settings.artifact_dir.mkdir(parents=True, exist_ok=True)
     settings.agent_profile_dir.mkdir(parents=True, exist_ok=True)
     settings.log_dir.mkdir(parents=True, exist_ok=True)
+
+    # 2. Initialize Resources
+    init_engine()
+    app.state.redis = await RedisStateStore.create()
+    
+    # 3. Migrate
     await bootstrap_database()
+    
     yield
+    
+    # 4. Cleanup
+    await app.state.redis.close()
+    await close_engine()
 
 
 app = FastAPI(title="AgentScope-BLAIQ", version="0.1.0", lifespan=lifespan)
@@ -543,17 +556,24 @@ async def runtime_checks() -> dict[str, object]:
 
 
 @app.post("/api/v1/workflows/submit")
-async def submit_workflow(request: SubmitWorkflowRequest, session: AsyncSession = Depends(get_db)) -> EventSourceResponse:
+async def submit_workflow(
+    request: SubmitWorkflowRequest,
+    req: Request,
+    session: AsyncSession = Depends(get_db)
+) -> EventSourceResponse:
     if not request.user_query or not request.user_query.strip():
         raise HTTPException(status_code=422, detail="user_query cannot be empty")
 
     async def event_stream():
-        async for payload in encode_sse(engine_runner.run(session, request)):
-            yield payload
+        # Step away from encode_sse to avoid the "double-bridge" JSON-in-JSON clumping.
+        # engine_runner.run returns an AsyncIterator[StreamEvent].
+        async for event in engine_runner.run(session, request):
+            yield f"data: {event.model_dump_json()}\n\n"
+        yield "data: [DONE]\n\n"
 
     return EventSourceResponse(
         event_stream(),
-        ping=10,
+        ping=15, # Increased ping to keep slow connections alive during heavy reasoning
         headers={
             "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",

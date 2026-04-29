@@ -116,8 +116,6 @@ async def gather(
     """
     # 1. Initialize the Deep Research Agent
     resolver = LiteLLMModelResolver.from_settings(settings)
-    model = resolver.build_agentscope_model("research")
-    
     agent = BlaiqDeepResearchAgent(
         hivemind=app.state.hivemind,
         resolver=resolver,

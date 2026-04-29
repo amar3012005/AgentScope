@@ -26,37 +26,28 @@ class BlaiqEnterpriseFleet:
         self.base_url = base_url
         
         # Determine host for services (Docker internal vs Local for TUI)
-        host = os.environ.get("BLAIQ_SERVICE_HOST", "research-service") # Default to internal
-        buddy_host = os.environ.get("BLAIQ_SERVICE_HOST", "text-buddy-service")
-        content_host = os.environ.get("BLAIQ_SERVICE_HOST", "content-director-service")
-        vangogh_host = os.environ.get("BLAIQ_SERVICE_HOST", "van-gogh-service")
-        oracle_host = os.environ.get("BLAIQ_SERVICE_HOST", "oracle-service")
-        gov_host = os.environ.get("BLAIQ_SERVICE_HOST", "governance-service")
+        research_host = os.environ.get("BLAIQ_RESEARCH_HOST", "research-service")
+        buddy_host = os.environ.get("BLAIQ_TEXT_BUDDY_HOST", "text-buddy-service")
+        content_host = os.environ.get("BLAIQ_CONTENT_DIRECTOR_HOST", "content-director-service")
+        vangogh_host = os.environ.get("BLAIQ_VAN_GOGH_HOST", "van-gogh-service")
+        oracle_host = os.environ.get("BLAIQ_ORACLE_HOST", "oracle-service")
+        gov_host = os.environ.get("BLAIQ_GOVERNANCE_HOST", "governance-service")
+        strategist_host = os.environ.get("BLAIQ_STRATEGIST_HOST", "strategist-service")
         
         if os.environ.get("BLAIQ_SERVICE_HOST") == "localhost":
-             host = buddy_host = content_host = vangogh_host = oracle_host = gov_host = "localhost"
+             research_host = buddy_host = content_host = vangogh_host = oracle_host = gov_host = strategist_host = "localhost"
 
         # Mapping endpoint URL and its internal AgentApp target name
-        # COOLIFY MAPPING: Research (8096:8091), Text (8097:8092), Director (8098:8092), VanGogh (8099:8092), Oracle (8094:8092)
-        if host == "localhost":
-            self.fleet_configs = {
-                "research": {"url": f"http://localhost:8096/process", "recall_url": f"http://localhost:8096/recall", "target": "DeepResearchV2"},
-                "text_buddy": {"url": f"http://localhost:8097/process", "target": "TextBuddyV2"},
-                "content_director": {"url": f"http://localhost:8098/process", "target": "ContentDirectorV2"},
-                "van_gogh": {"url": f"http://localhost:8099/process", "target": "VanGoghV2"},
-                "oracle": {"url": f"http://localhost:8094/process", "target": "OracleV2"},
-                "governance": {"url": f"http://localhost:8093/process", "target": "GovernanceV2"}
-            }
-        else:
-            self.fleet_configs = {
-                "research": {"url": f"http://{host}:8091/process", "recall_url": f"http://{host}:8091/recall", "target": "DeepResearchV2"},
-                "text_buddy": {"url": f"http://{buddy_host}:8092/process", "target": "TextBuddyV2"},
-                "content_director": {"url": f"http://{content_host}:8092/process", "target": "ContentDirectorV2"},
-                "van_gogh": {"url": f"http://{vangogh_host}:8092/process", "target": "VanGoghV2"},
-                "oracle": {"url": f"http://{oracle_host}:8094/process", "target": "OracleV2"},
-                "governance": {"url": f"http://{gov_host}:8092/process", "target": "GovernanceV2"},
-                "strategist": {"url": f"http://{os.environ.get('BLAIQ_SERVICE_HOST', 'strategist-service')}:8092/process", "target": "StrategistV2"}
-            }
+        # Standardized Internal Ports: 8091 (Research), 8092 (Oracle), 8093 (Text), 8094 (Governance), 8095 (Director), 8096 (VanGogh)
+        self.fleet_configs = {
+            "research": {"url": f"http://{research_host}:8091/process", "recall_url": f"http://{research_host}:8091/recall", "target": "DeepResearchV2"},
+            "text_buddy": {"url": f"http://{buddy_host}:8093/process", "target": "TextBuddyV2"},
+            "content_director": {"url": f"http://{content_host}:8095/process", "target": "ContentDirectorV2"},
+            "van_gogh": {"url": f"http://{vangogh_host}:8096/process", "target": "VanGoghV2"},
+            "oracle": {"url": f"http://{oracle_host}:8092/process", "target": "OracleV2"},
+            "governance": {"url": f"http://{gov_host}:8094/process", "target": "GovernanceV2"},
+            "strategist": {"url": f"http://{strategist_host}:8090/process", "target": "StrategistV2"}
+        }
         
         # HIVE-MIND Component
         self.hivemind = HivemindMCPClient(
@@ -64,6 +55,19 @@ class BlaiqEnterpriseFleet:
             api_key=settings.hivemind_api_key,
             timeout_seconds=settings.hivemind_timeout_seconds
         )
+
+    async def strategic_architect(self, query: str, session_id: Optional[str] = None, **kwargs: Any) -> ToolResponse:
+        """
+        Triggers the Strategic Planner to architect a mission plan and decide if a mission is needed.
+        Use this tool when you need to create a structured mission plan for complex multi-step tasks.
+        Args:
+            query (str): The user goal or task to plan.
+            session_id (str, optional): The active session ID.
+        """
+        session_id = active_session_id.get() or session_id
+        on_chunk = kwargs.get("on_chunk")
+        res = await self.architect_mission(query, session_id, on_chunk=on_chunk)
+        return ToolResponse(content=[TextBlock(type="text", text=res)])
 
     async def architect_mission(self, query: str, session_id: str, **kwargs: Any) -> str:
         """
@@ -130,7 +134,8 @@ class BlaiqEnterpriseFleet:
                                 if not raw_json: continue
                                 data = json.loads(raw_json)
                                 
-                                # Handle AgentScope AaaS formats
+                                # AGENTSCOPE AAAS STREAMING PROTOCOL:
+                                # Chunks arrive in data.content (list or str)
                                 content = data.get("content")
                                 part_text = ""
                                 if isinstance(content, str):
@@ -140,17 +145,21 @@ class BlaiqEnterpriseFleet:
                                         if isinstance(part, dict) and part.get("type") == "text":
                                             part_text += part.get("text", "")
                                 
-                                # Support the direct 'text' field for robustness
+                                # Support the direct 'text' field for custom nodes
                                 if data.get("object") == "content" and data.get("text"):
                                     part_text = data["text"]
                                 
                                 if part_text:
                                     text_content += part_text
                                     if on_chunk:
-                                        if asyncio.iscoroutinefunction(on_chunk): await on_chunk(part_text)
-                                        else: on_chunk(part_text)
+                                        # Use standard AgentScope callback pattern
+                                        if asyncio.iscoroutinefunction(on_chunk): 
+                                            await on_chunk(part_text)
+                                        else: 
+                                            on_chunk(part_text)
                                 
-                                if data.get("last", False):
+                                # Check for done markers
+                                if data.get("last", False) or data.get("finish_reason") == "stop":
                                     break
                             except Exception:
                                 continue
@@ -165,7 +174,7 @@ class BlaiqEnterpriseFleet:
 
     # --- HIVE-MIND TOOLS ---
 
-    async def hivemind_recall(self, query: str, session_id: Optional[str] = None) -> ToolResponse:
+    async def hivemind_recall(self, query: str, session_id: Optional[str] = None, **kwargs: Any) -> ToolResponse:
         """
         Recalls facts and memories from the global BLAIQ HIVE-MIND using AI filtering.
         Args:
@@ -174,9 +183,11 @@ class BlaiqEnterpriseFleet:
         """
         # CORE FIX: Use the non-hallucinated session ID from context
         session_id = active_session_id.get() or session_id
+        on_chunk = kwargs.get("on_chunk")
         
         try:
             # Use AI synthesis instead of raw vector recall to eliminate noise
+            # query_with_ai should ideally support streaming, but for now we bridge it
             raw_res = await self.hivemind.query_with_ai(question=query, context_limit=8)
             res = self.hivemind._extract_tool_payload(raw_res)
 
@@ -190,6 +201,11 @@ class BlaiqEnterpriseFleet:
                 
             if not answer or answer == "{}" or answer == "None":
                 return ToolResponse(content=[TextBlock(type="text", text="No relevant data found for this query.")])
+
+            # Bridge to on_chunk for visibility
+            if on_chunk:
+                if asyncio.iscoroutinefunction(on_chunk): await on_chunk(answer)
+                else: on_chunk(answer)
 
             # Only mark research done on success
             if session_id:
@@ -336,7 +352,8 @@ class BlaiqEnterpriseFleet:
         mission: str = "active",
         missing_variable: str = "info",
         current_status: str = "ongoing",
-        artifact_type: str = "task"
+        artifact_type: str = "task",
+        **kwargs: Any
     ) -> ToolResponse:
         """
         FAILSAFE ONLY. Use ONLY if 'hivemind_recall' and 'research_evidence' have failed.
@@ -351,6 +368,7 @@ class BlaiqEnterpriseFleet:
         """
         # CORE FIX: Use the non-hallucinated session ID from context
         session_id = active_session_id.get() or session_id
+        on_chunk = kwargs.get("on_chunk")
         
         # CORE FIX: Enforce research-first policy via Redis guard
         try:
@@ -384,7 +402,7 @@ class BlaiqEnterpriseFleet:
             "user_id": "fleet-admin"
         }
         # 1. Trigger the Oracle service to formulate the question/options
-        res = await self._rpc_call("oracle", payload)
+        res = await self._rpc_call("oracle", payload, on_chunk=on_chunk)
         
         # 2. Extract structured metadata from the Oracle response if available
         # Some oracles might return JSON strings with options/why

@@ -16,11 +16,27 @@ _engine: AsyncEngine | None = None
 _session_local: async_sessionmaker[AsyncSession] | None = None
 
 
-def get_engine() -> AsyncEngine:
+def init_engine(db_url: str | None = None) -> AsyncEngine:
     global _engine, _session_local
+    url = db_url or settings.database_url
+    _engine = create_async_engine(url, future=True, echo=False)
+    _session_local = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+    return _engine
+
+
+async def close_engine() -> None:
+    global _engine, _session_local
+    if _engine:
+        await _engine.dispose()
+        _engine = None
+        _session_local = None
+
+
+def get_engine() -> AsyncEngine:
+    global _engine
     if _engine is None:
-        _engine = create_async_engine(settings.database_url, future=True, echo=False)
-        _session_local = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+        init_engine()
+    assert _engine is not None
     return _engine
 
 

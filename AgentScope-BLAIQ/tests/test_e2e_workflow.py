@@ -586,7 +586,7 @@ def test_resume_after_hitl_continues_without_replaying_planning_or_research(monk
         brand_context=None,
         evidence=None,
     ):
-        from agentscope_blaiq.agents.clarification import ClarificationPrompt, ClarificationQuestion
+        from agentscope_blaiq.agents.backup.clarification import ClarificationPrompt, ClarificationQuestion
 
         questions = [
             ClarificationQuestion(
@@ -824,7 +824,7 @@ def test_resume_after_hitl_does_not_reblock_when_only_some_answers_are_provided(
         brand_context=None,
         evidence=None,
     ):
-        from agentscope_blaiq.agents.clarification import ClarificationPrompt, ClarificationQuestion
+        from agentscope_blaiq.agents.backup.clarification import ClarificationPrompt, ClarificationQuestion
 
         questions = [
             ClarificationQuestion(
