@@ -52,7 +52,7 @@ from agentscope_blaiq.runtime.config import settings
 from agentscope_blaiq.runtime.hooks import pre_flight_variable_check_hook
 from agentscope_blaiq.workflows.swarm_engine import SwarmEngine
 from agentscope_blaiq.persistence.redis_state import RedisStateStore
-from agentscope_blaiq.tools.enterprise_fleet import get_enterprise_toolkit, active_session_id
+from agentscope_blaiq.tools.enterprise_fleet import get_enterprise_toolkit, get_strategist_toolkit, active_session_id
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -230,7 +230,7 @@ async def build_mission_plan(
         ),
         memory=InMemoryMemory(),
         formatter=OpenAIChatFormatter(),
-        toolkit=get_enterprise_toolkit(),
+        toolkit=get_strategist_toolkit(),
     )
 
     # 3. Load session state from Redis
@@ -305,6 +305,25 @@ async def build_mission_plan(
 
         # 6. Convert structured plan to MissionPlan contract
         mission_plan = _build_mission_contract(plan_data, session_id)
+
+        # 6.1 Emit planning_complete event for the UI to update steps
+        planning_complete_payload = json.dumps({
+            "type": "planning_complete",
+            "data": {
+                "plan": {
+                    "title": mission_plan.title,
+                    "artifact_type": mission_plan.artifact_type,
+                    "tasks": [
+                        {
+                            "id": node.node_id,
+                            "label": node.role.value.replace("_", " ").title(),
+                            "status": "pending"
+                        } for node in mission_plan.topology
+                    ]
+                }
+            }
+        })
+        yield Msg("StrategistMaster", planning_complete_payload, "assistant"), False
 
         # 6. Evaluate evidence quality (if research already ran)
         evidence_text = await _extract_evidence_from_memory(agent)

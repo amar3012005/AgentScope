@@ -80,19 +80,18 @@ for noisy_logger in (
     "httpcore",
     "openai",
     "agentscope",
-    "agentscope_blaiq.agents",
     "agentscope_blaiq.runtime",
 ):
     logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
-logging.getLogger("agentscope_blaiq.workflow").setLevel(logging.INFO)
+logging.getLogger("agentscope_blaiq").setLevel(logging.INFO)
 
 # CORS — allow the frontend dev server
 _allowed_origins = [
     origin
     for origin in (settings.allowed_origins if hasattr(settings, "allowed_origins") else "").split(",")
     if origin.strip()
-] or ["http://localhost:3002", "http://127.0.0.1:3002"]
+] or ["http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:3002", "http://127.0.0.1:3002"]
 
 app.add_middleware(
     CORSMiddleware,

@@ -101,52 +101,64 @@ class BlaiqEnterpriseFleet:
         endpoint = config["recall_url"] if use_recall and "recall_url" in config else config["url"]
         payload["target"] = config["target"]
         
+        text_content = ""
         async with httpx.AsyncClient(timeout=300.0) as client:
             try:
-                response = await client.post(endpoint, json=payload)
-                response.raise_for_status()
-                
-                # Check if it's a streaming response or flat JSON
-                content_type = response.headers.get("Content-Type", "")
-                if "application/json" in content_type and not response.text.startswith("data: "):
-                    text = response.text
-                    if on_chunk:
-                        if asyncio.iscoroutinefunction(on_chunk): await on_chunk(text)
-                        else: on_chunk(text)
-                    return text
-                
-                text_content = ""
-                for line in response.text.splitlines():
-                    if not line.strip(): continue
-                    if line.startswith("data: "):
-                        try:
-                            data = json.loads(line[6:])
-                            # Handle both AgentScope AaaS formats
-                            content = data.get("content")
-                            part_text = ""
-                            if isinstance(content, str):
-                                part_text = content
-                            elif isinstance(content, list):
-                                for part in content:
-                                    if isinstance(part, dict) and part.get("type") == "text":
-                                        part_text += part.get("text", "")
-                            
-                            # Support the direct 'text' field for robustness
-                            if data.get("object") == "content" and data.get("text"):
-                                part_text = data["text"]
-                            
-                            if part_text:
-                                text_content += part_text
+                async with client.stream("POST", endpoint, json=payload) as response:
+                    response.raise_for_status()
+                    
+                    async for line in response.aiter_lines():
+                        if not line.strip(): continue
+                        
+                        # Handle standard JSON response (non-SSE) if it arrives as a single line
+                        if not line.startswith("data: ") and line.startswith("{"):
+                            try:
+                                data = json.loads(line)
+                                # If it's a flat JSON object (not SSE), return it immediately
+                                # but still check if we should trigger on_chunk for the whole text
+                                text = line
                                 if on_chunk:
-                                    if asyncio.iscoroutinefunction(on_chunk): await on_chunk(part_text)
-                                    else: on_chunk(part_text)
-                            
-                            if data.get("last", False):
-                                break
-                        except Exception:
-                            continue
-                            
+                                    if asyncio.iscoroutinefunction(on_chunk): await on_chunk(text)
+                                    else: on_chunk(text)
+                                return text
+                            except Exception:
+                                pass
+
+                        if line.startswith("data: "):
+                            try:
+                                raw_json = line[6:].strip()
+                                if not raw_json: continue
+                                data = json.loads(raw_json)
+                                
+                                # Handle AgentScope AaaS formats
+                                content = data.get("content")
+                                part_text = ""
+                                if isinstance(content, str):
+                                    part_text = content
+                                elif isinstance(content, list):
+                                    for part in content:
+                                        if isinstance(part, dict) and part.get("type") == "text":
+                                            part_text += part.get("text", "")
+                                
+                                # Support the direct 'text' field for robustness
+                                if data.get("object") == "content" and data.get("text"):
+                                    part_text = data["text"]
+                                
+                                if part_text:
+                                    text_content += part_text
+                                    if on_chunk:
+                                        if asyncio.iscoroutinefunction(on_chunk): await on_chunk(part_text)
+                                        else: on_chunk(part_text)
+                                
+                                if data.get("last", False):
+                                    break
+                            except Exception:
+                                continue
+                                
                 return text_content
+            except Exception as e:
+                logger.error(f"Fleet RPC failed to {endpoint} ({config['target']}): {e}")
+                return f"Error: {str(e)}"
             except Exception as e:
                 logger.error(f"Fleet RPC failed to {endpoint} ({config['target']}): {e}")
                 return f"Error: {str(e)}"
@@ -519,6 +531,21 @@ def get_enterprise_toolkit() -> Toolkit:
     toolkit.register_tool_function(fleet.govern_artifact)
 
     # Failsafe Tools
+    toolkit.register_tool_function(fleet.ask_human)
+
+    return toolkit
+
+def get_strategist_toolkit() -> Toolkit:
+    """Returns a restricted toolkit for the Strategist containing only memory and failsafes.
+    This prevents the Strategist from executing the swarm nodes directly instead of orchestrating them."""
+    fleet = BlaiqEnterpriseFleet()
+    toolkit = Toolkit()
+
+    # HIVE-MIND Tools for contextual planning
+    toolkit.register_tool_function(fleet.hivemind_recall)
+    toolkit.register_tool_function(fleet.hivemind_save)
+
+    # Failsafe
     toolkit.register_tool_function(fleet.ask_human)
 
     return toolkit

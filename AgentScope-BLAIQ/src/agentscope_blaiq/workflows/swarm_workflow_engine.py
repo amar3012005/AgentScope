@@ -83,82 +83,7 @@ class SwarmWorkflowEngine:
         done_marker = object()
 
         async def publish_callback(role: str, text: str, is_stream: bool = False):
-            # Check if text is structured JSON (Swarm Events)
-            if text.startswith("{"):
-                try:
-                    raw_data = json.loads(text)
-                    event_type = raw_data.get("type")
-                    
-                    if event_type in ["agent_started", "agent_completed", "workflow_blocked", "agent_thought"]:
-                        # Map internal swarm phases to frontend phases
-                        phase_map = {
-                            "research": "research",
-                            "text_buddy": "synthesis",
-                            "content_director": "content_director",
-                            "vangogh": "rendering",
-                            "governance": "governance",
-                            "oracle": "clarification"
-                        }
-                        role_key = role.lower()
-                        phase = phase_map.get(role_key, raw_data.get("phase", "system"))
-                        
-                        # Data payload mapping
-                        event_data = raw_data.get("data", {})
-                        
-                        # Handle specific event logic for the frontend
-                        mapped_type = event_type
-                        if event_type == "agent_started":
-                            mapped_type = "agent_log"
-                            event_data["message_kind"] = "status"
-                        elif event_type == "agent_thought":
-                            mapped_type = "agent_log"
-                            event_data["message_kind"] = "thought"
-                        elif event_type == "workflow_blocked":
-                            mapped_type = "hitl_required" # Frontend expectation
-
-                        event = build_event(
-                            mapped_type,
-                            agent_name=role,
-                            phase=phase,
-                            data=event_data
-                        )
-                        queue.put_nowait(event)
-                        return
-                    
-                    # Legacy AgentActivity check
-                    meta = raw_data.get("metadata", {})
-                    if meta.get("kind") == "agent_activity":
-                        # ... existing meta handling ...
-                        phase = meta.get("phase", "system")
-                        event = build_event(
-                            "agent_log",
-                            agent_name=role,
-                            phase=phase,
-                            data={
-                                "message": f"Agent {role} is in phase: {phase}",
-                                "message_kind": "status",
-                                "visibility": "user",
-                                "detail": meta
-                            }
-                        )
-                        queue.put_nowait(event)
-                        return
-                except Exception:
-                    pass
-
-            # Standard progress updates or tokens
-            if is_stream:
-                # Direct token pass-through for high-speed UI
-                event = build_event(
-                    "token_chunk",
-                    agent_name=role,
-                    phase=role.lower(),
-                    data={"text": text, "role": role}
-                )
-                queue.put_nowait(event)
-                return
-
-            # Fallback for plain text messages
+            # 1. Resolve phase mapping for progress tracking
             phase_map = {
                 "research": "research",
                 "text_buddy": "synthesis",
@@ -169,6 +94,39 @@ class SwarmWorkflowEngine:
             }
             phase = phase_map.get(role.lower(), "system")
 
+            # 2. Handle real-time token streaming
+            if is_stream:
+                event = build_event(
+                    "token_chunk",
+                    agent_name=role,
+                    phase=phase,
+                    data={"content": text, "role": role}
+                )
+                queue.put_nowait(event)
+                return
+
+            # 3. Detect and unwrap structural JSON events from SwarmEngine
+            if text.startswith("{") and text.endswith("}"):
+                try:
+                    payload = json.loads(text)
+                    if "type" in payload:
+                        # Map special types for frontend compatibility
+                        event_type = payload["type"]
+                        if event_type == "workflow_blocked":
+                            event_type = "hitl_required"
+                        
+                        event = build_event(
+                            event_type,
+                            agent_name=payload.get("agent_name", role),
+                            phase=payload.get("phase", phase),
+                            data=payload.get("data", {})
+                        )
+                        queue.put_nowait(event)
+                        return
+                except Exception:
+                    pass
+
+            # 4. Fallback: Wrap plain text as a workflow event (activity card)
             event = build_event(
                 "workflow_event",
                 agent_name=role,
@@ -180,6 +138,7 @@ class SwarmWorkflowEngine:
         # 4. Background task for Swarm execution
         async def execute_swarm():
             try:
+                logger.info(f"Starting swarm execution for thread={request.thread_id}")
                 # Emit initial events
                 queue.put_nowait(build_event("workflow_started", agent_name="system", phase="system"))
                 queue.put_nowait(build_event(
@@ -189,6 +148,7 @@ class SwarmWorkflowEngine:
                     data={"message": "BLAIQ-CORE is architecting the swarm mission..."}
                 ))
 
+                logger.info(f"Invoking swarm.run with goal: {request.user_query[:50]}...")
                 # Run the swarm
                 results = await self.swarm.run(
                     goal=request.user_query,
@@ -198,6 +158,7 @@ class SwarmWorkflowEngine:
                     with_oracle=True,
                 )
 
+                logger.info("Swarm execution successful, processing results")
                 # Check if it was a direct response (fast track)
                 is_direct = "Strategist" in results and len(results) == 1
                 final_answer = results.get("Strategist") if is_direct else "The mission has been successfully completed and the final artifact has been governed."
@@ -222,9 +183,10 @@ class SwarmWorkflowEngine:
                 
                 # Update DB
                 await repo.update_status(request.thread_id, WorkflowStatus.complete)
+                logger.info("Workflow status updated to complete")
 
             except Exception as e:
-                logger.error(f"Swarm execution failed: {e}")
+                logger.error(f"Swarm execution failed: {e}", exc_info=True)
                 queue.put_nowait(build_event(
                     "workflow_error",
                     status="error",
@@ -239,15 +201,17 @@ class SwarmWorkflowEngine:
         loop.create_task(execute_swarm())
 
         # 5. Yield events from queue with a fast-poll/push mechanism
+        logger.info("Entering event yield loop")
         while True:
-            # wait_for 0.05 to ensure we don't block too long on an empty queue
-            # and allow the event loop to breathe for the background task
             try:
                 event = await queue.get()
                 if event is done_marker:
+                    logger.info("Received done marker, ending event stream")
                     break
+                logger.info(f"Yielding SSE event: {event.type}")
                 yield event
             except asyncio.CancelledError:
+                logger.info("Event stream cancelled by client")
                 break
             except Exception as e:
                 logger.error(f"Error yielding swarm event: {e}")
