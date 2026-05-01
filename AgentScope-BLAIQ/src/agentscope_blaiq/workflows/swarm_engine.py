@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from agentscope.agent import AgentBase
@@ -17,6 +19,71 @@ from agentscope_blaiq.persistence.redis_state import RedisStateStore
 from agentscope_blaiq.tools.enterprise_fleet import BlaiqEnterpriseFleet
 
 logger = logging.getLogger("blaiq.swarm_engine")
+logger.setLevel(logging.INFO)
+logger.propagate = True
+
+
+def _extract_json_objects(text: str) -> list[dict[str, Any]]:
+    decoder = json.JSONDecoder()
+    objects: list[dict[str, Any]] = []
+    index = 0
+    while index < len(text):
+        brace_index = text.find("{", index)
+        if brace_index == -1:
+            break
+        try:
+            parsed, end_index = decoder.raw_decode(text[brace_index:])
+        except Exception:
+            index = brace_index + 1
+            continue
+        if isinstance(parsed, dict):
+            objects.append(parsed)
+        index = brace_index + end_index
+    return objects
+
+
+def _extract_strategist_plan_objects(plan_raw: str) -> list[dict[str, Any]]:
+    candidates: list[str] = [plan_raw]
+
+    # Some strategist responses arrive as repeated Python repr lists of text blocks,
+    # e.g. [{'type': 'text', 'text': '<think>...</think>{...}'}][{...}]. Extract the
+    # inner text fields so routing JSON can still be recovered.
+    for list_chunk in re.findall(r"\[\{.*?\}\]", plan_raw, re.DOTALL):
+        try:
+            parsed = ast.literal_eval(list_chunk)
+        except Exception:
+            continue
+        if isinstance(parsed, list):
+            for item in parsed:
+                if isinstance(item, dict):
+                    text_value = item.get("text")
+                    if isinstance(text_value, str) and text_value.strip():
+                        candidates.append(text_value)
+
+    objects: list[dict[str, Any]] = []
+    for candidate in candidates:
+        cleaned = re.sub(r"<think>.*?</think>", "", candidate, flags=re.DOTALL | re.IGNORECASE).strip()
+        objects.extend(_extract_json_objects(cleaned))
+    return objects
+
+def _normalize_goal(goal: str) -> str:
+    raw = (goal or "").strip()
+    if not raw:
+        return raw
+
+    # If user passed a local file path, lift meaningful text into the mission goal.
+    if raw.startswith("/") and len(raw) < 1024:
+        path = Path(raw)
+        if path.exists() and path.is_file() and path.suffix.lower() in {".md", ".txt"}:
+            try:
+                content = path.read_text(encoding="utf-8").strip()
+                if content:
+                    logger.info("Normalized file-path goal into file content path=%s chars=%s", raw, len(content))
+                    return content
+            except Exception as exc:
+                logger.warning("Failed to normalize file-path goal path=%s err=%s", raw, exc)
+
+    return raw
 
 
 class ServiceProxyAgent(AgentBase):
@@ -50,6 +117,7 @@ class ServiceProxyAgent(AgentBase):
 
         try:
             if self.role == "research":
+                logger.info("Proxy role=research session_id=%s goal=%r", self.session_id, goal[:160])
                 result = await self.fleet.research_evidence(goal, self.session_id, on_chunk=on_chunk)
                 text = _extract(result)
                 return Msg(
@@ -60,6 +128,7 @@ class ServiceProxyAgent(AgentBase):
                 )
 
             elif self.role == "text_buddy":
+                logger.info("Proxy role=text_buddy session_id=%s goal=%r", self.session_id, goal[:160])
                 evidence = metadata.get("evidence_brief", "")
                 artifact_type = metadata.get("artifact_type", "report")
                 result = await self.fleet.synthesize_text(
@@ -78,11 +147,13 @@ class ServiceProxyAgent(AgentBase):
                 )
 
             elif self.role == "content_director":
+                logger.info("Proxy role=content_director session_id=%s goal=%r", self.session_id, goal[:160])
                 artifact = metadata.get("text_artifact") or goal
                 evidence = metadata.get("evidence_brief", "")
                 result = await self.fleet.orchestrate_visuals(
                     text_artifact=artifact,
                     evidence_brief=evidence,
+                    artifact_type=metadata.get("artifact_type", "visual_html"),
                     session_id=self.session_id,
                     on_chunk=on_chunk
                 )
@@ -95,6 +166,7 @@ class ServiceProxyAgent(AgentBase):
                 )
 
             elif self.role == "vangogh":
+                logger.info("Proxy role=vangogh session_id=%s goal=%r", self.session_id, goal[:160])
                 # VanGogh translates spec into code. Content is the spec.
                 spec = msg.content or metadata.get("visual_spec", goal)
                 brand_dna = ""
@@ -119,6 +191,7 @@ class ServiceProxyAgent(AgentBase):
                 )
 
             elif self.role == "oracle":
+                logger.info("Proxy role=oracle session_id=%s goal=%r", self.session_id, goal[:160])
                 evidence = metadata.get("evidence_brief", goal)
                 artifact_type = metadata.get("artifact_type", "report")
                 result = await self.fleet.ask_oracle_hitl(
@@ -154,9 +227,13 @@ class ServiceProxyAgent(AgentBase):
                 )
 
             elif self.role == "governance":
+                logger.info("Proxy role=governance session_id=%s goal=%r", self.session_id, goal[:160])
                 # Governance should review the 'latest' artifact.
                 # If we have a render result, review that; else review text.
-                artifact = metadata.get("render_result") or metadata.get("text_artifact", goal)
+                artifact = _artifact_text_for_governance(
+                    metadata.get("render_result", ""),
+                    metadata.get("text_artifact", goal),
+                )
                 result = await self.fleet.govern_artifact(
                     artifact_content=artifact,
                     session_id=self.session_id,
@@ -171,6 +248,7 @@ class ServiceProxyAgent(AgentBase):
                 )
 
             elif self.role == "Strategist" or self.role == "strategist":
+                logger.info("Proxy role=strategist session_id=%s goal=%r", self.session_id, goal[:160])
                 result = await self.fleet.architect_mission(goal, self.session_id, on_chunk=on_chunk)
                 text = _extract(result)
                 return Msg(
@@ -195,6 +273,33 @@ class ServiceProxyAgent(AgentBase):
                 metadata={"kind": "error"},
             )
 
+def _artifact_text_for_governance(render_result: str, fallback: str) -> str:
+    parsed: dict[str, Any] | None = None
+    try:
+        parsed = json.loads(render_result)
+    except Exception:
+        parsed = None
+
+    if isinstance(parsed, dict):
+        html = str(parsed.get("html") or "").strip()
+        storyboard = str(parsed.get("storyboard_markdown") or "").strip()
+        media = parsed.get("media") or []
+        title = str(parsed.get("title") or "Visual Artifact").strip() or "Visual Artifact"
+        if html:
+            return html
+        if storyboard:
+            return storyboard
+        if media:
+            lines = [f"{title} generated media:"]
+            for item in media:
+                if not isinstance(item, dict):
+                    continue
+                src = str(item.get("src") or "").strip()
+                if src:
+                    lines.append(f"- {src}")
+            if len(lines) > 1:
+                return "\n".join(lines)
+    return fallback
 def _extract(result: Any) -> str:
     """Helper to extract text from Msg or strings."""
     if not result:
@@ -322,6 +427,76 @@ class SwarmEngine:
         else:
             publish(role, text, is_stream=is_stream)
 
+    async def _strategist_fallback(
+        self,
+        failed_role: str,
+        original_goal: str,
+        failure_reason: str,
+        prior_results: dict[str, str],
+        session_id: str,
+        publish: Optional[Callable] = None,
+    ) -> str:
+        """When a specialist agent fails, hand the role's toolkit to a local
+        ReActAgent (driven by the strategist's model) and let it retry. Returns
+        the recovered output, or empty string if retry also fails.
+        """
+        from agentscope.agent import ReActAgent
+        from agentscope.formatter import OpenAIChatFormatter
+        from agentscope.memory import InMemoryMemory
+        from agentscope_blaiq.runtime.model_resolver import LiteLLMModelResolver
+        from agentscope_blaiq.runtime.config import settings
+        from agentscope_blaiq.tools.enterprise_fleet import (
+            get_role_fallback_toolkit,
+            active_session_id,
+        )
+
+        await self._safe_publish(
+            publish, "strategist",
+            f"[Fallback] {failed_role} failed: {failure_reason}. Strategist retrying with {failed_role} toolkit.",
+        )
+
+        try:
+            resolver = LiteLLMModelResolver.from_settings(settings)
+            model = resolver.build_agentscope_model("strategic")
+        except Exception as exc:
+            logger.warning("Fallback model build failed: %s", exc)
+            return ""
+
+        toolkit = get_role_fallback_toolkit(failed_role)
+
+        agent = ReActAgent(
+            name="StrategistFallback",
+            model=model,
+            sys_prompt=(
+                f"You are the Strategist running in FALLBACK mode for the failed `{failed_role}` step.\n\n"
+                f"The original `{failed_role}` agent failed with: {failure_reason}\n\n"
+                "Your job: USE THE TOOLS BELOW to complete this step yourself. Be persistent — try the tool, "
+                "if it errors retry with a refined query, try alternate parameters, or break the task into smaller calls. "
+                "Do not ask the user for clarification. Do not return error text — produce the actual deliverable.\n\n"
+                f"Prior pipeline results (for context): {json.dumps({k: (v[:400] if isinstance(v, str) else str(v)[:400]) for k, v in prior_results.items()})}\n\n"
+                "Return ONLY the final output for this step (no preamble, no JSON wrapper)."
+            ),
+            memory=InMemoryMemory(),
+            formatter=OpenAIChatFormatter(),
+            toolkit=toolkit,
+        )
+
+        token = active_session_id.set(session_id)
+        try:
+            reply = await agent.reply(Msg("user", original_goal, "user"))
+            recovered = (reply.get_text_content() or "").strip()
+        except Exception as exc:
+            logger.warning("StrategistFallback for role=%s raised: %s", failed_role, exc)
+            recovered = ""
+        finally:
+            active_session_id.reset(token)
+
+        if recovered and not self._should_fire_oracle(recovered, f"StrategistFallback({failed_role})")[0]:
+            await self._safe_publish(publish, "strategist", f"[Fallback] Recovered {failed_role} output.")
+            return recovered
+        await self._safe_publish(publish, "strategist", f"[Fallback] {failed_role} retry could not recover; escalating.")
+        return ""
+
     async def run(
         self,
         goal: str,
@@ -341,67 +516,62 @@ class SwarmEngine:
         start_from_role: skip roles before this one (for resume after HITL).
         skip_planning: whether to bypass the initial strategist assessment.
         """
+        goal = _normalize_goal(goal)
+        logger.info(
+            "Swarm run started session_id=%s artifact_family=%s with_oracle=%s goal=%r",
+            session_id,
+            artifact_family,
+            with_oracle,
+            goal[:200],
+        )
         # 1. Master Strategist Assessment (Fast Track)
-        # Check if this is a conversational query that can be answered directly
+        # ── Strategist routing phase ──────────────────────────────────
+        # Strategist decides: direct response OR which specialist nodes to run.
+        # It streams structured events; we forward them and parse the routing signal.
+        strategist_nodes: list[str] | None = None  # None = use default sequence
+        strategist_research_query: str | None = None
+
         if not prefilled_results and not start_from_role and not skip_planning:
             try:
-                if publish:
-                    await self._safe_publish(publish, "Strategist", json.dumps({
-                        "type": "agent_started",
-                        "agent_name": "Strategist",
-                        "phase": "strategic_alignment",
-                        "data": {"message": "Deconstructing mission requirements and architecting the swarm path..."}
-                    }))
-                
-                # Forward ALL events from the strategist service — JSON structured events
-                # (agent_started/thought/completed for each sub-agent) AND raw text chunks.
-                # Previously this dropped JSON events, causing the frontend to never see
-                # sub-agent cards and the strategist to appear to "do everything."
                 async def on_strategist_chunk(chunk: str):
                     if not publish:
                         return
                     stripped = chunk.strip()
                     if stripped.startswith("{") and stripped.endswith("}"):
-                        # Structured event from strategist (planning_complete, agent_started, etc.)
-                        # Forward as-is so publish_callback can route it to the correct event type.
+                        # Forward structured events (agent_started, workflow_event, etc.)
                         await self._safe_publish(publish, "Strategist", stripped)
                     elif stripped:
                         await self._safe_publish(publish, "Strategist", chunk, is_stream=True)
 
                 plan_raw = await self.fleet.architect_mission(goal, session_id, on_chunk=on_strategist_chunk)
-                logger.info(f"Strategist service response received. Length: {len(plan_raw)}")
+                logger.info(f"Strategist response received. Length: {len(plan_raw)}")
+                logger.info("Strategist raw plan: %s", plan_raw[:1000])
 
-                # Parse is_direct signal from the concatenated output.
-                blocks = re.findall(r'\{[^{}]*\}', plan_raw, re.DOTALL)
-                for block in reversed(blocks):
-                    try:
-                        plan_data = json.loads(block)
-                        if "is_direct" in plan_data:
-                            if plan_data.get("is_direct"):
-                                direct_answer = plan_data.get("direct_response") or "I am BLAIQ-CORE, your enterprise swarm intelligence."
-                                logger.info("Direct response from strategist, returning early.")
-                                if publish:
-                                    await self._safe_publish(publish, "Strategist", json.dumps({
-                                        "type": "agent_completed",
-                                        "agent_name": "Strategist",
-                                        "data": {"content": direct_answer, "is_direct": True}
-                                    }))
-                                    await self._safe_publish(publish, "Strategist", direct_answer)
-                                return {"Strategist": direct_answer}
-                            break
-                    except Exception:
-                        continue
+                parsed_plan_objects = _extract_strategist_plan_objects(plan_raw)
+                for block in parsed_plan_objects:
+                    if block.get("is_direct") is True:
+                        direct_answer = block.get("direct_response", "")
+                        logger.info("Strategist: direct response path")
+                        logger.info("Strategist direct answer: %s", str(direct_answer)[:500])
+                        return {"Strategist": direct_answer}
 
-                # The strategist service already orchestrated the full workflow internally
-                # (research → text_buddy/content_director → governance). All agent events
-                # were forwarded via on_strategist_chunk above. Return without double-executing.
-                logger.info("Strategist service completed full orchestration — skipping hardcoded sequence.")
-                return {"workflow": "delegated_to_strategist", "raw": plan_raw}
+                    if block.get("is_direct") is False and block.get("nodes"):
+                        valid = set(self.REPORT_SEQUENCE + self.VISUAL_SEQUENCE + ["oracle"])
+                        nodes = [n for n in block["nodes"] if n in valid]
+                        if nodes:
+                            strategist_nodes = nodes
+                            strategist_research_query = str(block.get("research_query") or "").strip() or None
+                            logger.info("Strategist delegated with nodes: %s research_query=%r", nodes, strategist_research_query)
+
+                if strategist_nodes is None:
+                    logger.warning("Strategist routing JSON could not be recovered from raw plan; falling back to default sequence.")
 
             except Exception as e:
-                logger.warning(f"Strategist fast-track assessment failed: {e}. Falling back to hardcoded sequence.")
+                logger.warning(f"Strategist assessment failed: {e}. Using default sequence.")
 
-        base_sequence = self._choose_sequence(artifact_family)
+        # Use strategist-chosen nodes if provided, else fall back to default sequence
+        base_sequence = strategist_nodes if strategist_nodes else self._choose_sequence(artifact_family)
+        logger.info("Swarm execution sequence: %s", base_sequence)
 
         proxies = self._build_proxies(base_sequence, session_id)
 
@@ -422,6 +592,7 @@ class SwarmEngine:
             # Build dynamic sequence: insert oracle after research if with_oracle enabled
             sequence = list(base_sequence)
             oracle_inserted = False
+            logger.info("Swarm sequence initialized session_id=%s sequence=%s", session_id, sequence)
 
             for role in sequence:
                 if start_from_role and role in results and role != start_from_role:
@@ -438,7 +609,7 @@ class SwarmEngine:
                     "type": "agent_started",
                     "agent_name": role,
                     "phase": role,
-                    "data": {"message": f"Orchestrating {role.replace('_', ' ').title()} specialist..."}
+                    "data": {"message": f"Starting {role.replace('_', ' ').title()}..."}
                 }))
 
                 evidence = results.get("research", "")
@@ -446,14 +617,10 @@ class SwarmEngine:
                 visual_spec = results.get("content_director", "")
                 render_result = results.get("vangogh", "")
 
-                await self._safe_publish(publish, role, json.dumps({
-                    "type": "agent_thought",
-                    "agent_name": role,
-                    "data": {"message": f"Processing internal context for {role.replace('_', ' ')}..."}
-                }))
-
                 current_content = goal
-                if role == "content_director":
+                if role == "research":
+                    current_content = strategist_research_query or goal
+                elif role == "content_director":
                     current_content = text_artifact or goal
                 elif role == "vangogh":
                     current_content = visual_spec or goal
@@ -475,20 +642,7 @@ class SwarmEngine:
                 )
 
                 async def on_chunk(chunk: str, _role: str = role):
-                    # Robust chunk handling: check if it contains a tool call indicator
-                    # We detect standard AgentScope tool call formats and thought blocks
-                    if "Executing tool:" in chunk or "Thought:" in chunk or "Reflection:" in chunk or "Call tool" in chunk:
-                         await self._safe_publish(publish, _role, json.dumps({
-                            "type": "agent_thought",
-                            "agent_name": _role,
-                            "data": {
-                                "message": chunk.strip(),
-                                "is_tool_call": "tool" in chunk.lower()
-                            }
-                        }))
-                    else:
-                        # Standard stream chunk
-                        await self._safe_publish(publish, _role, chunk, is_stream=True)
+                    await self._safe_publish(publish, _role, chunk, is_stream=True)
 
                 reply = await proxy(active_msg, on_chunk=on_chunk)
                 reply_text = _extract(reply)
@@ -550,6 +704,21 @@ class SwarmEngine:
 
                 results[role] = reply.get_text_content() or ""
 
+                # GENERIC FAILURE FALLBACK: any role that returns error/empty
+                # output gets retried by the strategist with that role's toolkit
+                # before we escalate to oracle / HITL.
+                role_failed, fail_reason = self._should_fire_oracle(results[role], role.replace("_", " ").title())
+                if role_failed:
+                    recovered = await self._strategist_fallback(
+                        failed_role=role,
+                        original_goal=goal,
+                        failure_reason=fail_reason,
+                        prior_results=dict(results),
+                        session_id=session_id,
+                        publish=publish,
+                    )
+                    if recovered:
+                        results[role] = recovered
 
                 # EVENT-DRIVEN ORACLE: Check if context is insufficient after research
                 if with_oracle and role == "research" and not oracle_inserted:

@@ -121,8 +121,8 @@ class AgentRegistry:
                 model=self.resolver.resolve("strategic").model_name,
                 runtime_kind=RuntimeKind.custom_base,
                 capabilities=[
-                    AgentCapability(name="route_planning", description="Select sequential, parallel, or hybrid workflow topology.", supported_task_types=["routing", "planning"], supported_task_roles=["strategist"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis"]),
-                    AgentCapability(name="task_graph_authoring", description="Build ordered task graphs from live agent inventory.", supported_task_types=["planning", "orchestration"], supported_task_roles=["strategist"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis"]),
+                    AgentCapability(name="route_planning", description="Select sequential, parallel, or hybrid workflow topology.", supported_task_types=["routing", "planning"], supported_task_roles=["strategist"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis", "video_trailer", "video_campaign"]),
+                    AgentCapability(name="task_graph_authoring", description="Build ordered task graphs from live agent inventory.", supported_task_types=["planning", "orchestration"], supported_task_roles=["strategist"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis", "video_trailer", "video_campaign"]),
                 ],
                 skills=[
                     AgentSkill(name="workflow_decomposition", level="core"),
@@ -130,6 +130,7 @@ class AgentRegistry:
                 ],
                 tools=["list_live_agents", "match_agent_capabilities", "compose_execution_strategy", "classify_artifact_family", "derive_artifact_requirements", "compute_missing_requirements", "compose_task_graph"],
                 planner_roles=["strategist", "requirements_planner"],
+                artifact_affinities=["report", "pitch_deck", "landing_page", "video_trailer", "video_campaign"],
             ),
             LiveAgentProfile(
                 name="hitl",
@@ -157,12 +158,12 @@ class AgentRegistry:
                 model=self.resolver.resolve("research").model_name,
                 runtime_kind=RuntimeKind.custom_base,
                 capabilities=[
-                    AgentCapability(name="memory_retrieval", description="Recall internal enterprise memory before using external sources.", supported_task_types=["research", "memory"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis"]),
-                    AgentCapability(name="memory_synthesis", description="Synthesize answers and briefs over HIVE-MIND memory.", supported_task_types=["research", "memory"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis"]),
-                    AgentCapability(name="graph_context_retrieval", description="Traverse linked memories and historical decisions when the query depends on related context.", supported_task_types=["research", "graph"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis"]),
-                    AgentCapability(name="web_freshness_verification", description="Use live web intelligence only when freshness or external verification is required.", supported_task_types=["research", "web"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis"]),
-                    AgentCapability(name="web_research", description="Backward-compatible alias for live web freshness verification.", supported_task_types=["research", "web"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis"]),
-                    AgentCapability(name="document_research", description="Scan uploaded tenant documents as an additional source of evidence.", supported_task_types=["research", "docs"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis"]),
+                    AgentCapability(name="memory_retrieval", description="Recall internal enterprise memory before using external sources.", supported_task_types=["research", "memory"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis", "video_trailer", "video_campaign"]),
+                    AgentCapability(name="memory_synthesis", description="Synthesize answers and briefs over HIVE-MIND memory.", supported_task_types=["research", "memory"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis", "video_trailer", "video_campaign"]),
+                    AgentCapability(name="graph_context_retrieval", description="Traverse linked memories and historical decisions when the query depends on related context.", supported_task_types=["research", "graph"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis", "video_trailer", "video_campaign"]),
+                    AgentCapability(name="web_freshness_verification", description="Use live web intelligence only when freshness or external verification is required.", supported_task_types=["research", "web"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis", "video_trailer", "video_campaign"]),
+                    AgentCapability(name="web_research", description="Backward-compatible alias for live web freshness verification.", supported_task_types=["research", "web"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis", "video_trailer", "video_campaign"]),
+                    AgentCapability(name="document_research", description="Scan uploaded tenant documents as an additional source of evidence.", supported_task_types=["research", "docs"], supported_task_roles=["research"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis", "video_trailer", "video_campaign"]),
                 ],
                 skills=[
                     AgentSkill(name="memory_first_retrieval", level="core"),
@@ -181,6 +182,7 @@ class AgentRegistry:
                     "validate_document_path",
                 ],
                 planner_roles=["research"],
+                artifact_affinities=["report", "pitch_deck", "landing_page", "video_trailer", "video_campaign"],
                 notes=[
                     "Uses HIVE-MIND as the primary ground truth and live web only as a freshness layer.",
                     "Memory write-back is explicit and policy-gated; it is not automatic in the default run path.",
@@ -249,13 +251,14 @@ class AgentRegistry:
             LiveAgentProfile(
                 name="content_director",
                 role="content planning",
-                description="Turns requirements and evidence into artifact briefs and section plans.",
+                description="Turns requirements and evidence into creative briefs, storyboards, narrative beats, shot plans, and section plans for visual and structured deliverables.",
                 status=AgentStatus.ready,
                 model=self.resolver.resolve("content_director").model_name,
                 runtime_kind=RuntimeKind.custom_base,
                 capabilities=[
-                    AgentCapability(name="artifact_briefing", description="Produce structured artifact briefs with section plans from requirements and evidence.", supported_task_types=["planning", "briefing"], supported_task_roles=["content_director"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis"]),
-                    AgentCapability(name="section_planning", description="Decompose artifacts into ordered sections with intent, evidence, and visual directives.", supported_task_types=["planning"], supported_task_roles=["content_director"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report"]),
+                    AgentCapability(name="artifact_briefing", description="Produce structured creative briefs with section plans, concept framing, and execution guidance from requirements and evidence.", supported_task_types=["planning", "briefing"], supported_task_roles=["content_director"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis", "video_trailer", "video_campaign"]),
+                    AgentCapability(name="section_planning", description="Decompose deliverables into ordered sections or scenes with intent, evidence, and visual directives.", supported_task_types=["planning"], supported_task_roles=["content_director"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "video_trailer", "video_campaign"]),
+                    AgentCapability(name="video_concept_direction", description="Own video concepts, storyboards, shot lists, narrative beats, and creative direction for trailers, launch films, and motion campaigns.", supported_task_types=["planning", "creative_direction", "storyboarding"], supported_task_roles=["content_director"], supported_artifact_families=["video_trailer", "video_campaign"]),
                 ],
                 skills=[
                     AgentSkill(name="brief_authoring", level="core"),
@@ -263,28 +266,34 @@ class AgentRegistry:
                 ],
                 tools=["generate_brief", "plan_sections"],
                 planner_roles=["content_director"],
+                artifact_affinities=["pitch_deck", "landing_page", "video_trailer", "video_campaign"],
+                notes=["Primary planner for visual concepts, trailer briefs, scene sequencing, and shot planning before rendering."],
             ),
             LiveAgentProfile(
                 name="vangogh",
                 role="visual artifact generation",
-                description="Renders visual artifact structures and HTML previews.",
+                description="Renders visual treatments, scene structures, frame plans, and HTML previews for visual deliverables and motion concepts.",
                 status=AgentStatus.ready,
                 model=self.resolver.resolve("vangogh").model_name,
                 runtime_kind=RuntimeKind.custom_base,
                 capabilities=[
-                    AgentCapability(name="visual_rendering", description="Render pitch decks, posters, and visual HTML artifacts from briefs.", supported_task_types=["rendering", "visual"], supported_task_roles=["vangogh"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page"]),
+                    AgentCapability(name="visual_rendering", description="Render pitch decks, posters, and visual HTML artifacts from briefs.", supported_task_types=["rendering", "visual"], supported_task_roles=["vangogh"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "video_trailer", "video_campaign"]),
+                    AgentCapability(name="motion_treatment_rendering", description="Translate trailer and campaign-video briefs into scene structures, frame-by-frame visual treatment, and motion-oriented render plans.", supported_task_types=["rendering", "motion_visualization"], supported_task_roles=["vangogh"], supported_artifact_families=["video_trailer", "video_campaign"]),
                 ],
                 skills=[
                     AgentSkill(name="html_rendering", level="core"),
                     AgentSkill(name="brand_application", level="core"),
+                    AgentSkill(name="media_generation", level="core"),
                 ],
-                tools=["render_visual_artifact"],
+                tools=["render_visual_artifact", "generate_image", "generate_video"],
                 planner_roles=["vangogh"],
+                artifact_affinities=["pitch_deck", "poster", "landing_page", "video_trailer", "video_campaign"],
+                notes=["Executes visual treatment output after content_director defines the concept and shot logic.", "Can invoke OpenRouter-backed image and video generation tools for direct media creation."],
             ),
             LiveAgentProfile(
                 name="text_buddy",
                 role="brand-voice text composition",
-                description="Writes text artifacts using AgentScope skills and brand voice.",
+                description="Writes standalone text artifacts using AgentScope skills and brand voice; it is not the primary worker for visual production planning or motion concepts.",
                 status=AgentStatus.ready,
                 model=self.resolver.resolve("text_buddy").model_name,
                 runtime_kind=RuntimeKind.custom_base,
@@ -297,6 +306,7 @@ class AgentRegistry:
                 ],
                 tools=["write_text_artifact"],
                 planner_roles=["text_buddy"],
+                artifact_affinities=["email", "social_post", "memo", "proposal", "report"],
                 notes=["Text counterpart to VanGogh — handles all non-visual artifact output in brand voice."],
             ),
             LiveAgentProfile(
@@ -307,7 +317,7 @@ class AgentRegistry:
                 model=self.resolver.resolve("governance").model_name,
                 runtime_kind=RuntimeKind.custom_base,
                 capabilities=[
-                    AgentCapability(name="artifact_validation", description="Check completeness, citations, and readiness.", supported_task_types=["review", "validation"], supported_task_roles=["governance"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis"]),
+                    AgentCapability(name="artifact_validation", description="Check completeness, citations, and readiness.", supported_task_types=["review", "validation"], supported_task_roles=["governance"], supported_artifact_families=["pitch_deck", "keynote", "poster", "brochure", "one_pager", "landing_page", "report", "finance_analysis", "video_trailer", "video_campaign"]),
                 ],
                 skills=[
                     AgentSkill(name="quality_gate", level="core"),
@@ -315,6 +325,7 @@ class AgentRegistry:
                 ],
                 tools=["validate_visual_artifact"],
                 planner_roles=["governance"],
+                artifact_affinities=["report", "pitch_deck", "landing_page", "video_trailer", "video_campaign"],
             ),
         ]
         if self.graph_knowledge is not None:

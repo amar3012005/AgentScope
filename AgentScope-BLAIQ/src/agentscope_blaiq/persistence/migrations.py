@@ -43,6 +43,16 @@ async def _apply_legacy_compat(active_engine: AsyncEngine) -> None:
             # non-Postgres engines that do not support IF NOT EXISTS syntax.
             pass
 
+        # conversations.workspace_id was originally NOT NULL with a FK to
+        # workspaces, but the swarm engine may pass None when workspace_id is
+        # absent from the request. Make it nullable to match other models.
+        try:
+            await conn.execute(text("ALTER TABLE conversations ALTER COLUMN workspace_id DROP NOT NULL"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_workspace_id ON conversations (workspace_id)"))
+        except Exception:
+            # Ignore for SQLite / non-Postgres / already-compatible schemas.
+            pass
+
 
 async def bootstrap_database(engine: AsyncEngine | None = None) -> None:
     """Create the schema for a fresh v1 deployment and seed initial data.

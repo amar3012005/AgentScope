@@ -1,0 +1,448 @@
+# -*- coding: utf-8 -*-
+"""
+TextBuddy V2 — Single ReAct agent that:
+  1. Lists registered task skills (brand_tone excluded from list — it's always global).
+  2. Reasons about user prompt to pick the best task skill.
+  3. Reads that skill's SKILL.md.
+  4. Writes the final artifact following chosen skill + global brand_tone.
+"""
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import AsyncGenerator
+
+from agentscope.agent import ReActAgent
+from agentscope.formatter import OpenAIChatFormatter
+from agentscope.memory import InMemoryMemory
+from agentscope.message import Msg, TextBlock
+from agentscope.pipeline import stream_printing_messages
+from agentscope.tool import ToolResponse, Toolkit
+
+try:
+    from agentscope_runtime.engine.app import AgentApp
+    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+    from agentscope_runtime.engine.deployers.adapter.a2a import AgentCardWithRuntimeConfig
+except ImportError:
+    from fastapi import FastAPI
+    from pydantic import BaseModel
+    class AgentRequest(BaseModel):
+        input: list
+        session_id: str
+        user_id: str
+    class AgentCardWithRuntimeConfig(BaseModel):
+        host: str = "0.0.0.0"
+    class AgentApp(FastAPI):
+        def __init__(self, *_, app_name=None, app_description=None, a2a_config=None, **kwargs):  # noqa: ARG002  # a2a_config unused in fallback
+            super().__init__(title=app_name, description=app_description, **kwargs)
+        def query(self, *args, **kwargs):
+            return lambda fn: fn
+
+    # Create a module-level app instance for decorators to use
+    app = AgentApp(app_name="agentscope", app_description="AgentScope Runtime")
+
+from agentscope_blaiq.runtime.model_resolver import LiteLLMModelResolver
+from agentscope_blaiq.runtime.config import settings
+from agentscope_blaiq.runtime.agent_base import BaseAgent
+
+logger = logging.getLogger("text-buddy-v2")
+if not logger.handlers:
+    h = logging.StreamHandler()
+    h.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
+    logger.addHandler(h)
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+# ─── Skill discovery ──────────────────────────────────────────────────────────
+
+# Agent-specific task skills root — only text_buddy skills are visible here.
+_TASK_SKILLS_ROOT: Path = Path(__file__).resolve().parents[2] / "skills" / "text_buddy"
+
+# Global skills root (brand_tone lives here — injected into system prompt, not listed as tasks)
+_GLOBAL_SKILLS_ROOT: Path = Path(__file__).resolve().parents[2] / "skills"
+
+
+def _parse_frontmatter(skill_md: Path) -> dict[str, str]:
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except Exception:
+        return {}
+    if not text.startswith("---"):
+        return {}
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    fm: dict[str, str] = {}
+    for line in parts[1].splitlines():
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        fm[k.strip().lower()] = v.strip().strip('"').strip("'")
+    return fm
+
+
+def _build_task_skill_catalog() -> dict[str, dict]:
+    """Discover text_buddy-specific task skills from skills/text_buddy/."""
+    catalog: dict[str, dict] = {}
+    if not _TASK_SKILLS_ROOT.exists():
+        logger.warning("[TEXTBUDDY] Task skills directory missing: %s", _TASK_SKILLS_ROOT)
+        return catalog
+    for child in sorted(_TASK_SKILLS_ROOT.iterdir(), key=lambda p: p.name.lower()):
+        if not child.is_dir():
+            continue
+        skill_md = child / "SKILL.md"
+        if not skill_md.exists():
+            continue
+        fm = _parse_frontmatter(skill_md)
+        catalog[child.name] = {
+            "name": fm.get("name", child.name),
+            "description": fm.get("description", ""),
+            "dir": str(child),
+            "path": str(skill_md),
+        }
+    return catalog
+
+
+# ─── pre_print hook factory (AgentScope native) ───────────────────────────────
+# Tags every printed message with metadata so the AaaS layer routes it as live
+# agent-thought telemetry (frontend AgentCard subscribes to this).
+# Reference: AgentScope docs — Hooking Functions / pre_print
+
+def _make_text_buddy_print_hook(phase_label: str):
+    def _hook(self, kwargs):  # noqa: ANN001
+        msg = kwargs.get("msg")
+        if msg is None:
+            return None
+        meta = dict(msg.metadata or {})
+        meta.setdefault("kind", "agent_thought")
+        meta["phase"] = phase_label
+        meta["agent_name"] = getattr(self, "name", "TextBuddy")
+        msg.metadata = meta
+        logger.info("[PREPRINT_HOOK] agent=%s tagged kind=agent_thought content_len=%d",
+                    meta["agent_name"],
+                    len(msg.get_text_content() or "") if hasattr(msg, "get_text_content") else 0)
+        return None
+    return _hook
+
+
+# ─── TextBuddy core ───────────────────────────────────────────────────────────
+
+class TextBuddy(BaseAgent):
+    def __init__(self, resolver: LiteLLMModelResolver):
+        super().__init__(
+            name="TextBuddy",
+            role="text_buddy",
+            sys_prompt="You are TextBuddy — BLAIQ's professional content writer.",
+            resolver=resolver
+        )
+
+    async def generate_artifact(
+        self,
+        request_text: str,
+        artifact_type: str,
+        evidence_brief: str = "",
+        hitl_feedback: str = "",
+    ) -> AsyncGenerator[Msg, None]:
+
+        task_catalog = _build_task_skill_catalog()
+        logger.info("[TEXTBUDDY] Discovered %d task skills: %s", len(task_catalog), list(task_catalog.keys()))
+
+        # ── Tools ─────────────────────────────────────────────────────────────
+
+        def list_available_skills() -> ToolResponse:
+            """List all registered task skills with their names and descriptions."""
+            if not task_catalog:
+                return ToolResponse(content=[TextBlock(type="text", text="No task skills registered.")])
+            rows = [
+                f"- {meta['name']} (key: {key}): {meta['description']}"
+                for key, meta in sorted(task_catalog.items())
+            ]
+            text = "\n".join(rows)
+            logger.info("[TEXTBUDDY TOOL] list_available_skills → %d skills", len(task_catalog))
+            return ToolResponse(content=[TextBlock(type="text", text=text)])
+
+        def read_skill_markdown(skill_name: str) -> ToolResponse:
+            """Read the full SKILL.md for a skill by its key or name."""
+            raw = (skill_name or "").strip().lower()
+            # Match by folder key first, then by frontmatter name
+            key = next((k for k in task_catalog if k.lower() == raw), None)
+            if not key:
+                key = next((k for k, m in task_catalog.items() if m["name"].lower() == raw), None)
+            if not key:
+                logger.info("[TEXTBUDDY TOOL] read_skill_markdown: unknown skill=%s", skill_name)
+                return ToolResponse(content=[TextBlock(type="text", text=f"Unknown skill: '{skill_name}'. Call list_available_skills to see valid keys.")])
+            try:
+                content = Path(task_catalog[key]["path"]).read_text(encoding="utf-8")
+                logger.info("[TEXTBUDDY TOOL] read_skill_markdown: loaded key=%s size=%d", key, len(content))
+                return ToolResponse(content=[TextBlock(type="text", text=content)])
+            except Exception as exc:
+                return ToolResponse(content=[TextBlock(type="text", text=f"Failed to read {key}: {exc}")])
+
+        # ── Toolkit: brand_tone as global skill + task-skill tools ─────────────
+        toolkit = Toolkit(
+            agent_skill_instruction=(
+                "<skills>\n"
+                "The following global skills are always active and must be followed during generation:\n"
+            ),
+            agent_skill_template="[SKILL: {name}]\n{dir}\n{description}",
+        )
+
+        # Register brand_tone as a permanent global skill (injected into system prompt)
+        brand_tone_path = _GLOBAL_SKILLS_ROOT / "brand_tone"
+        if (brand_tone_path / "SKILL.md").exists():
+            try:
+                toolkit.register_agent_skill(str(brand_tone_path))
+                logger.info("[TEXTBUDDY] Registered global skill: brand_tone")
+            except ValueError:
+                pass
+
+        # Register task-skill tools (list + read)
+        toolkit.register_tool_function(list_available_skills)
+        toolkit.register_tool_function(read_skill_markdown)
+
+        # ── Phase 1: Skill Selector (no evidence — pure skill reasoning) ──────────
+        selector = self._create_runtime_agent()
+        selector.name = "TextBuddySkillSelector"
+        selector.sys_prompt = f"""You are the Skill Selector for BLAIQ TextBuddy.
+
+Select the ONE skill whose OUTPUT FORMAT matches what the user asked for.
+
+## PRIMARY RULE — FORMAT beats topic
+The requested **output format** (email, post, invoice, report…) determines the skill.
+The topic (company history, product launch, etc.) is irrelevant to skill selection.
+
+## FORMAT → SKILL mapping (use as the first filter):
+- "email" / "write an email" / "send an email"  → professional_email or email
+- "LinkedIn post" / "LinkedIn"                  → linkedin_post
+- "Instagram post" / "Instagram" / "reel"       → instagram_post
+- "social post" / "social media"                → social_post
+- "invoice" / "billing"                         → invoice
+- "letter" / "formal letter"                    → letter
+- "memo" / "internal memo"                      → memo
+- "proposal" / "business proposal"              → proposal
+- "summary" / "executive summary"               → summary
+- "report" / "document" / "article" / no clear format → report
+
+artifact_type hint: "{artifact_type}"
+user request: "{request_text}"
+
+## STEPS
+1. Identify the requested output format from the user request (format takes priority over topic).
+2. Call `list_available_skills()` once to see exact available keys.
+3. Call `read_skill_markdown("<key>")` only if you need to verify between 2 candidates.
+4. Return ONLY this JSON — no markdown, no extra text:
+{{"selected_skill": "<skill_key>", "reason": "<one sentence — state the FORMAT match, not the topic>"}}
+            """)
+
+        selector.memory = InMemoryMemory()
+        selector.formatter = OpenAIChatFormatter()
+        selector.toolkit = toolkit
+
+        # Note: self._create_runtime_agent() already registers the universal acting hook.
+
+        # AgentScope pre_print hook → live agent activity card on frontend
+        selector.register_instance_hook(
+            hook_type="pre_print",
+            hook_name="text_buddy_thought_tag",
+            hook=_make_text_buddy_print_hook("text_buddy"),
+        )
+
+        # Stream selector prints to AaaS SSE. Tag each streamed Msg as
+        # agent_thought so the frontend AgentCard receives live updates.
+        selector_text = ""
+        async for msg, _is_last_chunk in stream_printing_messages(
+            agents=[selector],
+            coroutine_task=selector.reply(Msg("user", request_text, "user")),
+        ):
+            piece = msg.get_text_content() or ""
+            selector_text += piece
+            meta = dict(msg.metadata or {})
+            meta["kind"] = "agent_thought"
+            meta["phase"] = "text_buddy"
+            meta["agent_name"] = selector.name
+            msg.metadata = meta
+            yield msg
+
+        selected_skill_key = ""
+        try:
+            import json as _json
+            import re as _re
+            m = _re.search(r'\{[^{}]*"selected_skill"[^{}]*\}', selector_text)
+            if m:
+                parsed = _json.loads(m.group())
+                selected_skill_key = parsed.get("selected_skill", "").strip()
+                logger.info("[TEXTBUDDY SELECTOR] selected=%s reason=%s", selected_skill_key, parsed.get("reason", ""))
+        except Exception:
+            pass
+
+        if not selected_skill_key or selected_skill_key not in task_catalog:
+            # Fallback: first skill alphabetically
+            selected_skill_key = next(iter(task_catalog), "")
+            logger.warning("[TEXTBUDDY SELECTOR] fallback to first skill: %s", selected_skill_key)
+
+        # ── Phase 2: Writer (selected skill + brand_tone + evidence in message) ──
+        writer_toolkit = Toolkit(
+            agent_skill_instruction=(
+                "<skills>\nThe following skills are active for this generation:\n"
+            ),
+            agent_skill_template="[SKILL: {name}]\n{description}",
+        )
+        # Always: brand_tone global skill in system prompt
+        if (brand_tone_path / "SKILL.md").exists():
+            try:
+                writer_toolkit.register_agent_skill(str(brand_tone_path))
+            except ValueError:
+                pass
+        # Selected task skill in system prompt
+        if selected_skill_key and selected_skill_key in task_catalog:
+            try:
+                writer_toolkit.register_agent_skill(task_catalog[selected_skill_key]["dir"])
+                logger.info("[TEXTBUDDY WRITER] registered skill: %s", selected_skill_key)
+            except ValueError:
+                pass
+
+        writer = self._create_runtime_agent()
+        writer.name = "TextBuddyWriter"
+        writer.sys_prompt = f"""You are TextBuddy — BLAIQ's professional content writer for Solvis.
+
+Your active skills are loaded above. Follow them strictly:
+
+## MANDATORY RULES
+
+### 1. Task Skill Structure
+Follow the chosen skill blueprint ({selected_skill_key}) section by section. Do not improvise the structure.
+
+### 2. Brand Tone (brand_tone skill — NON-NEGOTIABLE)
+The brand_tone skill defines Solvis voice. You MUST:
+- Use preferred vocabulary: "Energiesystem", "modular", "zukunftssicher", "intelligent", "Fachpartner"
+- NEVER use banned words: "Heizkessel", "Gerätehersteller", "billig", "Standard", "kompliziert"
+- Use short punchy sentences (max 15-20 words each)
+- Pair every technical feature with a clear human benefit
+- Use correct trademarked product names: SolvisLea, SolvisMax, SolvisControl-3, etc.
+- Correct hashtags: #SOLVIS #SolvisLea #Wärme #Energiesystem #Zukunftssicher (not generic AI tags)
+
+### 3. Output hygiene
+- Return ONLY the final artifact. No preamble, no explanation, no skill notes.
+- Fact fidelity: only use facts from research evidence. No invented data.
+""",
+            memory=InMemoryMemory(),
+            formatter=OpenAIChatFormatter(),
+            toolkit=writer_toolkit,
+        )
+
+        # AgentScope pre_print hook → live agent activity card on frontend
+        writer.register_instance_hook(
+            hook_type="pre_print",
+            hook_name="text_buddy_thought_tag",
+            hook=_make_text_buddy_print_hook("text_buddy"),
+        )
+
+        # Evidence + HITL injected directly into the user message (not system prompt)
+        writer_user_msg = request_text
+        if evidence_brief:
+            writer_user_msg = (
+                f"## RESEARCH EVIDENCE (ground truth — use verbatim facts only):\n{evidence_brief}\n\n"
+                f"## MISSION:\n{request_text}"
+            )
+        if hitl_feedback:
+            writer_user_msg += f"\n\n## FEEDBACK TO APPLY:\n{hitl_feedback}"
+
+        logger.info("[TEXTBUDDY WRITER] Starting generation. skill=%s evidence_len=%d", selected_skill_key, len(evidence_brief))
+
+        # Stream writer prints to AaaS SSE. Tag each streamed Msg as agent_thought
+        # so the frontend AgentCard updates live (no chat noise).
+        writer_text = ""
+        last_writer_msg: Msg | None = None
+        async for msg, _is_last_chunk in stream_printing_messages(
+            agents=[writer],
+            coroutine_task=writer.reply(Msg("user", writer_user_msg, "user")),
+        ):
+            writer_text = msg.get_text_content() or writer_text
+            last_writer_msg = msg
+            meta = dict(msg.metadata or {})
+            meta["kind"] = "agent_thought"
+            meta["phase"] = "text_buddy"
+            meta["agent_name"] = writer.name
+            msg.metadata = meta
+            yield msg
+
+        content = writer_text.strip() if writer_text else ((last_writer_msg.get_text_content() or "").strip() if last_writer_msg else "")
+        logger.info("[TEXTBUDDY WRITER] Done. length=%d", len(content))
+
+        yield Msg(
+            name="TextBuddy",
+            content=content,
+            role="assistant",
+            metadata={"kind": "text_artifact", "artifact_type": artifact_type},
+        )
+
+
+# ─── AaaS app ─────────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app):
+    logger.info("TextBuddy V2 (Single-ReAct | Skill-Reasoning) online.")
+    yield
+    logger.info("TextBuddy V2 offline.")
+
+app = AgentApp(
+    app_name="TextBuddyV2",
+    app_description="Single ReAct agent: skill reasoning → brand-aligned artifact generation",
+    lifespan=lifespan,
+    a2a_config=AgentCardWithRuntimeConfig(host="0.0.0.0"),
+)
+
+
+@app.query(framework="agentscope")
+async def write_artifact(
+    self,
+    msgs,
+    request: AgentRequest = None,
+    **kwargs,
+):
+    resolver = LiteLLMModelResolver.from_settings(settings)
+    buddy = TextBuddy(resolver=resolver)
+
+    # AaaS may drop message-level metadata — scan ALL msgs, last non-empty value wins
+    artifact_type = ""
+    evidence_brief = ""
+    hitl_feedback = ""
+    request_text = ""
+
+    for raw in msgs:
+        m = Msg(**raw) if isinstance(raw, dict) else raw
+        text = m.get_text_content() or ""
+        if text:
+            request_text = text
+        meta = m.metadata or {}
+        if meta.get("artifact_type"):
+            artifact_type = meta["artifact_type"]
+        if meta.get("evidence_brief"):
+            evidence_brief = meta["evidence_brief"]
+        if meta.get("hitl_feedback"):
+            hitl_feedback = meta["hitl_feedback"]
+
+    if not artifact_type:
+        artifact_type = "general"
+
+    logger.info("[TEXTBUDDY REQUEST] type=%s session=%s", artifact_type, request.session_id)
+
+    async for item in buddy.generate_artifact(
+        request_text=request_text,
+        artifact_type=artifact_type,
+        evidence_brief=evidence_brief,
+        hitl_feedback=hitl_feedback,
+    ):
+        # Only the final artifact (kind=text_artifact) marks the stream as last.
+        # Intermediate prints (kind=agent_thought from pre_print hook) stream live.
+        meta = item.metadata or {}
+        is_last = meta.get("kind") == "text_artifact"
+        logger.info(
+            "[TEXTBUDDY YIELD] kind=%s is_last=%s len=%d",
+            meta.get("kind"), is_last, len(item.content) if item.content else 0,
+        )
+        yield item, is_last
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8092)

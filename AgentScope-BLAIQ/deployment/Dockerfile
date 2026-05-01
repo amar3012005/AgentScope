@@ -17,6 +17,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install -r /app/requirements.
 
 # Install agentscope-runtime separately to preserve the heavy cache above
 RUN pip install agentscope-runtime "agentscope-runtime[ext]"
+RUN pip install groq
 
 COPY src /app/src
 COPY deployment /app/deployment

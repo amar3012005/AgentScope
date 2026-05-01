@@ -5,6 +5,7 @@ services:
       dockerfile: deployment/Dockerfile
     env_file:
       - .env
+      - ../.env
     environment:
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
@@ -112,6 +113,7 @@ services:
       dockerfile: deployment/Dockerfile
     env_file:
       - .env
+      - ../.env
     environment:
       REDIS_URL: redis://redis:6379/0
       STRATEGIC_MODEL: ${STRATEGIC_MODEL:-gemini-2.5-pro}

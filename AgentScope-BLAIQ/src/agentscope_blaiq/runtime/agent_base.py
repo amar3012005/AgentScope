@@ -66,6 +66,20 @@ class BaseAgent:
             # Fallback for agents without custom status messages
             await self.log_user(f"{self.name} is starting...")
 
+    async def _universal_acting_hook(self, *args: Any, **kwargs: Any) -> None:
+        """Internal hook to automatically notify visibility of 'acting' state."""
+        agent_name = str(getattr(self, "name", "") or kwargs.get("agent_name") or self.__class__.__name__)
+        await self.log(
+            f"{agent_name} is starting an action...",
+            kind="agent_log",
+            visibility="user",
+            detail={
+                "object": "status",
+                "status": "acting",
+                "agent": agent_name,
+                "detail": "Executing logic loop..."
+            }
+        )
 
     # ── PlanNotebook lifecycle ────────────────────────────────────────────────
 
@@ -290,6 +304,16 @@ class BaseAgent:
     def _create_runtime_agent(
         self,
         plan_notebook: PlanNotebook | None = None,
+        *,
+        name: str | None = None,
+        sys_prompt: str | None = None,
+        role: str | None = None,
+        model_role: str | None = None,
+        toolkit: Toolkit | None = None,
+        memory: InMemoryMemory | None = None,
+        formatter: OpenAIChatFormatter | None = None,
+        max_iters: int = 6,
+        parallel_tool_calls: bool = True,
     ) -> ReActAgent:
         """Create a ReActAgent for one invocation.
 
@@ -299,16 +323,24 @@ class BaseAgent:
         """
         notebook = plan_notebook or self._notebook or PlanNotebook()
         agent = ReActAgent(
-            name=self.name,
-            sys_prompt=self.sys_prompt,
-            model=self.resolver.build_agentscope_model(self.role),
-            formatter=OpenAIChatFormatter(),
-            toolkit=self.build_toolkit(),
-            memory=InMemoryMemory(),
+            name=name or self.name,
+            sys_prompt=sys_prompt or self.sys_prompt,
+            model=self.resolver.build_agentscope_model(model_role or role or self.role),
+            formatter=formatter or OpenAIChatFormatter(),
+            toolkit=toolkit or self.build_toolkit(),
+            memory=memory or InMemoryMemory(),
             plan_notebook=notebook,
-            max_iters=6,
-            parallel_tool_calls=True,
+            max_iters=max_iters,
+            parallel_tool_calls=parallel_tool_calls,
         )
+        
+        # Register the universal 'acting' notification hook for all ReAct loops
+        agent.register_instance_hook(
+            hook_type="pre_acting",
+            hook_name="blaiq_live_status",
+            hook=self._universal_acting_hook
+        )
+
         # Disable AgentScope's built-in console printer so raw tool_use /
         # tool_result blocks do not leak into backend stdout.
         if hasattr(agent, "_disable_console_output"):

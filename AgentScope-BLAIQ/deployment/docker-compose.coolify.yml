@@ -4,7 +4,8 @@ services:
       context: ..
       dockerfile: deployment/Dockerfile
     env_file:
-      - .env
+      - /Users/amar/blaiq/.env
+      - /Users/amar/blaiq/AgentScope-BLAIQ/.env
     environment:
       APP_ENV: ${APP_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -19,10 +20,10 @@ services:
       DEFAULT_TENANT: ${DEFAULT_TENANT:-default}
       DEFAULT_SOURCE_SCOPE: ${DEFAULT_SOURCE_SCOPE:-web}
       DEFAULT_ARTIFACT_TYPE: ${DEFAULT_ARTIFACT_TYPE:-visual_html}
-      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-nebius/Qwen/Qwen3-32B}
-      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-gemini-2.5-pro}
-      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-gemini-2.5-pro}
-      LITELLM_REFORMAT_MODEL: ${LITELLM_REFORMAT_MODEL:-gemini-2.5-pro}
+      LITELLM_PLANNER_MODEL: ${LITELLM_PLANNER_MODEL:-groq/openai/gpt-oss-20b}
+      LITELLM_PRE_MODEL: ${LITELLM_PRE_MODEL:-groq/openai/gpt-oss-20b}
+      LITELLM_POST_MODEL: ${LITELLM_POST_MODEL:-groq/openai/gpt-oss-20b}
+      LITELLM_REFORMAT_MODEL: ${LITELLM_REFORMAT_MODEL:-groq/openai/gpt-oss-20b}
       LITELLM_TIMEOUT_SECONDS: ${LITELLM_TIMEOUT_SECONDS:-60}
       LITELLM_MAX_OUTPUT_TOKENS: ${LITELLM_MAX_OUTPUT_TOKENS:-1200}
       CONTENT_DIRECTOR_MAX_OUTPUT_TOKENS: ${CONTENT_DIRECTOR_MAX_OUTPUT_TOKENS:-4000}
@@ -32,13 +33,15 @@ services:
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
       NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
       MODEL_REASONING_EFFORT: ${MODEL_REASONING_EFFORT:-}
-      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-nebius/Qwen/Qwen3-32B}
-      ROUTING_MODEL: ${ROUTING_MODEL:-gemini-2.5-flash-lite}
-      RESEARCH_MODEL: ${RESEARCH_MODEL:-gemini-2.5-pro}
-      HITL_MODEL: ${HITL_MODEL:-gemini-2.5-pro}
-      TEXT_BUDDY_MODEL: ${TEXT_BUDDY_MODEL:-gemini-2.5-pro}
-      VANGOGH_MODEL: ${VANGOGH_MODEL:-vertex_ai/claude-sonnet-4-5@20250929}
-      GOVERNANCE_MODEL: ${GOVERNANCE_MODEL:-gemini-2.5-pro}
+      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-groq/openai/gpt-oss-20b}
+      ROUTING_MODEL: ${ROUTING_MODEL:-groq/openai/gpt-oss-20b}
+      RESEARCH_MODEL: ${RESEARCH_MODEL:-groq/openai/gpt-oss-20b}
+      HITL_MODEL: ${HITL_MODEL:-groq/openai/gpt-oss-20b}
+      TEXT_BUDDY_MODEL: ${TEXT_BUDDY_MODEL:-groq/openai/gpt-oss-20b}
+      VANGOGH_MODEL: ${VANGOGH_MODEL:-groq/openai/gpt-oss-20b}
+      GOVERNANCE_MODEL: ${GOVERNANCE_MODEL:-groq/openai/gpt-oss-20b}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_API_BASE_URL: ${GROQ_API_BASE_URL:-https://api.groq.com/openai/v1}
       OPENAI_FALLBACK_MODEL: ${OPENAI_FALLBACK_MODEL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
@@ -131,14 +134,15 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile
+    env_file:
+      - /Users/amar/blaiq/.env
+      - /Users/amar/blaiq/AgentScope-BLAIQ/.env
     environment:
-      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-nebius/Qwen/Qwen3-32B}
+      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-groq/openai/gpt-oss-20b}
       REDIS_URL: redis://redis:6379/0
-      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
       HIVEMIND_API_KEY: ${HIVEMIND_API_KEY:-}
       HIVEMIND_MCP_RPC_URL: ${HIVEMIND_MCP_RPC_URL:-}
       HIVEMIND_TIMEOUT_SECONDS: ${HIVEMIND_TIMEOUT_SECONDS:-45}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
     dns:
@@ -167,12 +171,14 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile
+    env_file:
+      - /Users/amar/blaiq/.env
+      - /Users/amar/blaiq/AgentScope-BLAIQ/.env
     environment:
-      RESEARCH_MODEL: ${RESEARCH_MODEL:-gemini-2.5-pro}
+      RESEARCH_MODEL: ${RESEARCH_MODEL:-groq/openai/gpt-oss-20b}
       REDIS_URL: redis://redis:6379/0
       HIVEMIND_API_KEY: ${HIVEMIND_API_KEY:-}
       HIVEMIND_MCP_RPC_URL: ${HIVEMIND_MCP_RPC_URL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
     dns:
@@ -202,12 +208,14 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile
+    env_file:
+      - /Users/amar/blaiq/.env
+      - /Users/amar/blaiq/AgentScope-BLAIQ/.env
     environment:
-      TEXT_BUDDY_MODEL: ${TEXT_BUDDY_MODEL:-gemini-2.5-pro}
+      TEXT_BUDDY_MODEL: ${TEXT_BUDDY_MODEL:-groq/openai/gpt-oss-20b}
       REDIS_URL: redis://redis:6379/0
       HIVEMIND_API_KEY: ${HIVEMIND_API_KEY:-}
       HIVEMIND_MCP_RPC_URL: ${HIVEMIND_MCP_RPC_URL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
     dns:
@@ -237,10 +245,12 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile
+    env_file:
+      - /Users/amar/blaiq/.env
+      - /Users/amar/blaiq/AgentScope-BLAIQ/.env
     environment:
-      CONTENT_DIRECTOR_MODEL: ${CONTENT_DIRECTOR_MODEL:-gemini-2.5-pro}
+      CONTENT_DIRECTOR_MODEL: ${CONTENT_DIRECTOR_MODEL:-groq/openai/gpt-oss-20b}
       REDIS_URL: redis://redis:6379/0
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
     dns:
@@ -270,10 +280,12 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile
+    env_file:
+      - /Users/amar/blaiq/.env
+      - /Users/amar/blaiq/AgentScope-BLAIQ/.env
     environment:
-      VAN_GOGH_MODEL: ${VAN_GOGH_MODEL:-gemini-2.5-pro}
+      VANGOGH_MODEL: ${VANGOGH_MODEL:-groq/openai/gpt-oss-20b}
       REDIS_URL: redis://redis:6379/0
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
     dns:
@@ -303,10 +315,12 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile
+    env_file:
+      - /Users/amar/blaiq/.env
+      - /Users/amar/blaiq/AgentScope-BLAIQ/.env
     environment:
       REDIS_URL: redis://redis:6379/0
-      HITL_MODEL: ${HITL_MODEL:-gemini-2.5-pro}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      HITL_MODEL: ${HITL_MODEL:-groq/openai/gpt-oss-20b}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
     dns:
@@ -336,10 +350,12 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile
+    env_file:
+      - .env
+      - ../.env
     environment:
-      GOVERNANCE_MODEL: ${GOVERNANCE_MODEL:-gemini-2.5-pro}
+      GOVERNANCE_MODEL: ${GOVERNANCE_MODEL:-groq/openai/gpt-oss-20b}
       REDIS_URL: redis://redis:6379/0
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
     dns:
@@ -371,11 +387,10 @@ services:
       dockerfile: deployment/Dockerfile
     env_file:
       - .env
+      - ../.env
     environment:
       REDIS_URL: redis://redis:6379/0
-      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-nebius/Qwen/Qwen3-32B}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      STRATEGIC_MODEL: ${STRATEGIC_MODEL:-groq/openai/gpt-oss-20b}
       DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentscope_blaiq:agentscope_blaiq@postgres:5432/agentscope_blaiq}
     dns:
       - 127.0.0.11

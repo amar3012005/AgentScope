@@ -1,5 +1,45 @@
 # BLAIQ AaaS Transition Journal (v3.0 Detailed Edition)
 
+## Recent Update: Relational Chat & Artifact Persistence (2026-04-30)
+
+Successfully transitioned from volatile `localStorage` and complex execution-log-based state to a production-grade relational persistence layer in PostgreSQL.
+
+### 1. Unified Message Persistence
+*   **Goal**: Ensure chat conversations, artifacts, and final responses are persistent across multiple user sessions and devices.
+*   **Implementation**: Created `ConversationRecord` and `ConversationMessageRecord` models in SQLAlchemy.
+*   **Workflow Integration**: The `SwarmWorkflowEngine` now synchronously saves the user's initial query and the swarm's final response to the database, linked by `thread_id`.
+
+### 2. Side-car Telemetry & Artifact Mapping
+*   **Decision**: Decouple technical "thoughts" (telemetry) from "public" chat history.
+*   **Mechanism**: The database stores the clean chat interaction, while the `thread_id` acts as a side-car key to fetch high-fidelity artifacts (React code, Storyboards) from the server-side artifact store.
+
+### 3. Frontend Global State Refactor
+*   **Implementation**: Refactored `BlaiqWorkspaceProvider` to fetch history from `/api/v1/conversations` on mount.
+*   **UX**: The sidebar now populates with historical sessions dynamically loaded from the existing PostgreSQL container, eliminating data loss on browser refresh.
+
+## Recent Feature: Poster Path & Visual Synthesis v2.0 (2026-05-01)
+
+Transitioned the visual generation pipeline from generic HTML mockups to high-fidelity, brand-aligned image generation for Poster artifacts.
+
+### 1. Deterministic Poster Feature Path
+*   **Goal**: Ensure posters are generated with maximum brand density and specific visual constraints, bypassing generic synthesis.
+*   **Implementation**: Added `_is_poster_feature_path` to `ContentDirectorV2` to detect poster-related intents.
+*   **Mechanism**: If a poster is requested, the service spawns a `ContentDirectorPosterFeature` agent. This agent fuses **Brand DNA**, **Brand Tone**, and **Template Skills** into a sub-1000-token "Image Generation Prompt".
+*   **Output**: A structured markdown brief containing the core image prompt, negative prompt, and brand translation directives.
+
+### 2. VanGogh "Dumb" Pipeline (Direct Tooling)
+*   **Logic**: Refactored `VanGoghV2` to act as a direct execution engine for visual plans.
+*   **Tooling**: Registered `generate_image` and `generate_video` tools (OpenRouter/LiteLLM).
+*   **Trigger**: If the incoming `visual_render_plan_v1` specifies `render_mode: "generate_image"`, VanGogh bypasses LLM reasoning and immediately executes the tool call with the provided prompt.
+
+### 3. Frontend Intent Extraction
+*   **Path**: `blaiq-workspace-context.jsx`
+*   **Fix**: Replaced hardcoded `visual_html` hinting with `extractArtifactTypeFromContent`. The frontend now dynamically identifies if the user wants a `poster`, `one_pager`, or `presentation`, and informs the backend accordingly.
+
+### 4. Infrastructure & Key Management
+*   **Propagation**: Updated `docker-compose.coolify.yml` to inject `OPENROUTER_API_KEY` into the `van-gogh-service` environment.
+*   **Persistence**: Verified that the root `.env` is correctly loaded by services via the `env_file` directive in Compose.
+
 ## Objective
 Transform the BLAIQ Mission Workstation into a production-grade, distributed "Agent-as-Service" (AaaS) platform using the **AgentScope Runtime**.
 
@@ -135,3 +175,21 @@ We have strictly followed the **AgentScope Case Study** and **API Documentation*
 *   **DNS Sync**: Configured `127.0.0.11` as the primary resolver to fix `socket.gaierror`.
 *   **Volume Sync**: Linked host `/data/blueprints` to container `/app/data/blueprints` for real-time agent persistence.
 *   **Role Sync**: Aligned all model roles to standard `system`, `user`, `assistant` to prevent LLM rejection.
+
+## Universal Observability & Telemetry Hardening (2026-04-30)
+
+Implemented a core architectural refactor to ensure universal "acting" visibility across the entire hybrid swarm, eliminating the need for redundant status reporting code in individual services.
+
+### 1. BaseAgent Hook Injection
+*   **Implementation**: Added `_universal_acting_hook` to the core `BaseAgent` class in `src/agentscope_blaiq/runtime/agent_base.py`.
+*   **Mechanism**: Leverages AgentScope's `register_instance_hook` with the `pre_acting` event type. This ensures that whenever a `ReActAgent` begins a step (tool call or reasoning), it automatically emits a structured `status: acting` signal.
+*   **Impact**: Absolute consistency in telemetry. Every agent in the BLAIQ fleet now automatically reports its "Thinking/Acting" state to the frontend without manual logging calls.
+
+### 2. Full Service Fleet Refactor
+*   **Cleanup**: Successfully refactored all AaaS nodes (`StrategistV2`, `DeepResearchV2`, `TextBuddyV2`, `ContentDirectorV2`, `VanGoghV2`, `GovernanceV2`, `OracleV2`) to inherit strictly from the updated `BaseAgent`.
+*   **Portability**: Replaced direct `ReActAgent` instantiation with the factory method `_create_runtime_agent()`, ensuring telemetry injection is consistent across all specialized services.
+
+### 3. Frontend Telemetry & UI Response
+*   **Zustand Tracking**: Updated `agent-store.js` and `blaiq-workspace-context.jsx` to synchronize the agent's `status` (idle, active, acting, completed) in real-time.
+*   **Visual Fidelity**: Enhanced `AgentActivityStack.jsx` with an "Acting" badge and amber-pulsing animation to provide immediate visual feedback during long-running tool executions.
+*   **UX Utility**: Integrated a copy-to-clipboard symbol for message bubbles to streamline user workflow.

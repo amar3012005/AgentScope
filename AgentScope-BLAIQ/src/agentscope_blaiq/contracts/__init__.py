@@ -1,4 +1,4 @@
-from .artifact import ArtifactSection, PreviewMetadata, TextArtifact, VisualArtifact
+from .artifact import ArtifactSection, LayoutHints, MediaItem, PreviewMetadata, TextArtifact, VisualArtifact
 from .brief import ArtifactBrief, BriefSection
 from .evidence import (
     Citation,
@@ -122,6 +122,8 @@ from .user_agent_registry import UserAgentRegistry
 __all__ = [
     # Artifact
     "ArtifactSection",
+    "LayoutHints",
+    "MediaItem",
     "PreviewMetadata",
     "TextArtifact",
     "VisualArtifact",

@@ -38,7 +38,17 @@ async def spawn_specialist_agent(
         # 3. Use our robust create_agent logic
         worker = AgentFactory.create_agent(blueprint)
         
-        logger.info(f"Master spawning Worker [{blueprint.name}] for task: {task_description[:50]}...")
+        # Inject the universal acting notification hook to inform the workflow/frontend
+        async def _acting_status_hook(self_agent: Any, _kwargs: dict[str, Any]) -> None:
+            logger.info(f"Specialist [{blueprint.name}] status: acting")
+            # In a real swarm, the worker would ideally emit an event back to the session logger.
+            # Speciality agents use the direct ReActAgent structure, so we tag it.
+        
+        worker.register_instance_hook(
+            hook_type="pre_acting",
+            hook_name="blaiq_worker_acting",
+            hook=_acting_status_hook
+        )
         
         # In BLAIQ's AgentScope version, ReActAgent.reply is async
         response = await worker.reply(Msg(name="Master", content=task_description, role="user"))

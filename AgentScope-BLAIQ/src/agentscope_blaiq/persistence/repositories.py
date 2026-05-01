@@ -33,6 +33,11 @@ class UserRepository:
         result = await self.session.execute(select(UserRecord).where(UserRecord.email == email))
         return result.scalar_one_or_none()
 
+    async def get_first_user(self) -> UserRecord | None:
+        """Get the first user in the system for fallback purposes."""
+        result = await self.session.execute(select(UserRecord).limit(1))
+        return result.scalar_one_or_none()
+
 
 class OrgRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -56,6 +61,106 @@ class WorkspaceRepository:
         await self.session.commit()
         await self.session.refresh(ws)
         return ws
+
+
+class ConversationRepository:
+    """Repository for managing persistent chat conversations and messages."""
+    
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create_or_get_conversation(
+        self,
+        workspace_id: str,
+        user_id: str,
+        thread_id: str,
+        title: str | None = None,
+    ) -> ConversationRecord:
+        """Create a new conversation or get existing one by thread_id."""
+        # Try to find existing conversation by thread_id
+        stmt = select(ConversationRecord).where(
+            ConversationRecord.thread_id == thread_id
+        )
+        result = await self.session.execute(stmt)
+        existing = result.scalar_one_or_none()
+        
+        if existing:
+            return existing
+        
+        # Create new conversation
+        conversation = ConversationRecord(
+            id=str(uuid4()),
+            workspace_id=workspace_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            title=title or "New Conversation",
+            metadata_json="{}",
+        )
+        self.session.add(conversation)
+        await self.session.commit()
+        await self.session.refresh(conversation)
+        return conversation
+
+    async def get_conversation_by_id(self, conversation_id: str) -> ConversationRecord | None:
+        """Get conversation by ID."""
+        return await self.session.get(ConversationRecord, conversation_id)
+
+    async def list_conversations(
+        self,
+        workspace_id: str,
+        user_id: str,
+        limit: int = 50,
+    ) -> list[ConversationRecord]:
+        """List conversations for a user in a workspace, ordered by created_at desc."""
+        stmt = (
+            select(ConversationRecord)
+            .where(
+                ConversationRecord.workspace_id == workspace_id,
+                ConversationRecord.user_id == user_id,
+            )
+            .order_by(ConversationRecord.created_at.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def save_message(
+        self,
+        conversation_id: str,
+        sender_type: str,  # 'user', 'agent', 'system'
+        content: str,
+        metadata: dict | None = None,
+    ) -> ConversationMessageRecord:
+        """Save a message to the conversation."""
+        message = ConversationMessageRecord(
+            id=str(uuid4()),
+            conversation_id=conversation_id,
+            sender_type=sender_type,
+            sender_id=metadata.get("sender_id") if metadata else None,
+            content=content,
+            metadata_json=json.dumps(metadata or {}),
+        )
+        self.session.add(message)
+        await self.session.commit()
+        await self.session.refresh(message)
+        return message
+
+    async def get_messages(self, conversation_id: str) -> list[ConversationMessageRecord]:
+        """Get all messages for a conversation, ordered by created_at asc."""
+        stmt = (
+            select(ConversationMessageRecord)
+            .where(ConversationMessageRecord.conversation_id == conversation_id)
+            .order_by(ConversationMessageRecord.created_at.asc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_conversation_title(self, conversation_id: str, title: str) -> None:
+        """Update conversation title."""
+        conversation = await self.get_conversation_by_id(conversation_id)
+        if conversation:
+            conversation.title = title
+            await self.session.commit()
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -153,6 +258,20 @@ class WorkflowRepository:
 
     async def get_workflow_record(self, thread_id: str) -> WorkflowRecord | None:
         return await self.session.get(WorkflowRecord, thread_id)
+
+    async def list_workflows_by_session(
+        self,
+        session_id: str,
+        *,
+        tenant_id: str | None = None,
+        limit: int = 20,
+    ) -> list[WorkflowRecord]:
+        stmt = select(WorkflowRecord).where(WorkflowRecord.session_id == session_id)
+        if tenant_id:
+            stmt = stmt.where(WorkflowRecord.tenant_id == tenant_id)
+        stmt = stmt.order_by(WorkflowRecord.updated_at.desc()).limit(limit)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     async def create_workflow(self, request: SubmitWorkflowRequest, run_id: str | None = None, workflow_plan_json: str | None = None) -> WorkflowRecord:
         run_id = run_id or str(uuid4())

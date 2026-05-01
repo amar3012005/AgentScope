@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 from typing import Any
 
@@ -113,7 +114,17 @@ def check_model_env() -> CheckReport:
         details={
             "models": route_details,
             "api_base_url": config.api_base_url,
-            "api_key_present": bool(settings.litellm_api_key or settings.openai_api_key),
+            "api_key_present": bool(settings.litellm_api_key or settings.openai_api_key or settings.groq_api_key),
+            "groq_api_key_present": bool(settings.litellm_api_key or settings.openai_api_key or settings.groq_api_key),
+            "shared_llm_key_present": bool(settings.litellm_api_key or settings.openai_api_key),
+            "groq_api_base_url": settings.groq_api_base_url,
+            "env_sources": {
+                "cwd": os.getcwd(),
+                "repo_root_env": str(Path(__file__).resolve().parents[4] / ".env"),
+                "package_env": str(Path(__file__).resolve().parents[3] / ".env"),
+                "repo_root_env_exists": (Path(__file__).resolve().parents[4] / ".env").exists(),
+                "package_env_exists": (Path(__file__).resolve().parents[3] / ".env").exists(),
+            },
             "planner_model": config.planner_model,
             "pre_model": config.pre_model,
             "post_model": config.post_model,
@@ -146,6 +157,8 @@ async def check_runtime_ready() -> CheckReport:
     redis = await check_redis(settings.redis_url)
     model_env = check_model_env()
     issues = [*storage.issues, *database.issues, *redis.issues]
+    if any(route.get("provider") == "groq" for route in model_env.details.get("models", {}).values()) and not model_env.details.get("shared_llm_key_present"):
+        issues.append("shared_llm_api_key_missing")
     return CheckReport(
         ok=not issues,
         details={

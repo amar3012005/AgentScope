@@ -26,6 +26,11 @@ except ImportError:
     class AgentCardWithRuntimeConfig(BaseModel):
         host: str = "0.0.0.0"
 
+    # Create a module-level app instance for decorators to use
+    _fallback_app = AgentApp(title="agentscope", description="AgentScope Runtime")
+    app = _fallback_app
+
+from agentscope_blaiq.runtime.agent_base import BaseAgent
 from agentscope_blaiq.agents.deep_research.base import BlaiqDeepResearchAgent
 from agentscope_blaiq.runtime.hivemind_mcp import HivemindMCPClient
 from agentscope_blaiq.runtime.model_resolver import LiteLLMModelResolver
@@ -33,8 +38,13 @@ from agentscope_blaiq.runtime.config import settings
 from agentscope_blaiq.runtime.hooks import hitl_research_verification_hook
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("research-v2")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+logger.propagate = False
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -60,6 +70,7 @@ async def lifespan(app: FastAPI):
         await redis_client.close()
         logger.info("Deep Research V2 cluster node offline.")
 
+# Initialize the real production app
 app = AgentApp(
     app_name="DeepResearchV2",
     app_description="HIVE-MIND Powered Tree-Search Research Service",
@@ -103,44 +114,53 @@ async def quick_recall(
         logger.error(f"Recall failed: {str(e)}")
         return {"error": f"Error during quick recall: {str(e)}"}
 
-@app.query(framework="agentscope")
-async def gather(
-    self,
-    msgs,
-    request: AgentRequest = None,
-    **kwargs,
-):
+class DeepResearchV2(BaseAgent):
     """
     Core Research Logic: Always attempts Recall first.
     Triggers when Strategist calls research service.
     """
-    # 1. Initialize the Deep Research Agent
-    resolver = LiteLLMModelResolver.from_settings(settings)
-    agent = BlaiqDeepResearchAgent(
-        hivemind=app.state.hivemind,
-        resolver=resolver,
-    )
+    @app.query(framework="agentscope")
+    async def process(
+        self,
+        msgs,
+        request: AgentRequest = None,
+        **kwargs,
+    ):
+        """
+        Core Research Logic: Always attempts Recall first.
+        Triggers when Strategist calls research service.
+        """
+        # 1. Initialize the Deep Research Agent
+        resolver = LiteLLMModelResolver.from_settings(settings)
+        agent = BlaiqDeepResearchAgent(
+            hivemind=app.state.hivemind,
+            resolver=resolver,
+        )
 
-    # 2. Run the agent to gather and synthesize findings
-    user_query = msgs[-1].get_text_content() if msgs else ""
-    pack = await agent.gather(
-        session=None,
-        tenant_id="default",
-        user_query=user_query,
-        source_scope="all"
-    )
-    
-    # 3. Return the synthesized report
-    return Msg(
-        name="Researcher",
-        content=pack.summary,
-        role="assistant",
-        metadata={
-            "kind": "synthesized_evidence",
-            "confidence": pack.confidence,
-            "sources": len(pack.sources)
-        }
-    )
+        # 2. Run the agent to gather and synthesize findings
+        user_query = msgs[-1].get_text_content() if msgs else ""
+        session_id = request.session_id if request else "unknown"
+        logger.info(f"[RESEARCH START] Session {session_id} | Query: {user_query}")
+
+        pack = await agent.gather(
+            session=None,
+            tenant_id="default",
+            user_query=user_query,
+            source_scope="all"
+        )
+        
+        # 3. Return the synthesized report
+        logger.info(f"[RESEARCH COMPLETE] Found {len(pack.sources)} sources | Summary Length: {len(pack.summary) if pack.summary else 0}")
+        return Msg(
+            name="Researcher",
+            content=pack.summary,
+            role="assistant",
+            metadata={
+                "kind": "synthesized_evidence",
+                "confidence": pack.confidence,
+                "sources": len(pack.sources)
+            }
+        )
 
 if __name__ == "__main__":
     import uvicorn

@@ -183,7 +183,7 @@ class ConversationRecord(Base):
     __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=generate_uuid)
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"))
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True, index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     thread_id: Mapped[str | None] = mapped_column(ForeignKey("workflows.thread_id"), index=True, nullable=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)

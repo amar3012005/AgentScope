@@ -100,7 +100,15 @@ class BlaiqWorkspaceTUI:
 
     async def create_skill(self, name: str, description: str, body: str, agents: list[str]) -> Path:
         """Create and register a new AgentScope skill from LLM-generated SKILL.md."""
-        skill_dir = SKILLS_DIR / name
+        # NEW: Route to agent-specific subfolder if only one target agent is specified
+        # This aligns with the new skills/text_buddy/ and skills/content_director/ structure
+        subfolder = ""
+        if len(agents) == 1:
+            subfolder = agents[0]
+        elif "text_buddy" in agents and len(agents) > 1:
+            subfolder = "text_buddy" # Default to text_buddy for shared skills
+        
+        skill_dir = SKILLS_DIR / subfolder / name if subfolder else SKILLS_DIR / name
         skill_dir.mkdir(parents=True, exist_ok=True)
         targets = ", ".join(agents) if agents else "text_buddy, content_director"
         skill_md = (
@@ -225,6 +233,74 @@ async def run_repl():
         try:
             query = Prompt.ask("\n[bold cyan]blaiq-workspace[/bold cyan]")
             if query.lower() in ["/quit", "exit", "quit"]: break
+
+            if query.startswith("/create-skill") or query.startswith("/new-skill"):
+                cmd = "/create-skill" if query.startswith("/create-skill") else "/new-skill"
+                rest = query.replace(cmd, "").strip()
+                
+                # Check for <agent_name> <description> pattern
+                parts = rest.split(" ", 1)
+                if len(parts) < 2:
+                    console.print(f"[yellow]Usage: {cmd} <agent_name> <description>[/yellow]")
+                    console.print("[dim]Example: /create-skill text_buddy 'create a tool for auditing tax invoices'[/dim]")
+                    continue
+                
+                target_agent = parts[0].strip().lower()
+                description = parts[1].strip()
+
+                console.print(f"[dim]Generating skill for [bold]{target_agent}[/bold] from: {description[:60]}...[/dim]")
+
+                # Enhanced Skill Author prompt tailored for the specific agent role
+                try:
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        skill_prompt = (
+                            f"You are an AgentScope Skill author. Create a complete AgentScope SKILL.md for the agent: '{target_agent}'.\n"
+                            f"The skill should handle: \"{description}\"\n\n"
+                            "Return ONLY the markdown body (no YAML frontmatter block, I will add that). Include:\n"
+                            "- # Skill Name\n"
+                            "- Purpose: Clearly define what this skill lets the agent do.\n"
+                            "- Implementation Details: Step-by-step logic for the agent.\n"
+                            "- Output Constraints: Specific format requirements for this agent's role.\n"
+                            "- Examples: 2 concrete usage examples.\n\n"
+                            f"Ensure the tone and complexity match the {target_agent}'s capabilities."
+                        )
+                        res = await client.post(
+                            f"http://{workspace.service_host}:8095/process",
+                            json={
+                                "input": [{"role": "user", "content": [{"type": "text", "text": skill_prompt}]}],
+                                "session_id": workspace.session_id,
+                                "user_id": "tui-skill-gen",
+                            },
+                        )
+                        body = ""
+                        for line in res.text.splitlines():
+                            if line.startswith("data: "):
+                                try:
+                                    d = json.loads(line[6:])
+                                    body += d.get("text", "") or d.get("content", "")
+                                except Exception:
+                                    continue
+                        if not body:
+                            body = f"# Generated Skill for {target_agent}\n\n{description}"
+                except Exception as e:
+                    console.print(f"[yellow]LLM generation failed ({e}), using fallback.[/yellow]")
+                    body = f"# Generated Skill for {target_agent}\n\n{description}"
+
+                # Derive folder name
+                name = description[:30].strip().lower().replace(" ", "_").replace("-", "_")
+                
+                # Create and register natively as per AgentScope docs
+                skill_dir = await workspace.create_skill(name, description, body, [target_agent])
+                
+                console.print(Panel(
+                    f"[bold green]✓[/bold green] Skill [bold]{name}[/bold] created and registered natively.\n"
+                    f"Path: {skill_dir}/SKILL.md\n"
+                    f"Agent: {target_agent}\n\n"
+                    f"[dim]The {target_agent} agent will now see this in its prompt via the Toolkit registration.[/dim]",
+                    title="[bold green]Skill Registered[/bold green]",
+                    border_style="green"
+                ))
+                continue
             
             if query.startswith("/pipeline"):
                 rest = query.replace("/pipeline", "").strip()

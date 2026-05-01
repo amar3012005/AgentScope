@@ -5,9 +5,18 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_PACKAGE_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(
+            _REPO_ROOT / ".env",
+            _PACKAGE_ROOT / ".env",
+        ),
+        extra="ignore",
+    )
 
     app_env: str = "development"
     contract_enforcement: str = "advisory"  # "advisory" or "enforced"
@@ -26,19 +35,20 @@ class Settings(BaseSettings):
     default_artifact_type: str = "visual_html"
     litellm_api_base_url: str | None = None
     litellm_api_key: str | None = None
-    strategic_model: str = "nebius/Qwen/Qwen3-32B"
-    routing_model: str = "gemini-2.5-flash-lite"  # fast model for binary routing decisions
-    research_model: str = "gemini-2.5-pro"
-    content_director_model: str = "gemini-2.5-pro"
-    hitl_model: str = "gemini-2.5-pro"
-    vangogh_model: str = "vertex_ai/claude-sonnet-4-5@20250929"
-    governance_model: str = "gemini-2.5-pro"
-    text_buddy_model: str = "gemini-2.5-pro"
-    llm_fallback_model: str | None = "gemini-2.5-flash-lite"
+    strategic_model: str = "groq/openai/gpt-oss-20b"
+    routing_model: str = "groq/openai/gpt-oss-20b"
+    skill_selector_model: str = "groq/openai/gpt-oss-20b"
+    research_model: str = "groq/openai/gpt-oss-20b"
+    content_director_model: str = "groq/openai/gpt-oss-20b"
+    hitl_model: str = "groq/openai/gpt-oss-20b"
+    vangogh_model: str = "groq/openai/gpt-oss-20b"
+    governance_model: str = "groq/openai/gpt-oss-20b"
+    text_buddy_model: str = "groq/openai/gpt-oss-20b"
+    llm_fallback_model: str | None = "groq/openai/gpt-oss-20b"
     llm_timeout_seconds: int = 60
     llm_max_output_tokens: int = 4000
     content_director_max_output_tokens: int = 4000
-    vangogh_max_output_tokens: int = 16000
+    vangogh_max_output_tokens: int = 4096
     text_buddy_max_output_tokens: int = 4000
     strategic_temperature: float = 0.1
     research_temperature: float = 0.2
@@ -50,8 +60,15 @@ class Settings(BaseSettings):
     nebius_api_key: str | None = None
     openai_api_key: str | None = None
     openai_api_base_url: str | None = None
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_image_model: str = "google/gemini-3.1-flash-image-preview"
+    openrouter_video_model: str = "google/veo-3.1-fast"
+    openrouter_request_timeout_seconds: int = 180
+    openrouter_video_poll_interval_seconds: float = 5.0
+    openrouter_video_poll_attempts: int = 60
     groq_api_key: str | None = None
-    groq_api_base_url: str | None = None
+    groq_api_base_url: str | None = "https://api.groq.com/openai/v1"
     enable_graph_agent: bool = False
     hivemind_mcp_rpc_url: str | None = None
     hivemind_api_key: str | None = None

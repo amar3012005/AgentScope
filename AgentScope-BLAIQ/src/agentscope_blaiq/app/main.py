@@ -27,7 +27,10 @@ from agentscope_blaiq.contracts.user_agent_registry import UserAgentRegistry
 from agentscope_blaiq.persistence.database import get_db, init_engine, close_engine
 from agentscope_blaiq.persistence.migrations import bootstrap_database
 from agentscope_blaiq.persistence.redis_state import RedisStateStore
-from agentscope_blaiq.persistence.repositories import ArtifactRepository, UploadRepository, WorkflowRepository, UserRepository
+from agentscope_blaiq.persistence.repositories import (
+    ArtifactRepository, UploadRepository, WorkflowRepository, UserRepository,
+    ConversationRepository
+)
 from agentscope_blaiq.app.bootstrap_service import BootstrapService
 from agentscope_blaiq.app.policy_service import PolicyService
 from agentscope_blaiq.app.admin_routes import router as admin_router
@@ -62,6 +65,16 @@ async def lifespan(app: FastAPI):
     
     # 3. Migrate
     await bootstrap_database()
+
+    runtime_report = await check_runtime_ready()
+    logging.getLogger("agentscope_blaiq").info(
+        "runtime_ready=%s env_sources=%s groq_api_key_present=%s models=%s issues=%s",
+        runtime_report.ok,
+        runtime_report.details.get("models", {}).get("env_sources"),
+        runtime_report.details.get("models", {}).get("groq_api_key_present"),
+        {name: info.get("route") for name, info in runtime_report.details.get("models", {}).get("models", {}).items()},
+        runtime_report.issues,
+    )
     
     yield
     
@@ -98,6 +111,9 @@ for noisy_logger in (
     logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 logging.getLogger("agentscope_blaiq").setLevel(logging.INFO)
+logging.getLogger("agentscope_blaiq.workflows.swarm_engine").setLevel(logging.INFO)
+logging.getLogger("blaiq.swarm_engine").setLevel(logging.INFO)
+logging.getLogger("agentscope_blaiq.swarm_workflow_engine").setLevel(logging.INFO)
 
 # CORS — allow the frontend dev server
 _allowed_origins = [
@@ -431,6 +447,155 @@ async def refresh_session(request: Request, db: AsyncSession = Depends(get_db)):
     return {"ok": True}
 
 
+# ============================================================================
+# CONVERSATION API ENDPOINTS
+# ============================================================================
+
+class CreateConversationRequest(BaseModel):
+    workspace_id: str
+    user_id: str
+    thread_id: str
+    title: str | None = None
+
+
+class SaveMessageRequest(BaseModel):
+    conversation_id: str
+    sender_type: str  # 'user', 'agent', 'system'
+    content: str
+    metadata: dict | None = None
+
+
+class UpdateConversationTitleRequest(BaseModel):
+    title: str
+
+
+@app.get("/api/v1/conversations")
+async def list_conversations(
+    workspace_id: str = Query(..., description="Workspace ID"),
+    user_id: str = Query(..., description="User ID"),
+    limit: int = Query(50, ge=1, le=100, description="Max conversations to return"),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """List all conversations for a user in a workspace."""
+    repo = ConversationRepository(db)
+    conversations = await repo.list_conversations(workspace_id, user_id, limit)
+    
+    return [
+        {
+            "id": c.id,
+            "workspace_id": c.workspace_id,
+            "user_id": c.user_id,
+            "thread_id": c.thread_id,
+            "title": c.title,
+            "created_at": c.created_at.isoformat(),
+            "message_count": len(c.messages),
+        }
+        for c in conversations
+    ]
+
+
+@app.post("/api/v1/conversations")
+async def create_conversation(
+    request: CreateConversationRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Create a new conversation."""
+    repo = ConversationRepository(db)
+    conversation = await repo.create_or_get_conversation(
+        workspace_id=request.workspace_id,
+        user_id=request.user_id,
+        thread_id=request.thread_id,
+        title=request.title,
+    )
+    
+    return {
+        "id": conversation.id,
+        "workspace_id": conversation.workspace_id,
+        "user_id": conversation.user_id,
+        "thread_id": conversation.thread_id,
+        "title": conversation.title,
+        "created_at": conversation.created_at.isoformat(),
+    }
+
+
+@app.get("/api/v1/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get a conversation with all its messages."""
+    repo = ConversationRepository(db)
+    conversation = await repo.get_conversation_by_id(conversation_id)
+    
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    messages = await repo.get_messages(conversation_id)
+    
+    return {
+        "id": conversation.id,
+        "workspace_id": conversation.workspace_id,
+        "user_id": conversation.user_id,
+        "thread_id": conversation.thread_id,
+        "title": conversation.title,
+        "created_at": conversation.created_at.isoformat(),
+        "messages": [
+            {
+                "id": m.id,
+                "conversation_id": m.conversation_id,
+                "sender_type": m.sender_type,
+                "sender_id": m.sender_id,
+                "content": m.content,
+                "metadata": json.loads(m.metadata_json) if m.metadata_json else {},
+                "created_at": m.created_at.isoformat(),
+            }
+            for m in messages
+        ],
+    }
+
+
+@app.post("/api/v1/conversations/{conversation_id}/messages")
+async def save_message(
+    conversation_id: str,
+    request: SaveMessageRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Save a message to a conversation."""
+    repo = ConversationRepository(db)
+    message = await repo.save_message(
+        conversation_id=conversation_id,
+        sender_type=request.sender_type,
+        content=request.content,
+        metadata=request.metadata or {},
+    )
+    
+    return {
+        "id": message.id,
+        "conversation_id": message.conversation_id,
+        "sender_type": message.sender_type,
+        "content": message.content,
+        "metadata": json.loads(message.metadata_json) if message.metadata_json else {},
+        "created_at": message.created_at.isoformat(),
+    }
+
+
+@app.patch("/api/v1/conversations/{conversation_id}")
+async def update_conversation_title(
+    conversation_id: str,
+    request: UpdateConversationTitleRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Update conversation title."""
+    repo = ConversationRepository(db)
+    await repo.update_conversation_title(conversation_id, request.title)
+    
+    return {"ok": True, "title": request.title}
+
+
+# ============================================================================
+# ROOT & HEALTH ENDPOINTS
+# ============================================================================
+
 @app.get("/")
 async def root() -> dict[str, str]:
     return {"service": "AgentScope-BLAIQ", "status": "ok"}
@@ -455,52 +620,57 @@ async def readyz() -> JSONResponse:
 async def bootstrap(request: Request, db: AsyncSession = Depends(get_db)):
     """Returns bootstrap data for the current user."""
     from agentscope_blaiq.persistence.models import ApiKeyRecord, SessionRecord, UserRecord
+    try:
+        user_id: str | None = None
 
-    user_id: str | None = None
-
-    # Method 1: Session cookie
-    session_token = request.cookies.get("hm_session") or request.cookies.get("hm_user_id")
-    if session_token:
-        result = await db.execute(
-            select(SessionRecord).where(
-                SessionRecord.token == session_token,
-                SessionRecord.expires_at > datetime.now(timezone.utc),
-            )
-        )
-        session_rec = result.scalar_one_or_none()
-        if session_rec:
-            user_id = session_rec.user_id
-
-    # Method 2: Bearer token (API key)
-    if not user_id:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-            key_hash = hashlib.sha256(token.encode()).hexdigest()
+        # Method 1: Session cookie
+        session_token = request.cookies.get("hm_session") or request.cookies.get("hm_user_id")
+        if session_token:
             result = await db.execute(
-                select(ApiKeyRecord).where(ApiKeyRecord.key_hash == key_hash)
+                select(SessionRecord).where(
+                    SessionRecord.token == session_token,
+                    SessionRecord.expires_at > datetime.now(timezone.utc),
+                )
             )
-            api_key_rec = result.scalar_one_or_none()
-            if api_key_rec:
-                user_id = api_key_rec.user_id
+            session_rec = result.scalar_one_or_none()
+            if session_rec:
+                user_id = session_rec.user_id
 
-    # Method 3: Dev fallback — first admin user (only in development)
-    if not user_id and settings.app_env == "development":
-        result = await db.execute(
-            select(UserRecord).where(UserRecord.is_superuser == True).limit(1)
-        )
-        dev_user = result.scalar_one_or_none()
-        if dev_user:
-            user_id = dev_user.id
+        # Method 2: Bearer token (API key)
+        if not user_id:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+                key_hash = hashlib.sha256(token.encode()).hexdigest()
+                result = await db.execute(
+                    select(ApiKeyRecord).where(ApiKeyRecord.key_hash == key_hash)
+                )
+                api_key_rec = result.scalar_one_or_none()
+                if api_key_rec:
+                    user_id = api_key_rec.user_id
 
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Session expired or invalid")
+        # Method 3: Dev fallback — first admin user (only in development)
+        if not user_id and settings.app_env == "development":
+            result = await db.execute(
+                select(UserRecord).where(UserRecord.is_superuser == True).limit(1)
+            )
+            dev_user = result.scalar_one_or_none()
+            if dev_user:
+                user_id = dev_user.id
 
-    service = BootstrapService(db)
-    data = await service.get_bootstrap_data(user_id)
-    if "error" in data:
-        raise HTTPException(status_code=404, detail=data["error"])
-    return data
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Session expired or invalid")
+
+        service = BootstrapService(db)
+        data = await service.get_bootstrap_data(user_id)
+        if "error" in data:
+            raise HTTPException(status_code=404, detail=data["error"])
+        return data
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.exception("Bootstrap failed")
+        raise HTTPException(status_code=500, detail="Bootstrap failed") from exc
 
 
 @app.get("/api/v1/policies")
@@ -539,9 +709,124 @@ async def save_browser_cache(tenant_id: str, session_id: str, payload: BrowserCa
 
 
 @app.get("/api/v1/browser-cache/{tenant_id}/{session_id}")
-async def get_browser_cache(tenant_id: str, session_id: str):
+async def get_browser_cache(tenant_id: str, session_id: str, db: AsyncSession = Depends(get_db)):
     cache = _frontend_browser_cache.get((tenant_id, session_id))
-    return {"ok": True, "tenant_id": tenant_id, "session_id": session_id, "cache": cache}
+    if cache is not None:
+        return {"ok": True, "tenant_id": tenant_id, "session_id": session_id, "cache": cache}
+
+    # DB fallback: rebuild frontend session cache from workflow history by session_id.
+    workflows = await WorkflowRepository(db).list_workflows_by_session(session_id, tenant_id=tenant_id, limit=25)
+    if not workflows:
+        return {"ok": True, "tenant_id": tenant_id, "session_id": session_id, "cache": None}
+
+    tasks: list[dict[str, Any]] = []
+    for workflow in workflows:
+        state_payload: dict[str, Any] = {}
+        if workflow.workflow_state_json:
+            try:
+                raw_state = json.loads(workflow.workflow_state_json)
+                if isinstance(raw_state, dict):
+                    state_payload = raw_state
+            except Exception:
+                state_payload = {}
+
+        artifact_payload: dict[str, Any] | None = None
+        if workflow.final_artifact_json:
+            try:
+                raw = json.loads(workflow.final_artifact_json)
+                if isinstance(raw, dict):
+                    artifact_payload = {
+                        "id": raw.get("artifact_id") or f"artifact-{workflow.thread_id}",
+                        "title": raw.get("title") or "Final artifact",
+                        "theme": raw.get("theme"),
+                        "sections": raw.get("sections") or [],
+                        "html": raw.get("html") or "",
+                        "css": raw.get("css") or "",
+                        "markdown": raw.get("markdown") or "",
+                        "phase": raw.get("phase") or "artifact",
+                        "governance_status": raw.get("governance_status"),
+                    }
+            except Exception:
+                artifact_payload = None
+
+        final_answer = str(
+            state_payload.get("final_answer_display")
+            or state_payload.get("final_answer")
+            or ""
+        ).strip()
+        if not final_answer and artifact_payload:
+            final_answer = str(artifact_payload.get("markdown") or "").strip()
+        if not final_answer and artifact_payload:
+            title_hint = str(artifact_payload.get("title") or "artifact").strip() or "artifact"
+            final_answer = f"Your {title_hint.lower()} is ready in the preview panel."
+
+        messages = [
+            {
+                "id": f"{workflow.thread_id}-user",
+                "role": "user",
+                "content": workflow.user_query,
+                "at": workflow.created_at.isoformat() if workflow.created_at else datetime.now(timezone.utc).isoformat(),
+            }
+        ]
+        if final_answer:
+            messages.append(
+                {
+                    "id": f"{workflow.thread_id}-agent",
+                    "role": "agent",
+                    "content": final_answer,
+                    "at": workflow.updated_at.isoformat() if workflow.updated_at else datetime.now(timezone.utc).isoformat(),
+                }
+            )
+
+        task_status = workflow.status
+        if task_status == "queued":
+            task_status = "running"
+        elif task_status not in {"running", "blocked", "error", "complete"}:
+            task_status = "running"
+
+        tasks.append(
+            {
+                "id": workflow.thread_id,
+                "threadId": workflow.thread_id,
+                "sessionId": workflow.session_id,
+                "query": workflow.user_query,
+                "workflowMode": workflow.workflow_mode or "hybrid",
+                "status": task_status,
+                "currentAgent": workflow.current_agent,
+                "artifact": artifact_payload,
+                "artifactSections": (artifact_payload or {}).get("sections", []),
+                "finalAnswer": final_answer,
+                "events": [],
+                "messages": messages,
+                "createdAt": workflow.created_at.isoformat() if workflow.created_at else datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    title = f"Chat {session_id[:8]}"
+    if tasks and tasks[0].get("query"):
+        q = str(tasks[0]["query"]).strip()
+        if q:
+            title = f"{q[:50]}{'...' if len(q) > 50 else ''} · {session_id[:8]}"
+
+    hydrated_cache = {
+        "tenant_id": tenant_id,
+        "session_id": session_id,
+        "sessions": [
+            {
+                "id": session_id,
+                "title": title,
+                "memoryChainId": None,
+                "createdAt": tasks[-1]["createdAt"] if tasks else datetime.now(timezone.utc).isoformat(),
+                "lastUsedAt": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
+        "tasks": tasks,
+        "activeTaskId": tasks[0]["id"] if tasks else None,
+        "previewOpen": bool(tasks and tasks[0].get("artifact")),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _frontend_browser_cache[(tenant_id, session_id)] = hydrated_cache
+    return {"ok": True, "tenant_id": tenant_id, "session_id": session_id, "cache": hydrated_cache}
 
 
 @app.get("/api/v1/runtime/checks")
